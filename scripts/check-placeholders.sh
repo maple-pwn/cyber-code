@@ -21,7 +21,7 @@ scan() {
 	done
 
 	status=0
-	matches=$(grep -RInE -i "$pattern" "$@") || status=$?
+	matches=$(grep -RInE -i "$pattern" -- "$@") || status=$?
 	case "$status" in
 		0)
 			printf 'placeholder markers found:\n%s\n' "$matches" >&2
@@ -43,21 +43,45 @@ self_test() {
 
 	printf '%s\n' 'package clean' >"$tmp_dir/clean.go"
 	scan "$tmp_dir/clean.go"
+	printf '%s\n' 'package clean' >"$tmp_dir/--help"
+	if ! (cd "$tmp_dir" && scan "--help") >/dev/null 2>&1; then
+		printf 'self-test failed: option-like path was not scanned as a path\n' >&2
+		return 1
+	fi
 
 	assert_rejected 'not ' 'implemented'
 	assert_rejected 'placeholder ' 'response'
 	assert_rejected 'func unfinished() error { return nil // ' 'TODO }'
 	assert_rejected 'no-op ' 'success'
 
+	grep() { return 2; }
+	scan_status=0
+	assert_rejected 'forced scanner ' 'error' || scan_status=$?
+	unset -f grep
+	if [ "$scan_status" -ne 2 ]; then
+		printf 'self-test failed: scanner error returned %s instead of 2\n' "$scan_status" >&2
+		return 1
+	fi
+
 	printf 'placeholder checker self-test passed\n'
 }
 
 assert_rejected() {
 	printf '%s%s\n' "$1" "$2" >"$tmp_dir/rejected.txt"
-	if scan "$tmp_dir/rejected.txt" >/dev/null 2>&1; then
-		printf 'self-test failed: placeholder marker was accepted\n' >&2
-		return 1
-	fi
+	status=0
+	scan "$tmp_dir/rejected.txt" >/dev/null 2>&1 || status=$?
+	case "$status" in
+		1)
+			return 0
+			;;
+		0)
+			printf 'self-test failed: placeholder marker was accepted\n' >&2
+			return 1
+			;;
+		*)
+			return "$status"
+			;;
+	esac
 }
 
 case "${1:-}" in

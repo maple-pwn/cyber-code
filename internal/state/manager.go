@@ -106,13 +106,17 @@ func (sm *StateManager) load() error {
 
 // save saves state to disk.
 func (sm *StateManager) save() error {
+	return sm.saveState(sm.state)
+}
+
+func (sm *StateManager) saveState(state *AppState) error {
 	// Ensure directory exists
 	dir := filepath.Dir(sm.path)
 	if err := utils.EnsureDir(dir); err != nil {
 		return err
 	}
 
-	data, err := json.MarshalIndent(sm.state, "", "  ")
+	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -153,39 +157,92 @@ func cloneAppState(source *AppState) AppState {
 }
 
 func cloneCustomValue(value interface{}) interface{} {
-	cloned := cloneCustomData(reflect.ValueOf(value))
+	cloned := cloneCustomData(reflect.ValueOf(value), make(map[cloneVisit]reflect.Value))
 	if !cloned.IsValid() {
 		return nil
 	}
 	return cloned.Interface()
 }
 
-func cloneCustomData(value reflect.Value) reflect.Value {
+type cloneVisit struct {
+	typeOf   reflect.Type
+	pointer  uintptr
+	length   int
+	capacity int
+}
+
+func cloneCustomData(value reflect.Value, seen map[cloneVisit]reflect.Value) reflect.Value {
+	if !value.IsValid() {
+		return reflect.Value{}
+	}
+
 	switch value.Kind() {
 	case reflect.Interface:
 		if value.IsNil() {
 			return reflect.Zero(value.Type())
 		}
 		cloned := reflect.New(value.Type()).Elem()
-		cloned.Set(cloneCustomData(value.Elem()))
+		cloned.Set(cloneCustomData(value.Elem(), seen))
+		return cloned
+	case reflect.Pointer:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		visit := cloneVisit{typeOf: value.Type(), pointer: value.Pointer()}
+		if cloned, ok := seen[visit]; ok {
+			return cloned
+		}
+		cloned := reflect.New(value.Type().Elem())
+		seen[visit] = cloned
+		cloned.Elem().Set(cloneCustomData(value.Elem(), seen))
 		return cloned
 	case reflect.Map:
 		if value.IsNil() {
 			return reflect.Zero(value.Type())
 		}
+		visit := cloneVisit{typeOf: value.Type(), pointer: value.Pointer()}
+		if cloned, ok := seen[visit]; ok {
+			return cloned
+		}
 		cloned := reflect.MakeMapWithSize(value.Type(), value.Len())
+		seen[visit] = cloned
 		iterator := value.MapRange()
 		for iterator.Next() {
-			cloned.SetMapIndex(cloneCustomData(iterator.Key()), cloneCustomData(iterator.Value()))
+			cloned.SetMapIndex(iterator.Key(), cloneCustomData(iterator.Value(), seen))
 		}
 		return cloned
 	case reflect.Slice:
 		if value.IsNil() {
 			return reflect.Zero(value.Type())
 		}
+		visit := cloneVisit{
+			typeOf:   value.Type(),
+			pointer:  value.Pointer(),
+			length:   value.Len(),
+			capacity: value.Cap(),
+		}
+		if cloned, ok := seen[visit]; ok {
+			return cloned
+		}
 		cloned := reflect.MakeSlice(value.Type(), value.Len(), value.Len())
+		seen[visit] = cloned
 		for index := 0; index < value.Len(); index++ {
-			cloned.Index(index).Set(cloneCustomData(value.Index(index)))
+			cloned.Index(index).Set(cloneCustomData(value.Index(index), seen))
+		}
+		return cloned
+	case reflect.Array:
+		cloned := reflect.New(value.Type()).Elem()
+		for index := 0; index < value.Len(); index++ {
+			cloned.Index(index).Set(cloneCustomData(value.Index(index), seen))
+		}
+		return cloned
+	case reflect.Struct:
+		cloned := reflect.New(value.Type()).Elem()
+		cloned.Set(value)
+		for index := 0; index < value.NumField(); index++ {
+			if value.Type().Field(index).PkgPath == "" {
+				cloned.Field(index).Set(cloneCustomData(value.Field(index), seen))
+			}
 		}
 		return cloned
 	default:
@@ -226,7 +283,10 @@ func (sm *StateManager) GetCustom(key string) (interface{}, bool) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	val, ok := sm.state.Custom[key]
-	return val, ok
+	if !ok {
+		return nil, false
+	}
+	return cloneCustomValue(val), true
 }
 
 // ========================================
@@ -286,11 +346,16 @@ func (sm *StateManager) SetCustom(key string, value interface{}) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	if sm.state.Custom == nil {
-		sm.state.Custom = make(map[string]interface{})
+	candidate := cloneAppState(sm.state)
+	if candidate.Custom == nil {
+		candidate.Custom = make(map[string]interface{})
 	}
-	sm.state.Custom[key] = value
-	return sm.save()
+	candidate.Custom[key] = cloneCustomValue(value)
+	if err := sm.saveState(&candidate); err != nil {
+		return err
+	}
+	sm.state = &candidate
+	return nil
 }
 
 // IncrementMessageCount increments the message count.
@@ -311,8 +376,14 @@ func (sm *StateManager) UpdateState(fn func(*AppState)) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	fn(sm.state)
-	return sm.save()
+	candidate := cloneAppState(sm.state)
+	fn(&candidate)
+	committed := cloneAppState(&candidate)
+	if err := sm.saveState(&committed); err != nil {
+		return err
+	}
+	sm.state = &committed
+	return nil
 }
 
 // Reset resets the state (for new sessions).

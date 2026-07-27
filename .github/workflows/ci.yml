@@ -26,6 +26,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Check migrated paths for placeholders
+        if: runner.os == 'Linux'
+        run: |
+          sh scripts/check-placeholders.sh --self-test
+          sh scripts/check-placeholders.sh
+
       - name: Test
         run: go test ./...
 
