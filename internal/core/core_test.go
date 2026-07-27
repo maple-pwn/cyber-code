@@ -131,6 +131,18 @@ func TestErrorPreservesCauseAndRedactsUserMessage(t *testing.T) {
 	}
 }
 
+func TestErrorUserMessageRedactsAuthorizationBearerValue(t *testing.T) {
+	err := &Error{
+		Kind:    ErrorKindAuthentication,
+		Message: "request rejected; Authorization: Bearer header-secret.jwt",
+	}
+
+	userMessage := err.UserMessage()
+	if strings.Contains(userMessage, "header-secret.jwt") {
+		t.Fatalf("user message leaked bearer credential: %q", userMessage)
+	}
+}
+
 func TestRequestJSONRoundTripPreservesProviderIndependentFields(t *testing.T) {
 	want := Request{
 		Model:  "model-name",

@@ -77,8 +77,8 @@ func (e *Error) UserMessage() string {
 	if message == "" {
 		message = defaultUserMessage(e.Kind)
 	}
-	message = secretAssignmentPattern.ReplaceAllString(message, "$1$2[REDACTED]")
 	message = bearerPattern.ReplaceAllString(message, "Bearer [REDACTED]")
+	message = secretAssignmentPattern.ReplaceAllString(message, "$1$2[REDACTED]")
 	return openAITokenPattern.ReplaceAllString(message, "[REDACTED]")
 }
 
