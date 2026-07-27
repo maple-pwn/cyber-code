@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 
 	"claude-code-go/internal/utils"
@@ -17,8 +18,6 @@ import (
 
 // AppState represents the global application state.
 type AppState struct {
-	mu sync.RWMutex `json:"-"`
-
 	// Session info
 	SessionID    string `json:"session_id"`
 	SessionStart int64  `json:"session_start"`
@@ -130,9 +129,68 @@ func (sm *StateManager) GetState() AppState {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
-	// Return a copy
-	state := *sm.state
+	return cloneAppState(sm.state)
+}
+
+func cloneAppState(source *AppState) AppState {
+	state := *source
+
+	if source.Features != nil {
+		state.Features = make(map[string]bool, len(source.Features))
+		for name, enabled := range source.Features {
+			state.Features[name] = enabled
+		}
+	}
+
+	if source.Custom != nil {
+		state.Custom = make(map[string]interface{}, len(source.Custom))
+		for key, value := range source.Custom {
+			state.Custom[key] = cloneCustomValue(value)
+		}
+	}
+
 	return state
+}
+
+func cloneCustomValue(value interface{}) interface{} {
+	cloned := cloneCustomData(reflect.ValueOf(value))
+	if !cloned.IsValid() {
+		return nil
+	}
+	return cloned.Interface()
+}
+
+func cloneCustomData(value reflect.Value) reflect.Value {
+	switch value.Kind() {
+	case reflect.Interface:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		cloned := reflect.New(value.Type()).Elem()
+		cloned.Set(cloneCustomData(value.Elem()))
+		return cloned
+	case reflect.Map:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		cloned := reflect.MakeMapWithSize(value.Type(), value.Len())
+		iterator := value.MapRange()
+		for iterator.Next() {
+			cloned.SetMapIndex(cloneCustomData(iterator.Key()), cloneCustomData(iterator.Value()))
+		}
+		return cloned
+	case reflect.Slice:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		cloned := reflect.MakeSlice(value.Type(), value.Len(), value.Len())
+		for index := 0; index < value.Len(); index++ {
+			cloned.Index(index).Set(cloneCustomData(value.Index(index)))
+		}
+		return cloned
+	default:
+		return value
+	}
 }
 
 // GetSessionID returns the current session ID.
