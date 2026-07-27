@@ -1,0 +1,164 @@
+package core
+
+import (
+	"encoding/json"
+	"errors"
+	"strings"
+	"testing"
+)
+
+func TestMessageJSONRoundTripPreservesContentBlocks(t *testing.T) {
+	want := Message{
+		Role: RoleAssistant,
+		Content: []ContentBlock{
+			{Type: ContentText, Text: "hello"},
+			{Type: ContentThinking, Thinking: "reasoning"},
+			{
+				Type: ContentToolCall,
+				ToolCall: &ToolCall{
+					ID:        "call-1",
+					Name:      "read_file",
+					Arguments: json.RawMessage(`{"path":"README.md"}`),
+				},
+			},
+			{
+				Type: ContentToolResult,
+				ToolResult: &ToolResult{
+					ToolCallID: "call-1",
+					Content:    []ContentBlock{{Type: ContentText, Text: "contents"}},
+					IsError:    false,
+				},
+			},
+		},
+	}
+
+	data, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("marshal message: %v", err)
+	}
+	var got Message
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal message: %v", err)
+	}
+
+	if got.Role != want.Role || len(got.Content) != len(want.Content) {
+		t.Fatalf("message shape changed: %#v", got)
+	}
+	if got.Content[0].Type != ContentText || got.Content[0].Text != "hello" {
+		t.Fatalf("text block changed: %#v", got.Content[0])
+	}
+	if got.Content[1].Type != ContentThinking || got.Content[1].Thinking != "reasoning" {
+		t.Fatalf("thinking block changed: %#v", got.Content[1])
+	}
+	call := got.Content[2].ToolCall
+	if call == nil || call.ID != "call-1" || call.Name != "read_file" || string(call.Arguments) != `{"path":"README.md"}` {
+		t.Fatalf("tool call changed: %#v", call)
+	}
+	result := got.Content[3].ToolResult
+	if result == nil || result.ToolCallID != "call-1" || result.IsError || len(result.Content) != 1 || result.Content[0].Text != "contents" {
+		t.Fatalf("tool result changed: %#v", result)
+	}
+}
+
+func TestEventJSONRoundTripToolCall(t *testing.T) {
+	want := Event{
+		Type: EventToolCall,
+		ToolCall: &ToolCall{
+			ID:        "call-1",
+			Name:      "read_file",
+			Arguments: json.RawMessage(`{"path":"README.md"}`),
+		},
+	}
+
+	data, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	var got Event
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
+	}
+	if got.Type != want.Type || got.ToolCall == nil {
+		t.Fatalf("event shape changed: %#v", got)
+	}
+	if got.ToolCall.ID != want.ToolCall.ID || got.ToolCall.Name != want.ToolCall.Name || string(got.ToolCall.Arguments) != string(want.ToolCall.Arguments) {
+		t.Fatalf("tool call changed: %#v", got.ToolCall)
+	}
+}
+
+func TestEventJSONRoundTripToolArgumentsDelta(t *testing.T) {
+	want := Event{
+		Type:           EventToolArgumentsDelta,
+		ToolCallID:     "call-1",
+		ArgumentsDelta: `{"path"`,
+	}
+
+	data, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	var got Event
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
+	}
+	if got.Type != want.Type || got.ToolCallID != want.ToolCallID || got.ArgumentsDelta != want.ArgumentsDelta {
+		t.Fatalf("tool arguments delta changed: %#v", got)
+	}
+}
+
+func TestErrorPreservesCauseAndRedactsUserMessage(t *testing.T) {
+	cause := errors.New("upstream authorization failed with Bearer sk-secret-value")
+	err := &Error{
+		Kind:      ErrorKindAuthentication,
+		Op:        "provider.stream",
+		Message:   "request rejected; api_key=sk-visible-secret",
+		Retryable: false,
+		Cause:     cause,
+	}
+
+	if !errors.Is(err, cause) {
+		t.Fatal("error does not preserve its cause")
+	}
+	if !strings.Contains(err.Error(), "provider.stream") {
+		t.Fatalf("diagnostic error omits operation: %q", err.Error())
+	}
+	userMessage := err.UserMessage()
+	if strings.Contains(userMessage, "sk-visible-secret") || strings.Contains(userMessage, "sk-secret-value") {
+		t.Fatalf("user message leaked a credential: %q", userMessage)
+	}
+	if !strings.Contains(userMessage, "request rejected") {
+		t.Fatalf("user message lost actionable context: %q", userMessage)
+	}
+}
+
+func TestRequestJSONRoundTripPreservesProviderIndependentFields(t *testing.T) {
+	want := Request{
+		Model:  "model-name",
+		System: []ContentBlock{{Type: ContentText, Text: "be precise"}},
+		Messages: []Message{{
+			Role:    RoleUser,
+			Content: []ContentBlock{{Type: ContentText, Text: "hello"}},
+		}},
+		Tools: []ToolDefinition{{
+			Name:        "read_file",
+			Description: "Read a workspace file",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		}},
+		MaxTokens: 1024,
+	}
+
+	data, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	var got Request
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal request: %v", err)
+	}
+	if got.Model != want.Model || got.MaxTokens != want.MaxTokens || len(got.System) != 1 || len(got.Messages) != 1 || len(got.Tools) != 1 {
+		t.Fatalf("request shape changed: %#v", got)
+	}
+	if got.Tools[0].Name != "read_file" || string(got.Tools[0].InputSchema) != `{"type":"object"}` {
+		t.Fatalf("tool definition changed: %#v", got.Tools[0])
+	}
+}
