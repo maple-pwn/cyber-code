@@ -11,6 +11,7 @@ import (
 	"claude-code-go/internal/agent"
 	"claude-code-go/internal/core"
 	"claude-code-go/internal/provider"
+	"claude-code-go/internal/session"
 )
 
 func TestShutdownCancelsRunsBeforeClosingServices(t *testing.T) {
@@ -102,6 +103,59 @@ func TestRunAfterShutdownReturnsClosedRuntimeError(t *testing.T) {
 	}
 }
 
+func TestPersistentRuntimeLogsAndResumesConversationHistory(t *testing.T) {
+	store, err := session.NewStore(t.TempDir(), session.StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstProvider := &completedProvider{events: []core.Event{
+		{Type: core.EventTextDelta, Text: "first answer"},
+		{Type: core.EventCompleted, FinishReason: "stop"},
+	}}
+	first, err := NewPersistent(firstProvider, agent.Options{Model: "test"}, store, "resume-me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	collectRuntimeEvents(t, first.Run(context.Background(), "first question"))
+	if err := first.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	records, err := store.Events(context.Background(), "resume-me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 3 || records[0].Event.Type != core.EventUserMessage || records[2].Event.Type != core.EventCompleted {
+		t.Fatalf("persisted records = %#v", records)
+	}
+
+	secondProvider := &completedProvider{events: []core.Event{{Type: core.EventCompleted, FinishReason: "stop"}}}
+	resumed, err := Resume(secondProvider, agent.Options{Model: "test"}, store, "resume-me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	history := resumed.History()
+	if len(history) != 2 || history[0].Content[0].Text != "first question" || history[1].Content[0].Text != "first answer" {
+		t.Fatalf("resumed history = %#v", history)
+	}
+	collectRuntimeEvents(t, resumed.Run(context.Background(), "second question"))
+	secondProvider.mu.Lock()
+	request := secondProvider.request
+	secondProvider.mu.Unlock()
+	if len(request.Messages) != 3 || request.Messages[2].Role != core.RoleUser || request.Messages[2].Content[0].Text != "second question" {
+		t.Fatalf("resumed provider request = %#v", request)
+	}
+	snapshot, err := store.Resume(context.Background(), "resume-me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.LastSequence != 5 || len(snapshot.History) != 4 {
+		t.Fatalf("updated snapshot = %#v", snapshot)
+	}
+	if err := resumed.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func assertChannelCloses(t *testing.T, events <-chan core.Event) {
 	t.Helper()
 	select {
@@ -162,6 +216,38 @@ type recordingCloser struct {
 	mu    sync.Mutex
 	count int
 	close func() error
+}
+
+type completedProvider struct {
+	mu      sync.Mutex
+	events  []core.Event
+	request core.Request
+}
+
+func (model *completedProvider) Name() string { return "completed" }
+func (model *completedProvider) Capabilities(context.Context) (provider.Capabilities, error) {
+	return provider.Capabilities{Streaming: true}, nil
+}
+func (model *completedProvider) Stream(ctx context.Context, request core.Request) (<-chan core.Event, error) {
+	model.mu.Lock()
+	model.request = request
+	events := append([]core.Event(nil), model.events...)
+	model.mu.Unlock()
+	stream := make(chan core.Event)
+	go func() {
+		defer close(stream)
+		for _, event := range events {
+			select {
+			case stream <- event:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return stream, nil
+}
+func (model *completedProvider) CountTokens(context.Context, core.Request) (int, error) {
+	return 0, nil
 }
 
 func (c *recordingCloser) Close() error {

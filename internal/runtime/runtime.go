@@ -4,12 +4,14 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 
 	"claude-code-go/internal/agent"
 	"claude-code-go/internal/core"
 	"claude-code-go/internal/provider"
+	"claude-code-go/internal/session"
 )
 
 // Runtime owns one agent engine and the resources used by that engine.
@@ -20,28 +22,69 @@ type Runtime struct {
 	cancel  context.CancelFunc
 	closers []io.Closer
 
-	mu     sync.Mutex
-	closed bool
-	runs   sync.WaitGroup
+	mu      sync.Mutex
+	closed  bool
+	runs    sync.WaitGroup
+	turn    chan struct{}
+	session *persistentSession
 
 	shutdownOnce sync.Once
 	shutdownDone chan struct{}
 	shutdownErr  error
 }
 
+type persistentSession struct {
+	store *session.Store
+	id    string
+}
+
 // New constructs a runtime. Owned services are closed in reverse order.
 func New(modelProvider provider.Provider, options agent.Options, services ...io.Closer) *Runtime {
+	return newRuntime(modelProvider, options, nil, services...)
+}
+
+// NewPersistent constructs a runtime whose canonical events and completed
+// conversation snapshots are stored under sessionID.
+func NewPersistent(modelProvider provider.Provider, options agent.Options, store *session.Store, sessionID string, services ...io.Closer) (*Runtime, error) {
+	if store == nil {
+		return nil, fmt.Errorf("session store is required")
+	}
+	if _, err := store.Events(context.Background(), sessionID); err != nil {
+		return nil, fmt.Errorf("open session %q: %w", sessionID, err)
+	}
+	return newRuntime(modelProvider, options, &persistentSession{store: store, id: sessionID}, services...), nil
+}
+
+// Resume restores the last atomic conversation snapshot before constructing a
+// persistent runtime for the same session.
+func Resume(modelProvider provider.Provider, options agent.Options, store *session.Store, sessionID string, services ...io.Closer) (*Runtime, error) {
+	if store == nil {
+		return nil, fmt.Errorf("session store is required")
+	}
+	snapshot, err := store.Resume(context.Background(), sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("resume session %q: %w", sessionID, err)
+	}
+	options.InitialHistory = snapshot.History
+	return NewPersistent(modelProvider, options, store, sessionID, services...)
+}
+
+func newRuntime(modelProvider provider.Provider, options agent.Options, persisted *persistentSession, services ...io.Closer) *Runtime {
 	rootCtx, cancel := context.WithCancel(context.Background())
 	closers := make([]io.Closer, 0, len(services)+1)
 	if closer, ok := modelProvider.(io.Closer); ok {
 		closers = append(closers, closer)
 	}
 	closers = append(closers, services...)
+	turn := make(chan struct{}, 1)
+	turn <- struct{}{}
 	return &Runtime{
 		engine:       agent.NewEngine(modelProvider, options),
 		rootCtx:      rootCtx,
 		cancel:       cancel,
 		closers:      closers,
+		turn:         turn,
+		session:      persisted,
 		shutdownDone: make(chan struct{}),
 	}
 }
@@ -63,16 +106,38 @@ func (r *Runtime) Run(ctx context.Context, prompt string) <-chan core.Event {
 	r.mu.Unlock()
 
 	output := make(chan core.Event)
-	source := r.engine.Run(runCtx, prompt)
 	go func() {
 		defer r.runs.Done()
 		defer close(output)
 		defer cancel()
 		defer stopCallerCancellation()
+		select {
+		case <-runCtx.Done():
+			return
+		case <-r.turn:
+		}
+		defer func() { r.turn <- struct{}{} }()
 
+		source := r.engine.Run(runCtx, prompt)
 		for event := range source {
 			if runCtx.Err() != nil {
 				continue
+			}
+			if r.session != nil {
+				record, err := r.session.store.Append(runCtx, r.session.id, event)
+				if err != nil {
+					r.sendPersistenceError(ctx, output, "append event", err)
+					cancel()
+					continue
+				}
+				if event.Type == core.EventCompleted || event.Type == core.EventError {
+					snapshot := session.Snapshot{SessionID: r.session.id, LastSequence: record.Sequence, History: r.engine.History()}
+					if err := r.session.store.SaveSnapshot(runCtx, snapshot); err != nil {
+						r.sendPersistenceError(ctx, output, "save snapshot", err)
+						cancel()
+						continue
+					}
+				}
 			}
 			select {
 			case output <- event:
@@ -81,6 +146,17 @@ func (r *Runtime) Run(ctx context.Context, prompt string) <-chan core.Event {
 		}
 	}()
 	return output
+}
+
+func (r *Runtime) sendPersistenceError(ctx context.Context, output chan<- core.Event, operation string, cause error) {
+	event := core.Event{Type: core.EventError, Err: &core.Error{
+		Kind: core.ErrorKindInternal, Op: "runtime.session", Message: operation + " failed", Cause: cause,
+	}}
+	select {
+	case output <- event:
+	case <-ctx.Done():
+	case <-r.rootCtx.Done():
+	}
 }
 
 // History returns an independent snapshot of the canonical conversation.

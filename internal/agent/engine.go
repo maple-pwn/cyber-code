@@ -23,7 +23,7 @@ type Engine struct {
 func NewEngine(modelProvider provider.Provider, options Options) *Engine {
 	turn := make(chan struct{}, 1)
 	turn <- struct{}{}
-	return &Engine{provider: modelProvider, options: options, turn: turn}
+	return &Engine{provider: modelProvider, options: options, history: cloneMessages(options.InitialHistory), turn: turn}
 }
 
 // Run starts one provider turn. The returned channel closes only after the
