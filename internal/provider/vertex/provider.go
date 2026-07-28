@@ -140,6 +140,9 @@ func (transport vertexTransport) RoundTrip(request *http.Request) (*http.Respons
 		return nil, fmt.Errorf("construct Vertex endpoint: %w", err)
 	}
 	endpoint.RawPath = ""
+	if !strings.HasPrefix(endpoint.Path, "/") {
+		endpoint.Path = "/" + endpoint.Path
+	}
 	clone := request.Clone(request.Context())
 	clone.URL = &endpoint
 	clone.Host = endpoint.Host
