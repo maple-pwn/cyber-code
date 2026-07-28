@@ -3,6 +3,8 @@ package permissions
 import (
 	"sync"
 	"time"
+
+	"claude-code-go/internal/security"
 )
 
 // AuditRecord intentionally excludes commands, file contents, and credentials.
@@ -39,6 +41,11 @@ func (log *AuditLog) Record(record AuditRecord) {
 	if log == nil {
 		return
 	}
+	redactor := security.NewRedactor()
+	record.Tool = redactor.Text(record.Tool)
+	record.Action = redactor.Text(record.Action)
+	record.Reason = redactor.Text(record.Reason)
+	record.RuleID = redactor.Text(record.RuleID)
 	log.mu.Lock()
 	defer log.mu.Unlock()
 	if len(log.records) == log.limit {

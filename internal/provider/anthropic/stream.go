@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"claude-code-go/internal/core"
+	"claude-code-go/internal/security"
 )
 
 type streamState struct {
@@ -64,7 +65,7 @@ func (client *Client) consumeStream(ctx context.Context, body io.ReadCloser, eve
 		}
 	}
 	err := scanSSE(ctx, body, client.responseLimit, func(eventName, data string) error {
-		return state.handle(eventName, data, emit)
+		return state.handle(eventName, data, emit, security.NewRedactor(client.apiKey))
 	})
 	if ctx.Err() != nil || isContextError(err) {
 		return
@@ -85,7 +86,7 @@ func (client *Client) consumeStream(ctx context.Context, body io.ReadCloser, eve
 	}
 }
 
-func (state *streamState) handle(eventName, data string, emit func(core.Event) error) error {
+func (state *streamState) handle(eventName, data string, emit func(core.Event) error, redactor security.Redactor) error {
 	if strings.TrimSpace(data) == "" {
 		return nil
 	}
@@ -161,7 +162,7 @@ func (state *streamState) handle(eventName, data string, emit func(core.Event) e
 		return emit(core.Event{Type: core.EventError, Err: &core.Error{
 			Kind:      kind,
 			Op:        "anthropic.stream",
-			Message:   envelope.Error.Message,
+			Message:   redactor.Text(envelope.Error.Message),
 			Retryable: retryable,
 		}})
 	default:

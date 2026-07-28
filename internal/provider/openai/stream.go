@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"claude-code-go/internal/core"
+	"claude-code-go/internal/security"
 )
 
 type streamEnvelope struct {
@@ -70,7 +71,7 @@ func (c *Client) consumeStream(ctx context.Context, body io.ReadCloser, events c
 			return fmt.Errorf("decode stream event: %w", err)
 		}
 		if envelope.Error != nil {
-			return emit(core.Event{Type: core.EventError, Err: &core.Error{Kind: core.ErrorKindProvider, Op: "openai.stream", Message: envelope.Error.Message}})
+			return emit(core.Event{Type: core.EventError, Err: &core.Error{Kind: core.ErrorKindProvider, Op: "openai.stream", Message: security.NewRedactor(c.apiKey).Text(envelope.Error.Message)}})
 		}
 		if envelope.Usage != nil {
 			if err := emit(core.Event{Type: core.EventUsage, Usage: &core.Usage{InputTokens: envelope.Usage.PromptTokens, OutputTokens: envelope.Usage.CompletionTokens}}); err != nil {

@@ -64,7 +64,11 @@ func (file *fileTool) Run(ctx context.Context, arguments json.RawMessage) (core.
 		if err := json.Unmarshal(arguments, &input); err != nil {
 			return core.ToolResult{}, err
 		}
-		content, err := readLimitedFile(input.Path)
+		path, err := permissions.ResolvePath(file.workspace, input.Path)
+		if err != nil {
+			return core.ToolResult{}, err
+		}
+		content, err := readLimitedFile(path)
 		if err != nil {
 			return core.ToolResult{}, err
 		}
@@ -77,7 +81,11 @@ func (file *fileTool) Run(ctx context.Context, arguments json.RawMessage) (core.
 		if err := json.Unmarshal(arguments, &input); err != nil {
 			return core.ToolResult{}, err
 		}
-		if err := atomicWrite(ctx, input.Path, []byte(input.Content)); err != nil {
+		path, err := permissions.ResolvePath(file.workspace, input.Path)
+		if err != nil {
+			return core.ToolResult{}, err
+		}
+		if err := atomicWrite(ctx, path, []byte(input.Content)); err != nil {
 			return core.ToolResult{}, err
 		}
 		return textResult("file written"), nil
@@ -90,7 +98,11 @@ func (file *fileTool) Run(ctx context.Context, arguments json.RawMessage) (core.
 		if err := json.Unmarshal(arguments, &input); err != nil {
 			return core.ToolResult{}, err
 		}
-		content, err := readLimitedFile(input.Path)
+		path, err := permissions.ResolvePath(file.workspace, input.Path)
+		if err != nil {
+			return core.ToolResult{}, err
+		}
+		content, err := readLimitedFile(path)
 		if err != nil {
 			return core.ToolResult{}, err
 		}
@@ -98,7 +110,11 @@ func (file *fileTool) Run(ctx context.Context, arguments json.RawMessage) (core.
 			return core.ToolResult{}, fmt.Errorf("old_text matched %d times; expected exactly once", count)
 		}
 		replaced := strings.Replace(string(content), input.OldText, input.NewText, 1)
-		if err := atomicWrite(ctx, input.Path, []byte(replaced)); err != nil {
+		path, err = permissions.ResolvePath(file.workspace, path)
+		if err != nil {
+			return core.ToolResult{}, err
+		}
+		if err := atomicWrite(ctx, path, []byte(replaced)); err != nil {
 			return core.ToolResult{}, err
 		}
 		return textResult("file edited"), nil

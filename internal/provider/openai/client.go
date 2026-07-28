@@ -18,6 +18,7 @@ import (
 	"claude-code-go/internal/config"
 	"claude-code-go/internal/core"
 	"claude-code-go/internal/provider"
+	"claude-code-go/internal/security"
 )
 
 const (
@@ -154,7 +155,7 @@ func (c *Client) do(ctx context.Context, payload []byte) (*http.Response, error)
 			if ctx.Err() != nil {
 				return nil, canceledError("openai.request", ctx.Err())
 			}
-			classified := &core.Error{Kind: core.ErrorKindProvider, Op: "openai.request", Message: "OpenAI-compatible request failed", Retryable: retryableTransport(requestErr), Cause: requestErr}
+			classified := &core.Error{Kind: core.ErrorKindProvider, Op: "openai.request", Message: "OpenAI-compatible request failed", Retryable: retryableTransport(requestErr), Cause: security.NewRedactor(c.apiKey).Error(requestErr)}
 			if !classified.Retryable || attempt == c.maxRetries {
 				return nil, classified
 			}
@@ -187,6 +188,8 @@ func (c *Client) responseError(response *http.Response) *core.Error {
 	if err == nil && json.Unmarshal(body, &envelope) == nil && strings.TrimSpace(envelope.Error.Message) != "" {
 		message = envelope.Error.Message
 	}
+	redactor := security.NewRedactor(c.apiKey)
+	message = redactor.Text(message)
 	kind, retryable := core.ErrorKindProvider, false
 	switch response.StatusCode {
 	case http.StatusUnauthorized, http.StatusForbidden:
@@ -196,7 +199,7 @@ func (c *Client) responseError(response *http.Response) *core.Error {
 	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 		retryable = true
 	}
-	return &core.Error{Kind: kind, Op: "openai.request", Message: fmt.Sprintf("OpenAI-compatible backend returned HTTP %d: %s", response.StatusCode, message), Retryable: retryable, Cause: err}
+	return &core.Error{Kind: kind, Op: "openai.request", Message: fmt.Sprintf("OpenAI-compatible backend returned HTTP %d: %s", response.StatusCode, message), Retryable: retryable, Cause: redactor.Error(err)}
 }
 
 func (c *Client) delay(attempt int, retryAfter string) time.Duration {

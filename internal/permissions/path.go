@@ -14,29 +14,41 @@ func validateRequestPaths(workspace string, paths []string) error {
 	if strings.TrimSpace(workspace) == "" {
 		return fmt.Errorf("workspace is required for filesystem access")
 	}
-	root, err := filepath.Abs(workspace)
-	if err != nil {
-		return fmt.Errorf("resolve workspace: %w", err)
-	}
-	root, err = filepath.EvalSymlinks(root)
-	if err != nil {
-		return fmt.Errorf("resolve workspace links: %w", err)
-	}
-
 	for _, requestedPath := range paths {
-		resolved, err := resolvePath(root, requestedPath)
-		if err != nil {
+		if _, err := ResolvePath(workspace, requestedPath); err != nil {
 			return err
-		}
-		relative, err := filepath.Rel(root, resolved)
-		if err != nil {
-			return fmt.Errorf("compare path to workspace: %w", err)
-		}
-		if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
-			return fmt.Errorf("path escapes workspace")
 		}
 	}
 	return nil
+}
+
+// ResolvePath resolves a path through its existing ancestors and rejects paths
+// outside workspace. Callers that perform filesystem I/O should invoke it as
+// close to the operation as possible to recheck authorization-time paths.
+func ResolvePath(workspace, requestedPath string) (string, error) {
+	if strings.TrimSpace(workspace) == "" {
+		return "", fmt.Errorf("workspace is required for filesystem access")
+	}
+	root, err := filepath.Abs(workspace)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace: %w", err)
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace links: %w", err)
+	}
+	resolved, err := resolvePath(root, requestedPath)
+	if err != nil {
+		return "", err
+	}
+	relative, err := filepath.Rel(root, resolved)
+	if err != nil {
+		return "", fmt.Errorf("compare path to workspace: %w", err)
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return "", fmt.Errorf("path escapes workspace")
+	}
+	return resolved, nil
 }
 
 func resolvePath(workspace, requestedPath string) (string, error) {

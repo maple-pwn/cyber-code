@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"regexp"
 	"sort"
-	"strings"
+
+	"claude-code-go/internal/security"
 )
 
 type ExportOptions struct {
@@ -20,12 +20,6 @@ type sessionExport struct {
 	Events    []EventRecord `json:"events"`
 	Snapshot  *Snapshot     `json:"snapshot,omitempty"`
 }
-
-var (
-	exportSecretAssignment = regexp.MustCompile(`(?i)\b(api[_-]?key|authorization|access[_-]?token|token|secret)(\s*[:=]\s*)([^\s,;]+)`)
-	exportBearer           = regexp.MustCompile(`(?i)\bbearer\s+[^\s,;]+`)
-	exportOpenAIToken      = regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{4,}\b`)
-)
 
 func (store *Store) Export(ctx context.Context, sessionID string, destination io.Writer, options ExportOptions) error {
 	if destination == nil {
@@ -95,12 +89,5 @@ func redactJSONStrings(value any, secrets []string) {
 }
 
 func redactExportText(text string, secrets []string) string {
-	for _, secret := range secrets {
-		if secret != "" {
-			text = strings.ReplaceAll(text, secret, "[REDACTED]")
-		}
-	}
-	text = exportBearer.ReplaceAllString(text, "Bearer [REDACTED]")
-	text = exportSecretAssignment.ReplaceAllString(text, "$1$2[REDACTED]")
-	return exportOpenAIToken.ReplaceAllString(text, "[REDACTED]")
+	return security.NewRedactor(secrets...).Text(text)
 }

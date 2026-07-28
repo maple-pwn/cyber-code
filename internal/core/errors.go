@@ -1,8 +1,9 @@
 package core
 
 import (
-	"regexp"
 	"strings"
+
+	"claude-code-go/internal/security"
 )
 
 // ErrorKind is a stable, provider-independent failure category.
@@ -49,7 +50,7 @@ func (e *Error) Error() string {
 	if e.Cause != nil {
 		message += ": " + e.Cause.Error()
 	}
-	return message
+	return security.NewRedactor().Text(message)
 }
 
 // Unwrap exposes the internal causal chain to errors.Is and errors.As.
@@ -59,12 +60,6 @@ func (e *Error) Unwrap() error {
 	}
 	return e.Cause
 }
-
-var (
-	secretAssignmentPattern = regexp.MustCompile(`(?i)\b(api[_-]?key|authorization|access[_-]?token|token|secret)(\s*[:=]\s*)([^\s,;]+)`)
-	bearerPattern           = regexp.MustCompile(`(?i)\bbearer\s+[^\s,;]+`)
-	openAITokenPattern      = regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{4,}\b`)
-)
 
 // UserMessage returns actionable context with common credential forms removed.
 // It intentionally omits Cause because upstream errors are untrusted.
@@ -77,9 +72,7 @@ func (e *Error) UserMessage() string {
 	if message == "" {
 		message = defaultUserMessage(e.Kind)
 	}
-	message = bearerPattern.ReplaceAllString(message, "Bearer [REDACTED]")
-	message = secretAssignmentPattern.ReplaceAllString(message, "$1$2[REDACTED]")
-	return openAITokenPattern.ReplaceAllString(message, "[REDACTED]")
+	return security.NewRedactor().Text(message)
 }
 
 func defaultUserMessage(kind ErrorKind) string {

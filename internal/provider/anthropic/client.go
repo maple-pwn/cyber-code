@@ -18,6 +18,7 @@ import (
 	"claude-code-go/internal/config"
 	"claude-code-go/internal/core"
 	"claude-code-go/internal/provider"
+	"claude-code-go/internal/security"
 )
 
 const (
@@ -222,7 +223,7 @@ func (client *Client) do(ctx context.Context, endpoint string, payload []byte, a
 				return nil, canceledError("anthropic.request", ctx.Err())
 			}
 			retryable := isRetryableTransportError(requestErr)
-			classified := &core.Error{Kind: core.ErrorKindProvider, Op: "anthropic.request", Message: "Anthropic request failed", Retryable: retryable, Cause: requestErr}
+			classified := &core.Error{Kind: core.ErrorKindProvider, Op: "anthropic.request", Message: "Anthropic request failed", Retryable: retryable, Cause: security.NewRedactor(client.apiKey).Error(requestErr)}
 			if !retryable || attempt == client.maxRetries {
 				return nil, classified
 			}
@@ -262,7 +263,8 @@ func (client *Client) responseError(response *http.Response) *core.Error {
 	if readErr != nil {
 		message = "Anthropic error response exceeded the configured limit"
 	}
-
+	redactor := security.NewRedactor(client.apiKey)
+	message = redactor.Text(message)
 	kind := core.ErrorKindProvider
 	retryable := false
 	switch response.StatusCode {
@@ -279,7 +281,7 @@ func (client *Client) responseError(response *http.Response) *core.Error {
 		Op:        "anthropic.request",
 		Message:   fmt.Sprintf("Anthropic returned HTTP %d: %s", response.StatusCode, message),
 		Retryable: retryable,
-		Cause:     readErr,
+		Cause:     redactor.Error(readErr),
 	}
 }
 
