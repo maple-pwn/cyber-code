@@ -17,6 +17,7 @@ type HookEvent string
 const (
 	HookEventSessionStart       HookEvent = "SessionStart"
 	HookEventSessionEnd         HookEvent = "SessionEnd"
+	HookEventStop               HookEvent = "Stop"
 	HookEventPreToolUse         HookEvent = "PreToolUse"
 	HookEventPostToolUse        HookEvent = "PostToolUse"
 	HookEventPostToolUseFailure HookEvent = "PostToolUseFailure"
@@ -36,6 +37,7 @@ const (
 var HookEvents = []HookEvent{
 	HookEventSessionStart,
 	HookEventSessionEnd,
+	HookEventStop,
 	HookEventPreToolUse,
 	HookEventPostToolUse,
 	HookEventPostToolUseFailure,
@@ -171,13 +173,12 @@ func (r *Registry) Disable() {
 // Execute executes all handlers for an event.
 func (r *Registry) Execute(ctx context.Context, input HookInput) ([]HookOutput, error) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	if !r.enabled {
+		r.mu.RUnlock()
 		return nil, nil
 	}
-
-	handlers := r.hooks[input.EventName]
+	handlers := append([]HookHandler(nil), r.hooks[input.EventName]...)
+	r.mu.RUnlock()
 	if len(handlers) == 0 {
 		return nil, nil
 	}

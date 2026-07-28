@@ -2,16 +2,21 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"claude-code-go/internal/agent"
 	"claude-code-go/internal/core"
+	"claude-code-go/internal/hooks"
+	"claude-code-go/internal/permissions"
 	"claude-code-go/internal/provider"
 	"claude-code-go/internal/session"
+	toolpkg "claude-code-go/internal/tool"
 )
 
 func TestShutdownCancelsRunsBeforeClosingServices(t *testing.T) {
@@ -189,6 +194,81 @@ func TestPersistentRuntimeForwardsCompactionCoverageFromStore(t *testing.T) {
 	}
 }
 
+func TestRuntimeRunsLifecycleAndToolHooksInOrder(t *testing.T) {
+	var order []string
+	hookRegistry := hooks.NewRegistry()
+	for _, event := range []hooks.HookEvent{
+		hooks.HookEventSessionStart,
+		hooks.HookEventUserPromptSubmit,
+		hooks.HookEventPreToolUse,
+		hooks.HookEventPostToolUse,
+		hooks.HookEventStop,
+	} {
+		event := event
+		hookRegistry.Register(event, func(context.Context, hooks.HookInput) (hooks.HookOutput, error) {
+			order = append(order, string(event))
+			return hooks.HookOutput{Continue: true}, nil
+		})
+	}
+	hookRunner, err := hooks.NewRunner(hooks.RunnerOptions{Registry: hookRegistry, Workspace: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := toolpkg.NewRegistry()
+	if err := registry.Register(&runtimeHookTool{order: &order}); err != nil {
+		t.Fatal(err)
+	}
+	broker, err := permissions.NewBroker(permissions.Options{Mode: permissions.PermissionModeDefault})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolRunner := toolpkg.NewRunner(registry, broker, toolpkg.RunnerOptions{Hooks: hookRunner, SessionID: "hook-session"})
+	model := &runtimeHookProvider{rounds: [][]core.Event{
+		{{Type: core.EventToolCall, ToolCall: &core.ToolCall{ID: "call-1", Name: "hook_tool", Arguments: json.RawMessage(`{}`)}}, {Type: core.EventCompleted, FinishReason: "tool_calls"}},
+		{{Type: core.EventCompleted, FinishReason: "stop"}},
+	}}
+	runtime := New(model, agent.Options{MaxTurns: 2, Tools: registry, ToolRunner: toolRunner, Hooks: hookRunner, SessionID: "hook-session"})
+	collectRuntimeEvents(t, runtime.Run(context.Background(), "prompt"))
+	want := "SessionStart,UserPromptSubmit,PreToolUse,tool,PostToolUse,Stop"
+	if strings.Join(order, ",") != want {
+		t.Fatalf("hook order = %q, want %q", strings.Join(order, ","), want)
+	}
+	if err := runtime.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPersistentRuntimeSuppliesSessionIDToHooks(t *testing.T) {
+	var gotSessionID string
+	hookRegistry := hooks.NewRegistry()
+	hookRegistry.Register(hooks.HookEventSessionStart, func(_ context.Context, input hooks.HookInput) (hooks.HookOutput, error) {
+		gotSessionID = input.SessionID
+		return hooks.HookOutput{Continue: true}, nil
+	})
+	hookRunner, err := hooks.NewRunner(hooks.RunnerOptions{Registry: hookRegistry, Workspace: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := session.NewStore(t.TempDir(), session.StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistent, err := NewPersistent(
+		&completedProvider{events: []core.Event{{Type: core.EventCompleted, FinishReason: "stop"}}},
+		agent.Options{Hooks: hookRunner}, store, "persisted-hook-session",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collectRuntimeEvents(t, persistent.Run(context.Background(), "prompt"))
+	if gotSessionID != "persisted-hook-session" {
+		t.Fatalf("hook session ID = %q", gotSessionID)
+	}
+	if err := persistent.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func assertChannelCloses(t *testing.T, events <-chan core.Event) {
 	t.Helper()
 	select {
@@ -295,4 +375,49 @@ func (c *recordingCloser) closeCount() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.count
+}
+
+type runtimeHookTool struct{ order *[]string }
+
+func (tool *runtimeHookTool) Spec() toolpkg.Spec {
+	return toolpkg.Spec{Name: "hook_tool", ReadOnly: true, Schema: json.RawMessage(`{"type":"object"}`)}
+}
+func (tool *runtimeHookTool) Authorize(context.Context, json.RawMessage) (permissions.Request, error) {
+	return permissions.Request{Tool: "hook_tool", Action: permissions.ActionRead}, nil
+}
+func (tool *runtimeHookTool) Run(context.Context, json.RawMessage) (core.ToolResult, error) {
+	*tool.order = append(*tool.order, "tool")
+	return core.ToolResult{Content: []core.ContentBlock{{Type: core.ContentText, Text: "ok"}}}, nil
+}
+
+type runtimeHookProvider struct {
+	mu       sync.Mutex
+	rounds   [][]core.Event
+	requests int
+}
+
+func (model *runtimeHookProvider) Name() string { return "hook-provider" }
+func (model *runtimeHookProvider) Capabilities(context.Context) (provider.Capabilities, error) {
+	return provider.Capabilities{Streaming: true, ToolCalls: true}, nil
+}
+func (model *runtimeHookProvider) CountTokens(context.Context, core.Request) (int, error) {
+	return 0, nil
+}
+func (model *runtimeHookProvider) Stream(ctx context.Context, _ core.Request) (<-chan core.Event, error) {
+	model.mu.Lock()
+	events := append([]core.Event(nil), model.rounds[model.requests]...)
+	model.requests++
+	model.mu.Unlock()
+	stream := make(chan core.Event)
+	go func() {
+		defer close(stream)
+		for _, event := range events {
+			select {
+			case stream <- event:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return stream, nil
 }

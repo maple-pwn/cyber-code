@@ -25,6 +25,7 @@ type ExecRequest struct {
 	Command     string
 	Workspace   string
 	Environment map[string]string
+	Stdin       string
 	Timeout     time.Duration
 	Sandbox     bool
 }
@@ -86,6 +87,9 @@ func (runner *Runner) Run(ctx context.Context, request ExecRequest) (ExecResult,
 	stderr := &limitedBuffer{limit: 1 << 20}
 	command.Stdout = stdout
 	command.Stderr = stderr
+	if request.Stdin != "" {
+		command.Stdin = strings.NewReader(request.Stdin)
+	}
 	if err := command.Start(); err != nil {
 		return ExecResult{}, fmt.Errorf("start process: %w", err)
 	}

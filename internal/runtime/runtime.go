@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	"claude-code-go/internal/agent"
 	"claude-code-go/internal/core"
+	"claude-code-go/internal/hooks"
 	"claude-code-go/internal/provider"
 	"claude-code-go/internal/session"
 )
@@ -22,11 +24,14 @@ type Runtime struct {
 	cancel  context.CancelFunc
 	closers []io.Closer
 
-	mu      sync.Mutex
-	closed  bool
-	runs    sync.WaitGroup
-	turn    chan struct{}
-	session *persistentSession
+	mu        sync.Mutex
+	closed    bool
+	runs      sync.WaitGroup
+	turn      chan struct{}
+	session   *persistentSession
+	hooks     *hooks.Runner
+	sessionID string
+	started   bool
 
 	shutdownOnce sync.Once
 	shutdownDone chan struct{}
@@ -49,6 +54,10 @@ func NewPersistent(modelProvider provider.Provider, options agent.Options, store
 	if store == nil {
 		return nil, fmt.Errorf("session store is required")
 	}
+	if options.SessionID != "" && options.SessionID != sessionID {
+		return nil, fmt.Errorf("agent session ID %q does not match persistent session %q", options.SessionID, sessionID)
+	}
+	options.SessionID = sessionID
 	if _, err := store.Events(context.Background(), sessionID); err != nil {
 		return nil, fmt.Errorf("open session %q: %w", sessionID, err)
 	}
@@ -85,6 +94,8 @@ func newRuntime(modelProvider provider.Provider, options agent.Options, persiste
 		closers:      closers,
 		turn:         turn,
 		session:      persisted,
+		hooks:        options.Hooks,
+		sessionID:    options.SessionID,
 		shutdownDone: make(chan struct{}),
 	}
 }
@@ -117,11 +128,54 @@ func (r *Runtime) Run(ctx context.Context, prompt string) <-chan core.Event {
 		case <-r.turn:
 		}
 		defer func() { r.turn <- struct{}{} }()
+		if r.hooks != nil {
+			if !r.started {
+				if _, err := r.hooks.Run(runCtx, hooks.HookInput{EventName: hooks.HookEventSessionStart, SessionID: r.sessionID}); err != nil {
+					r.sendHookError(ctx, output, hooks.HookEventSessionStart, err)
+					return
+				}
+				r.started = true
+			}
+			outcome, err := r.hooks.Run(runCtx, hooks.HookInput{
+				EventName: hooks.HookEventUserPromptSubmit, SessionID: r.sessionID,
+				Prompt: prompt, ToolInput: map[string]any{"prompt": prompt},
+			})
+			if err != nil {
+				r.sendHookError(ctx, output, hooks.HookEventUserPromptSubmit, err)
+				return
+			}
+			if outcome.Denied {
+				r.sendHookError(ctx, output, hooks.HookEventUserPromptSubmit, fmt.Errorf("%s", outcome.Reason))
+				return
+			}
+			if outcome.Changed {
+				updated, ok := outcome.UpdatedInput["prompt"].(string)
+				if !ok {
+					r.sendHookError(ctx, output, hooks.HookEventUserPromptSubmit, fmt.Errorf("transformed prompt must be a string"))
+					return
+				}
+				prompt = updated
+			}
+			if len(outcome.AdditionalContext) > 0 {
+				prompt += "\n\n" + strings.Join(outcome.AdditionalContext, "\n")
+			}
+		}
 
 		source := r.engine.Run(runCtx, prompt)
 		for event := range source {
 			if runCtx.Err() != nil {
 				continue
+			}
+			if r.hooks != nil && (event.Type == core.EventCompleted || event.Type == core.EventError) {
+				outcome, err := r.hooks.Run(runCtx, hooks.HookInput{
+					EventName: hooks.HookEventStop, SessionID: r.sessionID, Message: event.FinishReason,
+				})
+				if err != nil || outcome.Denied {
+					if err == nil {
+						err = fmt.Errorf("%s", outcome.Reason)
+					}
+					event = hookErrorEvent(hooks.HookEventStop, err)
+				}
 			}
 			if r.session != nil {
 				record, err := r.session.store.Append(runCtx, r.session.id, event)
@@ -147,6 +201,21 @@ func (r *Runtime) Run(ctx context.Context, prompt string) <-chan core.Event {
 		}
 	}()
 	return output
+}
+
+func (r *Runtime) sendHookError(ctx context.Context, output chan<- core.Event, event hooks.HookEvent, cause error) {
+	hookEvent := hookErrorEvent(event, cause)
+	select {
+	case output <- hookEvent:
+	case <-ctx.Done():
+	case <-r.rootCtx.Done():
+	}
+}
+
+func hookErrorEvent(event hooks.HookEvent, cause error) core.Event {
+	return core.Event{Type: core.EventError, Err: &core.Error{
+		Kind: core.ErrorKindTool, Op: "runtime.hook", Message: fmt.Sprintf("%s hook failed", event), Cause: cause,
+	}}
 }
 
 func (r *Runtime) sendPersistenceError(ctx context.Context, output chan<- core.Event, operation string, cause error) {

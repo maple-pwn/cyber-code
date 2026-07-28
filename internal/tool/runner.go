@@ -8,12 +8,14 @@ import (
 	"unicode/utf8"
 
 	"claude-code-go/internal/core"
+	"claude-code-go/internal/hooks"
 	"claude-code-go/internal/permissions"
 )
 
 var (
 	ErrToolNotFound     = errors.New("tool not found")
 	ErrPermissionDenied = errors.New("tool permission denied")
+	ErrHookDenied       = errors.New("tool use denied by hook")
 )
 
 type Authorizer interface {
@@ -22,19 +24,26 @@ type Authorizer interface {
 
 type RunnerOptions struct {
 	MaxResultBytes int
+	Hooks          *hooks.Runner
+	SessionID      string
 }
 
 type Runner struct {
 	registry   *Registry
 	authorizer Authorizer
 	maxBytes   int
+	hooks      *hooks.Runner
+	sessionID  string
 }
 
 func NewRunner(registry *Registry, authorizer Authorizer, options RunnerOptions) *Runner {
 	if options.MaxResultBytes <= 0 {
 		options.MaxResultBytes = 1 << 20
 	}
-	return &Runner{registry: registry, authorizer: authorizer, maxBytes: options.MaxResultBytes}
+	return &Runner{
+		registry: registry, authorizer: authorizer, maxBytes: options.MaxResultBytes,
+		hooks: options.Hooks, sessionID: options.SessionID,
+	}
 }
 
 func (runner *Runner) Run(ctx context.Context, name string, arguments json.RawMessage) (core.ToolResult, error) {
@@ -62,12 +71,79 @@ func (runner *Runner) Run(ctx context.Context, name string, arguments json.RawMe
 	if decision.Behavior != permissions.PermissionBehaviorAllow {
 		return core.ToolResult{}, fmt.Errorf("%w: %s", ErrPermissionDenied, decision.Reason)
 	}
+	var hookContext []string
+	if runner.hooks != nil {
+		var input map[string]any
+		if err := json.Unmarshal(arguments, &input); err != nil {
+			return core.ToolResult{}, fmt.Errorf("decode %s hook input: %w", name, err)
+		}
+		outcome, err := runner.hooks.Run(ctx, hooks.HookInput{
+			EventName: hooks.HookEventPreToolUse, SessionID: runner.sessionID, ToolName: name, ToolInput: input,
+		})
+		if err != nil {
+			return core.ToolResult{}, fmt.Errorf("run %s pre-tool hook: %w", name, err)
+		}
+		if outcome.Denied {
+			return core.ToolResult{}, fmt.Errorf("%w: %s", ErrHookDenied, outcome.Reason)
+		}
+		hookContext = append(hookContext, outcome.AdditionalContext...)
+		if outcome.Changed {
+			arguments, err = json.Marshal(outcome.UpdatedInput)
+			if err != nil {
+				return core.ToolResult{}, fmt.Errorf("encode %s transformed arguments: %w", name, err)
+			}
+			if err := validateArguments(registered.spec.Schema, arguments); err != nil {
+				return core.ToolResult{}, fmt.Errorf("validate transformed %s arguments: %w", name, err)
+			}
+			request, err = registered.tool.Authorize(ctx, arguments)
+			if err != nil {
+				return core.ToolResult{}, fmt.Errorf("authorize transformed %s: %w", name, err)
+			}
+			decision, err = runner.authorizer.Decide(ctx, request)
+			if err != nil {
+				return core.ToolResult{}, fmt.Errorf("decide transformed %s permission: %w", name, err)
+			}
+			if decision.Behavior != permissions.PermissionBehaviorAllow {
+				return core.ToolResult{}, fmt.Errorf("%w: transformed input: %s", ErrPermissionDenied, decision.Reason)
+			}
+		}
+	}
 	result, err := registered.tool.Run(ctx, arguments)
 	if err != nil {
+		runner.runFailureHook(ctx, name, arguments, err)
 		return core.ToolResult{}, fmt.Errorf("run %s: %w", name, err)
+	}
+	if runner.hooks != nil {
+		var input map[string]any
+		_ = json.Unmarshal(arguments, &input)
+		outcome, hookErr := runner.hooks.Run(ctx, hooks.HookInput{
+			EventName: hooks.HookEventPostToolUse, SessionID: runner.sessionID, ToolName: name, ToolInput: input, ToolResult: result,
+		})
+		if hookErr != nil {
+			return core.ToolResult{}, fmt.Errorf("run %s post-tool hook: %w", name, hookErr)
+		}
+		if outcome.Denied {
+			return core.ToolResult{}, fmt.Errorf("%w after execution: %s", ErrHookDenied, outcome.Reason)
+		}
+		hookContext = append(hookContext, outcome.AdditionalContext...)
+	}
+	for _, contextText := range hookContext {
+		result.Content = append(result.Content, core.ContentBlock{Type: core.ContentText, Text: contextText})
 	}
 	truncateResult(&result, runner.maxBytes)
 	return result, nil
+}
+
+func (runner *Runner) runFailureHook(ctx context.Context, name string, arguments json.RawMessage, toolError error) {
+	if runner.hooks == nil {
+		return
+	}
+	var input map[string]any
+	_ = json.Unmarshal(arguments, &input)
+	_, _ = runner.hooks.Run(ctx, hooks.HookInput{
+		EventName: hooks.HookEventPostToolUseFailure, SessionID: runner.sessionID,
+		ToolName: name, ToolInput: input, Message: toolError.Error(),
+	})
 }
 
 func validateSchemaDefinition(schema json.RawMessage) error {
