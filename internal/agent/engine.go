@@ -3,12 +3,14 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 
 	"cyber-code/internal/contextbuilder"
 	"cyber-code/internal/core"
 	"cyber-code/internal/provider"
+	"cyber-code/internal/session"
 )
 
 // Engine owns canonical conversation history and runs provider turns.
@@ -374,6 +376,33 @@ func (e *Engine) History() []core.Message {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return cloneMessages(e.history)
+}
+
+// Compact applies the configured conversation compactor outside a provider
+// turn. The engine turn lease prevents concurrent history replacement.
+func (e *Engine) Compact(ctx context.Context) (session.CompactResult, error) {
+	if e.options.Compactor == nil {
+		return session.CompactResult{}, fmt.Errorf("conversation compactor is not configured")
+	}
+	select {
+	case <-ctx.Done():
+		return session.CompactResult{}, ctx.Err()
+	case <-e.turn:
+	}
+	defer func() { e.turn <- struct{}{} }()
+	messages := e.History()
+	request, err := e.request(ctx, messages, e.toolDefinitions(), true)
+	if err != nil {
+		return session.CompactResult{}, err
+	}
+	result := e.options.Compactor.Compact(ctx, request, e.provider)
+	if result.Warning != "" {
+		return result, nil
+	}
+	if result.Applied {
+		e.replaceHistory(result.Messages)
+	}
+	return result, nil
 }
 
 func cloneMessages(messages []core.Message) []core.Message {

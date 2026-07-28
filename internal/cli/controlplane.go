@@ -81,6 +81,21 @@ func buildControlPlane(runtime *runtimepkg.Runtime, model string, mode permissio
 	}}); err != nil {
 		return nil, err
 	}
+	if err := register(controlplane.Spec{Name: "compact", Usage: "/compact", Description: "compact the current conversation", Handler: func(ctx context.Context, _ controlplane.Invocation) ([]core.Event, error) {
+		result, err := runtime.Compact(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if result.Warning != "" {
+			return controlplane.TextEvents(result.Warning), nil
+		}
+		if !result.Applied {
+			return controlplane.TextEvents("conversation is below the compact threshold"), nil
+		}
+		return controlplane.TextEvents(fmt.Sprintf("conversation compacted; covered %d messages", result.CoveredMessages)), nil
+	}}); err != nil {
+		return nil, err
+	}
 	return registry, nil
 }
 

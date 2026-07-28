@@ -151,6 +151,7 @@ func (r *Runtime) Run(ctx context.Context, prompt string) <-chan core.Event {
 	if commands != nil {
 		_, parseErr := controlplane.Parse(prompt)
 		if parseErr == nil {
+			r.runs.Add(1)
 			r.mu.Unlock()
 			events, dispatchErr := commands.Dispatch(ctx, prompt)
 			if dispatchErr != nil {
@@ -158,13 +159,14 @@ func (r *Runtime) Run(ctx context.Context, prompt string) <-chan core.Event {
 					Kind: core.ErrorKindConfiguration, Op: "runtime.command", Message: "command failed", Cause: dispatchErr,
 				}}}
 			}
-			return eventChannel(ctx, events)
+			return eventChannelDone(ctx, events, r.runs.Done)
 		}
 		if !errors.Is(parseErr, controlplane.ErrNotCommand) {
+			r.runs.Add(1)
 			r.mu.Unlock()
-			return eventChannel(ctx, []core.Event{{Type: core.EventError, Err: &core.Error{
+			return eventChannelDone(ctx, []core.Event{{Type: core.EventError, Err: &core.Error{
 				Kind: core.ErrorKindConfiguration, Op: "runtime.command", Message: "invalid command", Cause: parseErr,
-			}}})
+			}}}, r.runs.Done)
 		}
 	}
 	runCtx, cancel := context.WithCancel(r.rootCtx)
@@ -260,8 +262,15 @@ func (r *Runtime) Run(ctx context.Context, prompt string) <-chan core.Event {
 }
 
 func eventChannel(ctx context.Context, events []core.Event) <-chan core.Event {
+	return eventChannelDone(ctx, events, nil)
+}
+
+func eventChannelDone(ctx context.Context, events []core.Event, done func()) <-chan core.Event {
 	output := make(chan core.Event, len(events))
 	go func() {
+		if done != nil {
+			defer done()
+		}
 		defer close(output)
 		for _, event := range events {
 			select {
@@ -303,6 +312,42 @@ func (r *Runtime) sendPersistenceError(ctx context.Context, output chan<- core.E
 // History returns an independent snapshot of the canonical conversation.
 func (r *Runtime) History() []core.Message {
 	return r.engine.History()
+}
+
+// Compact compacts the current conversation and persists the resulting
+// boundary event and snapshot when this runtime owns a session.
+func (r *Runtime) Compact(ctx context.Context) (session.CompactResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return session.CompactResult{}, fmt.Errorf("runtime is shut down")
+	}
+	r.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		return session.CompactResult{}, ctx.Err()
+	case <-r.turn:
+	}
+	defer func() { r.turn <- struct{}{} }()
+	result, err := r.engine.Compact(ctx)
+	if err != nil || !result.Applied || r.session == nil || result.Summary == nil {
+		return result, err
+	}
+	record, err := r.session.store.Append(ctx, r.session.id, core.Event{
+		Type: core.EventCompacted, Message: result.Summary, CoveredMessages: result.CoveredMessages,
+	})
+	if err != nil {
+		return result, fmt.Errorf("persist compact event: %w", err)
+	}
+	if err := r.session.store.SaveSnapshot(ctx, session.Snapshot{
+		SessionID: r.session.id, LastSequence: record.Sequence, History: r.engine.History(),
+	}); err != nil {
+		return result, fmt.Errorf("persist compact snapshot: %w", err)
+	}
+	return result, nil
 }
 
 // Shutdown cancels active turns and starts cleanup exactly once. ctx limits
