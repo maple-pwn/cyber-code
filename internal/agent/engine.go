@@ -381,8 +381,14 @@ func (e *Engine) History() []core.Message {
 // Compact applies the configured conversation compactor outside a provider
 // turn. The engine turn lease prevents concurrent history replacement.
 func (e *Engine) Compact(ctx context.Context) (session.CompactResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if e.options.Compactor == nil {
 		return session.CompactResult{}, fmt.Errorf("conversation compactor is not configured")
+	}
+	if err := ctx.Err(); err != nil {
+		return session.CompactResult{}, err
 	}
 	select {
 	case <-ctx.Done():
@@ -410,6 +416,9 @@ func (e *Engine) Compact(ctx context.Context) (session.CompactResult, error) {
 func (e *Engine) ReplaceHistory(ctx context.Context, messages []core.Message) error {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	select {
 	case <-ctx.Done():

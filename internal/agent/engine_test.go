@@ -192,6 +192,30 @@ func TestEngineCancellationClosesOutput(t *testing.T) {
 	}
 }
 
+func TestEngineReplaceHistoryHonorsCancellationAndCopiesMessages(t *testing.T) {
+	engine := NewEngine(&fakeProvider{}, Options{})
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := engine.ReplaceHistory(canceled, []core.Message{{Role: core.RoleUser}}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled replacement error = %v", err)
+	}
+	messages := []core.Message{{Role: core.RoleUser, Content: []core.ContentBlock{{Type: core.ContentText, Text: "fresh"}}}}
+	if err := engine.ReplaceHistory(context.Background(), messages); err != nil {
+		t.Fatal(err)
+	}
+	messages[0].Content[0].Text = "mutated"
+	if got := engine.History()[0].Content[0].Text; got != "fresh" {
+		t.Fatalf("history was not copied: %q", got)
+	}
+}
+
+func TestEngineCompactWithoutCompactorReturnsConfigurationError(t *testing.T) {
+	engine := NewEngine(&fakeProvider{}, Options{})
+	if _, err := engine.Compact(context.Background()); err == nil {
+		t.Fatal("compact without compactor succeeded")
+	}
+}
+
 func TestEngineSerializesConcurrentTurns(t *testing.T) {
 	model := &serialProvider{
 		firstEntered: make(chan struct{}),
