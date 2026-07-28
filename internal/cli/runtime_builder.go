@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -47,6 +48,7 @@ type compositionOptions struct {
 	MaxTurns                                                             int
 	Headless                                                             bool
 	Confirmer                                                            permissions.Confirmer
+	Questioner                                                           builtin.Questioner
 }
 
 func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtimepkg.Runtime, returnErr error) {
@@ -116,6 +118,7 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 	for _, registered := range []tool.Tool{
 		builtin.NewReadFile(workspace), builtin.NewWriteFile(workspace), builtin.NewEditFile(workspace),
 		builtin.NewSearchFiles(workspace), builtin.NewShell(workspace, platform.NewRunner(platform.Options{})),
+		builtin.NewAskUser(options.Questioner),
 	} {
 		if err := registry.Register(registered); err != nil {
 			return nil, err
@@ -172,6 +175,9 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 			return nil, err
 		}
 	}
+	if err := registry.Register(builtin.NewTodo(todoStatePath(options.StateDir, sessionID))); err != nil {
+		return nil, err
+	}
 	maxTurns := options.MaxTurns
 	if maxTurns <= 0 {
 		maxTurns = 100
@@ -227,6 +233,11 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 		return nil, err
 	}
 	return built, nil
+}
+
+func todoStatePath(stateDir, sessionID string) string {
+	digest := sha256.Sum256([]byte(sessionID))
+	return filepath.Join(stateDir, "todos", hex.EncodeToString(digest[:])+".json")
 }
 
 func configureHooks(stateDir, workspace string, broker *permissions.Broker) (*hooks.Runner, error) {

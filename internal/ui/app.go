@@ -11,6 +11,7 @@ import (
 	"cyber-code/internal/core"
 	"cyber-code/internal/permissions"
 	"cyber-code/internal/product"
+	"cyber-code/internal/tool/builtin"
 	"cyber-code/internal/ui/components"
 )
 
@@ -35,20 +36,23 @@ type Model struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	Messages   []Message
-	Input      *components.InputModel
-	Processing bool
-	StatusText string
-	Err        error
-	Width      int
-	Height     int
-	Ready      bool
-	Permission *components.PermissionDialog
+	Messages       []Message
+	Input          *components.InputModel
+	Processing     bool
+	StatusText     string
+	Err            error
+	Width          int
+	Height         int
+	Ready          bool
+	Permission     *components.PermissionDialog
+	QuestionSelect *components.SelectDialog
+	QuestionInput  *components.InputDialog
 
 	events          <-chan core.Event
 	turnCancel      context.CancelFunc
 	assistantIndex  int
 	permissionReply chan<- permissions.Decision
+	questionReply   chan<- QuestionAnswer
 	initialPrompt   string
 }
 
@@ -64,9 +68,51 @@ type PermissionRequestMsg struct {
 	Respond chan<- permissions.Decision
 }
 
+type QuestionAnswer struct {
+	Value string
+	Err   error
+}
+
+type QuestionRequestMsg struct {
+	Question builtin.Question
+	Respond  chan<- QuestionAnswer
+}
+
 type PermissionBridge struct {
 	mu   sync.RWMutex
 	send func(tea.Msg)
+}
+
+type QuestionBridge struct {
+	mu   sync.RWMutex
+	send func(tea.Msg)
+}
+
+func NewQuestionBridge() *QuestionBridge { return &QuestionBridge{} }
+
+func (bridge *QuestionBridge) Attach(send func(tea.Msg)) {
+	bridge.mu.Lock()
+	bridge.send = send
+	bridge.mu.Unlock()
+}
+
+func (bridge *QuestionBridge) Detach() { bridge.Attach(nil) }
+
+func (bridge *QuestionBridge) Ask(ctx context.Context, question builtin.Question) (string, error) {
+	bridge.mu.RLock()
+	send := bridge.send
+	bridge.mu.RUnlock()
+	if send == nil {
+		return "", builtin.ErrInteractiveInputUnavailable
+	}
+	reply := make(chan QuestionAnswer, 1)
+	send(QuestionRequestMsg{Question: question, Respond: reply})
+	select {
+	case answer := <-reply:
+		return answer.Value, answer.Err
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
 }
 
 func NewPermissionBridge() *PermissionBridge { return &PermissionBridge{} }
@@ -133,6 +179,9 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.Permission.Width = max(24, min(60, message.Width-4))
 		}
 	case tea.KeyMsg:
+		if model.QuestionSelect != nil || model.QuestionInput != nil {
+			return model.updateQuestion(message)
+		}
 		if model.Permission != nil {
 			return model.updatePermission(message)
 		}
@@ -178,10 +227,53 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		model.Permission = components.NewPermissionDialog(message.Request.Tool, permissionDescription(message.Request))
 		model.permissionReply = message.Respond
 		return model, nil
+	case QuestionRequestMsg:
+		model.questionReply = message.Respond
+		if len(message.Question.Options) > 0 {
+			model.QuestionSelect = components.NewSelectDialog(message.Question.Prompt, message.Question.Options)
+		} else {
+			model.QuestionInput = components.NewInputDialog("Question", message.Question.Prompt, "Type your answer")
+		}
+		return model, nil
 	case permissionRespondedMsg:
 		return model, nil
 	}
 	return model, nil
+}
+
+func (model *Model) updateQuestion(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	answer := QuestionAnswer{}
+	finished := false
+	if model.QuestionSelect != nil {
+		updated, _ := model.QuestionSelect.Update(key)
+		model.QuestionSelect = updated.(*components.SelectDialog)
+		if model.QuestionSelect.Closed {
+			answer.Value = model.QuestionSelect.Result
+			finished = true
+		}
+	} else if model.QuestionInput != nil {
+		updated, _ := model.QuestionInput.Update(key)
+		model.QuestionInput = updated.(*components.InputDialog)
+		if key.Type == tea.KeyEnter {
+			answer.Value, finished = model.QuestionInput.Value, true
+		} else if key.Type == tea.KeyEsc {
+			answer.Err, finished = fmt.Errorf("user canceled the question"), true
+		}
+	}
+	if !finished {
+		return model, nil
+	}
+	reply := model.questionReply
+	model.QuestionSelect, model.QuestionInput, model.questionReply = nil, nil, nil
+	return model, func() tea.Msg {
+		if reply != nil {
+			select {
+			case reply <- answer:
+			case <-model.ctx.Done():
+			}
+		}
+		return permissionRespondedMsg{}
+	}
 }
 
 func startTurn(runner Runner, ctx context.Context, prompt string) tea.Cmd {
@@ -321,6 +413,14 @@ func (model *Model) View() string {
 	}
 	if model.Permission != nil {
 		output.WriteString(model.Permission.View())
+		output.WriteByte('\n')
+	}
+	if model.QuestionSelect != nil {
+		output.WriteString(model.QuestionSelect.View())
+		output.WriteByte('\n')
+	}
+	if model.QuestionInput != nil {
+		output.WriteString(model.QuestionInput.View())
 		output.WriteByte('\n')
 	}
 	if model.Processing {

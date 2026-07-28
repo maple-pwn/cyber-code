@@ -17,6 +17,7 @@ import (
 	"cyber-code/internal/frontend"
 	"cyber-code/internal/permissions"
 	"cyber-code/internal/product"
+	"cyber-code/internal/tool/builtin"
 	"cyber-code/internal/ui"
 )
 
@@ -111,16 +112,19 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 			runner := environment.options.Runner
 			var shutdown func(context.Context) error
 			var permissionUI *ui.PermissionBridge
+			var questionUI *ui.QuestionBridge
 			bootstrapConfirmer := newBootstrapConfirmer(environment.stdin, environment.stderr)
 			if !printMode {
 				permissionUI = ui.NewPermissionBridge()
+				questionUI = ui.NewQuestionBridge()
 			}
 			if runner == nil {
 				built, err := composeRuntime(environment.ctx, compositionOptions{
 					ConfigFile: environment.configFile, StateDir: environment.stateDir, Profile: profile,
 					PermissionMode: permissionMode, Model: model, Cwd: cwd, MaxTurns: maxTurns, Headless: printMode,
-					SessionID: resumeSession,
-					Confirmer: newInteractiveConfirmer(permissionUI, bootstrapConfirmer),
+					SessionID:  resumeSession,
+					Confirmer:  newInteractiveConfirmer(permissionUI, bootstrapConfirmer),
+					Questioner: newInteractiveQuestioner(questionUI),
 				})
 				if err != nil {
 					return err
@@ -140,7 +144,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 				}
 				return nil
 			}
-			app := NewApp(&Config{Runtime: runner, Cwd: cwd, PermissionUI: permissionUI, Context: environment.ctx}, environment.options.Version)
+			app := NewApp(&Config{Runtime: runner, Cwd: cwd, PermissionUI: permissionUI, QuestionUI: questionUI, Context: environment.ctx}, environment.options.Version)
 			defer app.Shutdown()
 			return app.Run(prompt)
 		},
@@ -159,6 +163,13 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	command.AddCommand(newPluginsCommand(environment))
 	command.AddCommand(newSessionsCommand(environment))
 	return command
+}
+
+func newInteractiveQuestioner(bridge *ui.QuestionBridge) builtin.Questioner {
+	if bridge == nil {
+		return nil
+	}
+	return bridge.Ask
 }
 
 func newInteractiveConfirmer(bridge *ui.PermissionBridge, bootstrap permissions.Confirmer) permissions.Confirmer {

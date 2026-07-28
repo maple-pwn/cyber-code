@@ -256,7 +256,9 @@ func (d *InputDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return d, tea.Quit
 		case tea.KeyBackspace:
 			if d.CursorPos > 0 {
-				d.Value = d.Value[:d.CursorPos-1] + d.Value[d.CursorPos:]
+				runes := []rune(d.Value)
+				runes = append(runes[:d.CursorPos-1], runes[d.CursorPos:]...)
+				d.Value = string(runes)
 				d.CursorPos--
 			}
 		case tea.KeyLeft:
@@ -264,12 +266,14 @@ func (d *InputDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				d.CursorPos--
 			}
 		case tea.KeyRight:
-			if d.CursorPos < len(d.Value) {
+			if d.CursorPos < len([]rune(d.Value)) {
 				d.CursorPos++
 			}
 		case tea.KeyRunes:
 			runes := msg.Runes
-			d.Value = d.Value[:d.CursorPos] + string(runes) + d.Value[d.CursorPos:]
+			value := []rune(d.Value)
+			value = append(value[:d.CursorPos], append(runes, value[d.CursorPos:]...)...)
+			d.Value = string(value)
 			d.CursorPos += len(runes)
 		}
 	}
@@ -294,12 +298,14 @@ func (d *InputDialog) View() string {
 	if d.Value == "" {
 		b.WriteString(inputBox.Render(placeholderStyle.Render(d.Placeholder)))
 	} else {
-		before := d.Value[:d.CursorPos]
+		runes := []rune(d.Value)
+		cursor := min(max(d.CursorPos, 0), len(runes))
+		before := string(runes[:cursor])
 		atCursor := " "
 		after := ""
-		if d.CursorPos < len(d.Value) {
-			atCursor = string(d.Value[d.CursorPos])
-			after = d.Value[d.CursorPos+1:]
+		if cursor < len(runes) {
+			atCursor = string(runes[cursor])
+			after = string(runes[cursor+1:])
 		}
 		inputText := before + cursorStyle.Render(atCursor) + after
 		b.WriteString(inputBox.Render(inputText))

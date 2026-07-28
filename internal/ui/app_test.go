@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 
 	"cyber-code/internal/core"
 	"cyber-code/internal/permissions"
+	"cyber-code/internal/tool/builtin"
 )
 
 func TestModelEnterSubmitsPromptThroughCommandAndConsumesRuntimeEvents(t *testing.T) {
@@ -55,6 +57,41 @@ func TestModelVimModeTogglePreservesUnicodeInput(t *testing.T) {
 	model.SetVimMode(false)
 	if model.Input.Value != "保留 text" || model.Input.CursorPos != 7 {
 		t.Fatalf("input = %q, cursor = %d", model.Input.Value, model.Input.CursorPos)
+	}
+}
+
+func TestModelAnswersStructuredUserQuestion(t *testing.T) {
+	model := NewModel(&uiTestRunner{}, ModelOptions{})
+	reply := make(chan QuestionAnswer, 1)
+	updated, command := model.Update(QuestionRequestMsg{
+		Question: builtin.Question{Prompt: "Choose", Options: []string{"first", "second"}}, Respond: reply,
+	})
+	model = updated.(*Model)
+	if command != nil || model.QuestionSelect == nil || !strings.Contains(model.View(), "Choose") {
+		t.Fatalf("question state = %#v", model.QuestionSelect)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(*Model)
+	updated, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(*Model)
+	if command == nil || model.QuestionSelect != nil {
+		t.Fatalf("question did not finish")
+	}
+	_ = command()
+	answer := <-reply
+	if answer.Err != nil || answer.Value != "second" {
+		t.Fatalf("answer = %#v", answer)
+	}
+}
+
+func TestQuestionBridgeReturnsContextCancellation(t *testing.T) {
+	bridge := NewQuestionBridge()
+	bridge.Attach(func(tea.Msg) {})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := bridge.Ask(ctx, builtin.Question{Prompt: "cancel me"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v", err)
 	}
 }
 
