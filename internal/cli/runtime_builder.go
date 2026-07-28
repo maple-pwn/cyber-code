@@ -118,7 +118,8 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 	for _, registered := range []tool.Tool{
 		builtin.NewReadFile(workspace), builtin.NewWriteFile(workspace), builtin.NewEditFile(workspace),
 		builtin.NewSearchFiles(workspace), builtin.NewShell(workspace, platform.NewRunner(platform.Options{})),
-		builtin.NewAskUser(options.Questioner),
+		builtin.NewAskUser(options.Questioner), builtin.NewWebFetch(nil),
+		builtin.NewWebSearch(builtin.NewDuckDuckGoSearch(nil)),
 	} {
 		if err := registry.Register(registered); err != nil {
 			return nil, err
