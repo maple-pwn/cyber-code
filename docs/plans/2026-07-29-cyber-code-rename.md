@@ -4,7 +4,7 @@
 
 **Goal:** Rename the complete product identity to `cyber-code` and inject a provider-independent system identity into every canonical agent request.
 
-**Architecture:** Add the product identity at the canonical agent boundary so Anthropic and OpenAI-compatible providers receive the same instructions. Apply the remaining rename across the Go module, CLI surface, configuration paths, environment variables, runtime client identifiers, UI, build artifacts, scripts, and current documentation as a deliberate breaking change with no legacy fallback.
+**Architecture:** Define compile-time identity once in a dependency-free `internal/product` package and consume it at the canonical agent boundary and all runtime user-facing boundaries. Apply the remaining rename across the Go module, CLI surface, configuration paths, environment variables, runtime client identifiers, UI, build artifacts, scripts, and current documentation as a deliberate breaking change with no legacy fallback; use a residual scan for non-Go release metadata.
 
 **Tech Stack:** Go 1.26.5, Cobra, Bubble Tea, YAML configuration, Go tests and cross-compilation.
 
@@ -15,6 +15,8 @@
 **Files:**
 - Modify: `internal/agent/options.go`
 - Modify: `internal/agent/engine.go`
+- Create: `internal/product/product.go`
+- Create: `internal/product/product_test.go`
 - Test: `internal/agent/engine_test.go`
 - Test: `tests/integration/agent_openai_test.go`
 
@@ -30,7 +32,7 @@ Expected: FAIL because the canonical request has no system identity.
 
 **Step 3: Write minimal implementation**
 
-Add a default system prompt constant and an optional `SystemPrompt` field to `agent.Options`. Build `core.Request.System` from the configured prompt, falling back to the `cyber-code` identity.
+Create the canonical product manifest and add an optional `SystemPrompt` field to `agent.Options`. Build `core.Request.System` from the configured prompt, falling back to the identity exported by `internal/product`.
 
 **Step 4: Run tests to verify they pass**
 
@@ -68,7 +70,7 @@ Expected: FAIL with the old CLI/TUI label.
 
 **Step 3: Apply the module and visible rename**
 
-Change `module claude-code-go` to `module cyber-code`, rewrite internal import paths, root command usage, TUI heading, executable examples and product-facing errors.
+Change the Go module to the canonical module identifier, rewrite internal import paths, and derive root command usage and TUI heading from `internal/product`.
 
 **Step 4: Format and test**
 
