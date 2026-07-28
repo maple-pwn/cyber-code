@@ -37,7 +37,7 @@ func (model *Model) View() string {
 		output.WriteString(model.StatusText + "\n")
 	}
 	output.WriteString(strings.Repeat("-", width) + "\n")
-	output.WriteString("> " + model.Input)
+	output.WriteString(model.Input.View())
 	return output.String()
 }
 

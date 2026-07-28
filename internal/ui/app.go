@@ -20,6 +20,7 @@ type ModelOptions struct {
 	Width         int
 	Height        int
 	InitialPrompt string
+	VimMode       bool
 }
 
 type Message struct {
@@ -33,7 +34,7 @@ type Model struct {
 	cancel context.CancelFunc
 
 	Messages   []Message
-	Input      string
+	Input      *components.InputModel
 	Processing bool
 	StatusText string
 	Err        error
@@ -69,8 +70,10 @@ func NewModel(runner Runner, options ModelOptions) *Model {
 		options.Height = 24
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	input := components.NewInput(">", "Type your message...", options.Width)
+	input.SetVimEnabled(options.VimMode)
 	return &Model{
-		runner: runner, ctx: ctx, cancel: cancel, Messages: []Message{}, Width: options.Width, Height: options.Height,
+		runner: runner, ctx: ctx, cancel: cancel, Messages: []Message{}, Input: input, Width: options.Width, Height: options.Height,
 		Ready: true, assistantIndex: -1, initialPrompt: options.InitialPrompt,
 	}
 }
@@ -81,7 +84,7 @@ func (model *Model) Init() tea.Cmd {
 	if strings.TrimSpace(model.initialPrompt) == "" {
 		return nil
 	}
-	model.Input = model.initialPrompt
+	model.Input.SetValue(model.initialPrompt)
 	model.initialPrompt = ""
 	return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
 }
@@ -90,6 +93,7 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
 	case tea.WindowSizeMsg:
 		model.Width, model.Height, model.Ready = message.Width, message.Height, true
+		model.Input.Width = max(20, message.Width)
 		if model.Permission != nil {
 			model.Permission.Width = max(24, min(60, message.Width-4))
 		}
@@ -105,23 +109,18 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.cancel()
 			return model, tea.Quit
 		case tea.KeyEnter:
-			if model.Processing || strings.TrimSpace(model.Input) == "" {
+			if model.Processing || strings.TrimSpace(model.Input.Value) == "" {
 				return model, nil
 			}
-			prompt := model.Input
-			model.Input = ""
+			prompt := model.Input.Value
+			model.Input.Clear()
 			model.Messages = append(model.Messages, Message{Role: "user", Content: prompt})
 			model.Processing, model.StatusText, model.Err = true, "Working", nil
 			turnCtx, cancel := context.WithCancel(model.ctx)
 			model.turnCancel = cancel
 			return model, startTurn(model.runner, turnCtx, prompt)
-		case tea.KeyBackspace:
-			runes := []rune(model.Input)
-			if len(runes) > 0 {
-				model.Input = string(runes[:len(runes)-1])
-			}
-		case tea.KeyRunes:
-			model.Input += string(message.Runes)
+		default:
+			return model, model.Input.Update(message)
 		}
 	case turnStartedMsg:
 		model.events = message.events
@@ -261,6 +260,11 @@ func NewPermissionConfirmer(send func(tea.Msg)) permissions.Confirmer {
 
 func (model *Model) AddMessage(role, content string) {
 	model.Messages = append(model.Messages, Message{Role: role, Content: content})
+}
+
+// SetVimMode changes input behavior without replacing the input buffer.
+func (model *Model) SetVimMode(enabled bool) {
+	model.Input.SetVimEnabled(enabled)
 }
 
 func coreMessageText(message *core.Message) string {

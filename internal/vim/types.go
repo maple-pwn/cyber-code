@@ -1,5 +1,45 @@
 package vim
 
+// Mode identifies the active Vim editing mode.
+type Mode string
+
+const (
+	ModeInsert Mode = "INSERT"
+	ModeNormal Mode = "NORMAL"
+	ModeVisual Mode = "VISUAL"
+)
+
+// ActionKind identifies a pure editing action emitted by the state machine.
+type ActionKind string
+
+const (
+	ActionNone     ActionKind = "none"
+	ActionInsert   ActionKind = "insert"
+	ActionSetMode  ActionKind = "set_mode"
+	ActionMove     ActionKind = "move"
+	ActionOperator ActionKind = "operator"
+	ActionDelete   ActionKind = "delete"
+	ActionUndo     ActionKind = "undo"
+	ActionRedo     ActionKind = "redo"
+	ActionRepeat   ActionKind = "repeat"
+	ActionFind     ActionKind = "find"
+	ActionPaste    ActionKind = "paste"
+	ActionReplace  ActionKind = "replace"
+)
+
+// Action is independent of any text buffer and can be applied by a frontend.
+type Action struct {
+	Kind     ActionKind
+	Mode     Mode
+	FromMode Mode
+	Text     string
+	Motion   string
+	Operator Operator
+	Count    int
+	Find     FindType
+	Scope    TextObjScope
+}
+
 // =============================================================================
 // Vim Mode Types
 // =============================================================================
@@ -37,7 +77,7 @@ const (
 
 // VimState represents the complete vim state.
 type VimState struct {
-	Mode         string        `json:"mode"` // INSERT or NORMAL
+	Mode         Mode          `json:"mode"`
 	Command      *CommandState `json:"command,omitempty"`
 	InsertedText string        `json:"insertedText,omitempty"`
 }
@@ -89,7 +129,7 @@ type RecordedChange struct {
 // NewVimState creates an initial vim state (INSERT mode).
 func NewVimState() *VimState {
 	return &VimState{
-		Mode:         "INSERT",
+		Mode:         ModeInsert,
 		InsertedText: "",
 	}
 }

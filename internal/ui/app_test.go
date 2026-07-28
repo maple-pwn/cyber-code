@@ -19,7 +19,7 @@ func TestModelEnterSubmitsPromptThroughCommandAndConsumesRuntimeEvents(t *testin
 		{Type: core.EventCompleted, FinishReason: "stop"},
 	}}
 	model := NewModel(runner, ModelOptions{Width: 80, Height: 24})
-	model.Input = "inspect"
+	model.Input.SetValue("inspect")
 	updated, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(*Model)
 	if runner.prompt != "" || command == nil {
@@ -30,14 +30,24 @@ func TestModelEnterSubmitsPromptThroughCommandAndConsumesRuntimeEvents(t *testin
 	for command != nil {
 		model, command = updateModel(t, model, command())
 	}
-	if runner.prompt != "inspect" || model.Processing || model.Input != "" {
-		t.Fatalf("prompt = %q, processing = %v, input = %q", runner.prompt, model.Processing, model.Input)
+	if runner.prompt != "inspect" || model.Processing || model.Input.Value != "" {
+		t.Fatalf("prompt = %q, processing = %v, input = %q", runner.prompt, model.Processing, model.Input.Value)
 	}
 	view := model.View()
 	for _, text := range []string{"inspect", "hello", "read_file", "file"} {
 		if !strings.Contains(view, text) {
 			t.Fatalf("view missing %q: %q", text, view)
 		}
+	}
+}
+
+func TestModelVimModeTogglePreservesUnicodeInput(t *testing.T) {
+	model := NewModel(&uiTestRunner{}, ModelOptions{Width: 80, Height: 24})
+	model.Input.SetValue("保留 text")
+	model.SetVimMode(true)
+	model.SetVimMode(false)
+	if model.Input.Value != "保留 text" || model.Input.CursorPos != 7 {
+		t.Fatalf("input = %q, cursor = %d", model.Input.Value, model.Input.CursorPos)
 	}
 }
 

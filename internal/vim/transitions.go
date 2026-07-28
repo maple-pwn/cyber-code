@@ -1,5 +1,7 @@
 package vim
 
+import "strings"
+
 // =============================================================================
 // Vim State Transitions
 // =============================================================================
@@ -21,10 +23,12 @@ func NewTransition(state *VimState, persistent *PersistentState) *Transition {
 // HandleKey handles a key press in the current state.
 func (t *Transition) HandleKey(key string) (action string, err error) {
 	switch t.state.Mode {
-	case "INSERT":
+	case ModeInsert:
 		return t.handleInsertKey(key)
-	case "NORMAL":
+	case ModeNormal:
 		return t.handleNormalKey(key)
+	case ModeVisual:
+		return t.handleVisualKey(key)
 	default:
 		return "", nil
 	}
@@ -41,7 +45,7 @@ func (t *Transition) handleInsertKey(key string) (string, error) {
 				Text: t.state.InsertedText,
 			}
 		}
-		t.state.Mode = "NORMAL"
+		t.state.Mode = ModeNormal
 		t.state.Command = NewCommandState()
 		t.state.InsertedText = ""
 		return "mode:normal", nil
@@ -90,28 +94,28 @@ func (t *Transition) handleNormalKey(key string) (string, error) {
 func (t *Transition) handleIdleKey(key string) (string, error) {
 	// Switch to INSERT mode
 	if key == "i" {
-		t.state.Mode = "INSERT"
+		t.state.Mode = ModeInsert
 		t.state.InsertedText = ""
 		return "mode:insert", nil
 	}
 
 	// Switch to INSERT mode at beginning of line
 	if key == "I" {
-		t.state.Mode = "INSERT"
+		t.state.Mode = ModeInsert
 		t.state.InsertedText = ""
 		return "mode:insert:start", nil
 	}
 
 	// Switch to INSERT mode at end of line
 	if key == "A" {
-		t.state.Mode = "INSERT"
+		t.state.Mode = ModeInsert
 		t.state.InsertedText = ""
 		return "mode:insert:end", nil
 	}
 
 	// Switch to INSERT mode on new line below
 	if key == "o" {
-		t.state.Mode = "INSERT"
+		t.state.Mode = ModeInsert
 		t.state.InsertedText = ""
 		t.persistent.LastChange = &RecordedChange{
 			Type:      "openLine",
@@ -122,7 +126,7 @@ func (t *Transition) handleIdleKey(key string) (string, error) {
 
 	// Switch to INSERT mode on new line above
 	if key == "O" {
-		t.state.Mode = "INSERT"
+		t.state.Mode = ModeInsert
 		t.state.InsertedText = ""
 		t.persistent.LastChange = &RecordedChange{
 			Type:      "openLine",
@@ -139,6 +143,11 @@ func (t *Transition) handleIdleKey(key string) (string, error) {
 			Count: 1,
 		}
 		return "", nil
+	}
+
+	if key == "v" || key == "V" {
+		t.state.Mode = ModeVisual
+		return "mode:visual", nil
 	}
 
 	// Count
@@ -247,6 +256,119 @@ func (t *Transition) handleIdleKey(key string) (string, error) {
 	}
 
 	return "", nil
+}
+
+func (t *Transition) handleVisualKey(key string) (string, error) {
+	if key == "<Esc>" || key == "\x1b" {
+		t.state.Mode = ModeNormal
+		t.state.Command = NewCommandState()
+		return "mode:normal", nil
+	}
+	if IsSimpleMotion(key) {
+		return "motion:" + key, nil
+	}
+	if IsOperatorKey(key) {
+		op := GetOperator(key)
+		if op == OperatorChange {
+			t.state.Mode = ModeInsert
+		} else {
+			t.state.Mode = ModeNormal
+		}
+		t.persistent.LastChange = &RecordedChange{Type: "operator", Op: op, Motion: "selection", Count: 1}
+		return string(op) + ":selection", nil
+	}
+	return "", nil
+}
+
+// ActionForKey advances the state machine and returns a structured action.
+func (t *Transition) ActionForKey(key string) (Action, error) {
+	modeBefore := t.state.Mode
+	insertedBefore := t.state.InsertedText
+	commandBefore := copyCommand(t.state.Command)
+	legacy, err := t.HandleKey(key)
+	if err != nil {
+		return Action{}, err
+	}
+	action := Action{Kind: ActionNone, FromMode: modeBefore, Count: actionCount(commandBefore)}
+	if action.Count == 0 {
+		action.Count = 1
+	}
+
+	switch {
+	case strings.HasPrefix(legacy, "insert:"):
+		action.Kind, action.Text = ActionInsert, strings.TrimPrefix(legacy, "insert:")
+	case strings.HasPrefix(legacy, "mode:"):
+		action.Kind, action.Mode = ActionSetMode, t.state.Mode
+		position := strings.TrimPrefix(legacy, "mode:")
+		if position == "insert:start" || position == "insert:end" {
+			action.Motion = strings.TrimPrefix(position, "insert:")
+		}
+		if modeBefore == ModeInsert && t.state.Mode == ModeNormal {
+			action.Text = insertedBefore
+		}
+	case strings.HasPrefix(legacy, "motion:"):
+		action.Kind, action.Motion = ActionMove, strings.TrimPrefix(legacy, "motion:")
+	case legacy == "delete:char":
+		action.Kind, action.Motion = ActionDelete, "char"
+	case legacy == "undo":
+		action.Kind = ActionUndo
+	case legacy == "redo":
+		action.Kind = ActionRedo
+	case legacy == "repeat":
+		action.Kind = ActionRepeat
+	case strings.HasPrefix(legacy, "find:"):
+		parts := strings.SplitN(legacy, ":", 3)
+		if len(parts) == 3 {
+			action.Kind, action.Find, action.Text = ActionFind, FindType(parts[1]), parts[2]
+		}
+	case strings.HasPrefix(legacy, "paste:"):
+		action.Kind, action.Motion = ActionPaste, strings.TrimPrefix(legacy, "paste:")
+	case strings.HasPrefix(legacy, "replace:"):
+		action.Kind, action.Text = ActionReplace, strings.TrimPrefix(legacy, "replace:")
+	case strings.HasPrefix(legacy, "delete:") || strings.HasPrefix(legacy, "change:") || strings.HasPrefix(legacy, "yank:"):
+		parts := strings.Split(legacy, ":")
+		action.Kind = ActionOperator
+		action.Operator = Operator(parts[0])
+		if len(parts) == 2 {
+			action.Motion = parts[1]
+		} else if len(parts) >= 4 && parts[1] == "find" {
+			action.Motion, action.Find, action.Text = "find", FindType(parts[2]), parts[3]
+		} else if len(parts) >= 3 && parts[1] == "textobj" {
+			action.Motion, action.Text = "textobj", parts[2]
+		}
+		if commandBefore != nil {
+			action.Scope = commandBefore.Scope
+		}
+		if t.persistent.LastChange != nil && t.persistent.LastChange.Op == action.Operator && t.persistent.LastChange.Count > 0 {
+			action.Count = t.persistent.LastChange.Count
+		}
+		if action.Operator == OperatorChange {
+			t.state.Mode = ModeInsert
+			t.state.InsertedText = ""
+		}
+	}
+	return action, nil
+}
+
+func copyCommand(command *CommandState) *CommandState {
+	if command == nil {
+		return nil
+	}
+	copy := *command
+	return &copy
+}
+
+func actionCount(command *CommandState) int {
+	if command == nil {
+		return 1
+	}
+	if command.Type == "count" {
+		return min(MaxVimCount, parseCount(command.Digits))
+	}
+	if command.Count > 0 {
+		return command.Count
+	}
+	return 1
 }
 
 // handleCountKey handles keys in count state.
