@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -40,7 +41,7 @@ func NewWriteFile(workspace string) tool.Tool {
 func NewEditFile(workspace string) tool.Tool {
 	return &fileTool{workspace: workspace, action: permissions.ActionWrite, spec: tool.Spec{
 		Name: "edit_file", Description: "Replace one unique text occurrence in a file",
-		Schema: json.RawMessage(`{"type":"object","required":["path","old_text","new_text"],"properties":{"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"}},"additionalProperties":false}`),
+		Schema: json.RawMessage(`{"type":"object","required":["path","old_text","new_text"],"properties":{"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"},"expected_sha256":{"type":"string"}},"additionalProperties":false}`),
 	}}
 }
 
@@ -92,9 +93,10 @@ func (file *fileTool) Run(ctx context.Context, arguments json.RawMessage) (core.
 		return textResult("file written"), nil
 	case "edit_file":
 		var input struct {
-			Path    string `json:"path"`
-			OldText string `json:"old_text"`
-			NewText string `json:"new_text"`
+			Path           string `json:"path"`
+			OldText        string `json:"old_text"`
+			NewText        string `json:"new_text"`
+			ExpectedSHA256 string `json:"expected_sha256"`
 		}
 		if err := json.Unmarshal(arguments, &input); err != nil {
 			return core.ToolResult{}, err
@@ -107,13 +109,25 @@ func (file *fileTool) Run(ctx context.Context, arguments json.RawMessage) (core.
 		if err != nil {
 			return core.ToolResult{}, err
 		}
+		if input.OldText == "" {
+			return core.ToolResult{}, fmt.Errorf("old_text must not be empty")
+		}
+		if input.ExpectedSHA256 != "" {
+			digest := sha256.Sum256(content)
+			if !strings.EqualFold(input.ExpectedSHA256, fmt.Sprintf("%x", digest)) {
+				return core.ToolResult{}, fmt.Errorf("file changed since the expected version")
+			}
+		}
 		if count := strings.Count(string(content), input.OldText); count != 1 {
 			return core.ToolResult{}, fmt.Errorf("old_text matched %d times; expected exactly once", count)
 		}
 		replaced := strings.Replace(string(content), input.OldText, input.NewText, 1)
-		path, err = permissions.ResolvePath(file.workspace, path)
+		latest, err := readLimitedFile(path)
 		if err != nil {
 			return core.ToolResult{}, err
+		}
+		if string(latest) != string(content) {
+			return core.ToolResult{}, fmt.Errorf("file changed during edit; retry with fresh content")
 		}
 		if err := atomicWrite(ctx, path, []byte(replaced)); err != nil {
 			return core.ToolResult{}, err

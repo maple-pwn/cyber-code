@@ -119,7 +119,7 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 		builtin.NewReadFile(workspace), builtin.NewWriteFile(workspace), builtin.NewEditFile(workspace),
 		builtin.NewSearchFiles(workspace), builtin.NewShell(workspace, platform.NewRunner(platform.Options{})),
 		builtin.NewAskUser(options.Questioner), builtin.NewWebFetch(nil),
-		builtin.NewWebSearch(builtin.NewDuckDuckGoSearch(nil)),
+		builtin.NewWebSearch(builtin.NewDuckDuckGoSearch(nil)), builtin.NewNotebookEdit(workspace),
 	} {
 		if err := registry.Register(registered); err != nil {
 			return nil, err

@@ -124,6 +124,19 @@ func TestReadAndEditFileSuccessfulPaths(t *testing.T) {
 	}
 }
 
+func TestEditFileRejectsUnexpectedContentVersion(t *testing.T) {
+	workspace := t.TempDir()
+	target := filepath.Join(workspace, "file.txt")
+	if err := os.WriteFile(target, []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	edit := NewEditFile(workspace)
+	args := json.RawMessage(`{"path":"file.txt","old_text":"before","new_text":"after","expected_sha256":"deadbeef"}`)
+	if _, err := edit.Run(context.Background(), args); err == nil {
+		t.Fatal("stale edit was accepted")
+	}
+}
+
 func TestFileToolRejectsMalformedUnsupportedAndCanceledOperations(t *testing.T) {
 	workspace := t.TempDir()
 	read := NewReadFile(workspace)
