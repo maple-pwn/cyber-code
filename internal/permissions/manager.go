@@ -97,8 +97,9 @@ func (r *PermissionResult) NeedsPrompt() bool {
 
 // Manager manages permission rules and checks.
 type Manager struct {
-	mu    sync.RWMutex
-	rules map[PermissionRuleSource][]PermissionRule
+	mu      sync.RWMutex
+	rules   map[PermissionRuleSource][]PermissionRule
+	cacheMu sync.RWMutex
 	// Wildcard pattern cache
 	wildcardCache map[string]*regexp.Regexp
 }
@@ -156,6 +157,9 @@ func (m *Manager) ClearRules(source PermissionRuleSource) {
 
 // CheckPermission checks if an action is permitted.
 func (m *Manager) CheckPermission(ctx context.Context, toolName, ruleContent string) *PermissionResult {
+	if ctx != nil && ctx.Err() != nil {
+		return &PermissionResult{Behavior: PermissionBehaviorDeny, Message: "Permission check canceled"}
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -171,19 +175,12 @@ func (m *Manager) CheckPermission(ctx context.Context, toolName, ruleContent str
 		SourceSession,
 	}
 
-	for _, source := range sources {
-		rules := m.rules[source]
-		for _, rule := range rules {
-			if m.matchesRule(rule.RuleValue, toolName, ruleContent) {
-				return &PermissionResult{
-					Behavior: rule.RuleBehavior,
-					Rule:     &rule,
-					DecisionReason: &PermissionDecisionReason{
-						Type: "rule",
-						Rule: &rule,
-					},
-				}
-			}
+	if result := m.findMatchingRule(sources, PermissionBehaviorDeny, toolName, ruleContent); result != nil {
+		return result
+	}
+	for _, behavior := range []PermissionBehavior{PermissionBehaviorAllow, PermissionBehaviorAsk, PermissionBehaviorPassthrough} {
+		if result := m.findMatchingRule(sources, behavior, toolName, ruleContent); result != nil {
+			return result
 		}
 	}
 
@@ -192,6 +189,26 @@ func (m *Manager) CheckPermission(ctx context.Context, toolName, ruleContent str
 		Behavior: PermissionBehaviorAsk,
 		Message:  fmt.Sprintf("Permission required for %s", toolName),
 	}
+}
+
+func (m *Manager) findMatchingRule(sources []PermissionRuleSource, behavior PermissionBehavior, toolName, ruleContent string) *PermissionResult {
+	for _, source := range sources {
+		for _, rule := range m.rules[source] {
+			if rule.RuleBehavior != behavior || !m.matchesRule(rule.RuleValue, toolName, ruleContent) {
+				continue
+			}
+			matched := rule
+			return &PermissionResult{
+				Behavior: matched.RuleBehavior,
+				Rule:     &matched,
+				DecisionReason: &PermissionDecisionReason{
+					Type: "rule",
+					Rule: &matched,
+				},
+			}
+		}
+	}
+	return nil
 }
 
 // matchesRule checks if a rule matches the given tool and content.
@@ -233,13 +250,19 @@ func (m *Manager) matchToolName(pattern, toolName string) bool {
 
 // matchPattern matches a wildcard pattern against a string.
 func (m *Manager) matchPattern(pattern, s string) bool {
-	// Check cache
+	m.cacheMu.RLock()
 	re, cached := m.wildcardCache[pattern]
+	m.cacheMu.RUnlock()
 	if !cached {
-		// Convert wildcard pattern to regex
 		regexPattern := m.wildcardToRegex(pattern)
 		re = regexp.MustCompile("^" + regexPattern + "$")
-		m.wildcardCache[pattern] = re
+		m.cacheMu.Lock()
+		if existing, ok := m.wildcardCache[pattern]; ok {
+			re = existing
+		} else {
+			m.wildcardCache[pattern] = re
+		}
+		m.cacheMu.Unlock()
 	}
 
 	return re.MatchString(s)
@@ -317,7 +340,7 @@ const (
 // GetModeBehavior returns the default behavior for a mode.
 func GetModeBehavior(mode PermissionMode) PermissionBehavior {
 	switch mode {
-	case PermissionModeAccept:
+	case PermissionModeAccept, PermissionModeAcceptEdits, PermissionModeBypass:
 		return PermissionBehaviorAllow
 	case PermissionModePlan:
 		return PermissionBehaviorAsk
