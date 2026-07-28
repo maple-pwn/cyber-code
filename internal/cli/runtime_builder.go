@@ -13,6 +13,7 @@ import (
 
 	"cyber-code/internal/agent"
 	configpkg "cyber-code/internal/config"
+	"cyber-code/internal/contextbuilder"
 	"cyber-code/internal/hooks"
 	"cyber-code/internal/lsp"
 	"cyber-code/internal/mcp"
@@ -33,6 +34,12 @@ import (
 	"cyber-code/internal/tasks"
 	"cyber-code/internal/tool"
 	"cyber-code/internal/tool/builtin"
+	"cyber-code/internal/utils"
+)
+
+const (
+	defaultContextWindow  = 128_000
+	defaultReservedOutput = 8_192
 )
 
 type compositionOptions struct {
@@ -169,10 +176,14 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 	if maxTurns <= 0 {
 		maxTurns = 100
 	}
+	contextBuilder, err := buildContextBuilder(workspace, options.StateDir)
+	if err != nil {
+		return nil, err
+	}
 	childRegistry := registry.Clone()
 	taskService, err := configureTaskService(taskCompositionOptions{
 		Provider: modelProvider, Registry: childRegistry, Broker: broker, Hooks: hookRunner,
-		Model: profile.Model, SystemPrompt: systemPromptWithSkills(discoveredSkills), SessionID: sessionID,
+		Model: profile.Model, ContextBuilder: contextBuilder, SessionID: sessionID,
 		ParentMode: mode, ParentMaxTurns: maxTurns,
 	})
 	if err != nil {
@@ -188,7 +199,7 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 		return nil, err
 	}
 	agentOptions := agent.Options{
-		Model: profile.Model, SystemPrompt: systemPromptWithSkills(discoveredSkills), MaxTurns: maxTurns, Tools: registry,
+		Model: profile.Model, ContextBuilder: contextBuilder, MaxTurns: maxTurns, Tools: registry,
 		ToolRunner: tool.NewRunner(registry, broker, tool.RunnerOptions{Hooks: hookRunner, SessionID: sessionID}),
 		Compactor:  compactor, Hooks: hookRunner, SessionID: sessionID,
 	}
@@ -286,16 +297,28 @@ func discoverConfiguredSkills(workspace, stateDir string) ([]skill.Skill, error)
 	return loader.Discover()
 }
 
-func systemPromptWithSkills(discovered []skill.Skill) string {
-	if len(discovered) == 0 {
-		return product.DefaultSystemPrompt
+func buildContextBuilder(currentDir, stateDir string) (*contextbuilder.Builder, error) {
+	projectRoot := currentDir
+	if root, err := utils.FindGitRoot(currentDir); err == nil {
+		projectRoot = root
 	}
-	names := make([]string, len(discovered))
-	for index, item := range discovered {
-		names[index] = item.Name
+	loader, err := contextbuilder.NewLoader(contextbuilder.LoaderOptions{
+		StateDir: stateDir, Workspace: projectRoot, CurrentDir: currentDir,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("configure context instructions: %w", err)
 	}
-	sort.Strings(names)
-	return product.DefaultSystemPrompt + "\n\nAvailable skills (use load_skill to read instructions): " + strings.Join(names, ", ")
+	sources, err := loader.Load()
+	if err != nil {
+		return nil, fmt.Errorf("load context instructions: %w", err)
+	}
+	builder, err := contextbuilder.New(contextbuilder.Options{
+		Sources: sources, ContextWindow: defaultContextWindow, ReservedOutput: defaultReservedOutput,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("configure context builder: %w", err)
+	}
+	return builder, nil
 }
 
 func connectConfiguredMCP(ctx context.Context, stateDir, workspace string, registry *tool.Registry, broker *permissions.Broker) (*mcp.Manager, error) {

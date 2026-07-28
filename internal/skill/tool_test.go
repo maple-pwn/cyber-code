@@ -12,13 +12,26 @@ import (
 
 func TestRegisterToolLoadsDiscoveredSkill(t *testing.T) {
 	registry := toolpkg.NewRegistry()
-	discovered := []Skill{{Name: "review", Source: "project", Instructions: "review instructions"}}
+	discovered := []Skill{
+		{Name: "review", Source: "project", Instructions: "review instructions"},
+		{Name: "debug", Source: "user", Instructions: "debug instructions"},
+	}
 	if err := RegisterTool(registry, discovered); err != nil {
 		t.Fatal(err)
 	}
 	loader, ok := registry.Get("load_skill")
 	if !ok || !loader.Spec().ReadOnly {
 		t.Fatalf("skill tool = %#v, present = %t", loader, ok)
+	}
+	var schema struct {
+		Properties struct {
+			Name struct {
+				Enum []string `json:"enum"`
+			} `json:"name"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(loader.Spec().Schema, &schema); err != nil || strings.Join(schema.Properties.Name.Enum, ",") != "debug,review" {
+		t.Fatalf("skill schema = %s, error = %v", loader.Spec().Schema, err)
 	}
 	arguments := json.RawMessage(`{"name":"review"}`)
 	request, err := loader.Authorize(context.Background(), arguments)

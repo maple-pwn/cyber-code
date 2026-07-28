@@ -1,0 +1,72 @@
+package cli
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"cyber-code/internal/contextbuilder"
+)
+
+func TestBuildContextBuilderLoadsUserAndProjectHierarchy(t *testing.T) {
+	root := t.TempDir()
+	state := filepath.Join(root, "state")
+	project := filepath.Join(root, "project")
+	current := filepath.Join(project, "service")
+	writeContextInstruction(t, filepath.Join(state, "instructions.md"), "user instruction")
+	writeContextInstruction(t, filepath.Join(project, ".git", "keep"), "git marker")
+	writeContextInstruction(t, filepath.Join(project, "CYBER.md"), "root instruction")
+	writeContextInstruction(t, filepath.Join(current, ".cyber-code", "instructions.md"), "nested instruction")
+
+	builder, err := buildContextBuilder(current, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := builder.Build(context.Background(), contextbuilder.BuildInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := systemText(plan)
+	for _, expected := range []string{"user instruction", "root instruction", "nested instruction"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("context missing %q: %s", expected, joined)
+		}
+	}
+}
+
+func TestBuildContextBuilderDoesNotInjectSkillInstructions(t *testing.T) {
+	root := t.TempDir()
+	writeContextInstruction(t, filepath.Join(root, ".cyber-code", "skills", "review", "SKILL.md"), "SECRET SKILL BODY")
+
+	builder, err := buildContextBuilder(root, filepath.Join(root, "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := builder.Build(context.Background(), contextbuilder.BuildInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(systemText(plan), "SECRET SKILL BODY") {
+		t.Fatalf("skill instructions were injected eagerly: %+v", plan.System)
+	}
+}
+
+func systemText(plan contextbuilder.Plan) string {
+	parts := make([]string, len(plan.System))
+	for index := range plan.System {
+		parts[index] = plan.System[index].Text
+	}
+	return strings.Join(parts, "\n")
+}
+
+func writeContextInstruction(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}

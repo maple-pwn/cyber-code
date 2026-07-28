@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"cyber-code/internal/contextbuilder"
 	"cyber-code/internal/core"
 	"cyber-code/internal/provider"
 )
@@ -14,6 +15,7 @@ import (
 type Engine struct {
 	provider provider.Provider
 	options  Options
+	context  ContextBuilder
 
 	mu      sync.RWMutex
 	history []core.Message
@@ -23,7 +25,11 @@ type Engine struct {
 func NewEngine(modelProvider provider.Provider, options Options) *Engine {
 	turn := make(chan struct{}, 1)
 	turn <- struct{}{}
-	return &Engine{provider: modelProvider, options: options, history: cloneMessages(options.InitialHistory), turn: turn}
+	builder := options.ContextBuilder
+	if builder == nil {
+		builder, _ = contextbuilder.New(contextbuilder.Options{})
+	}
+	return &Engine{provider: modelProvider, options: options, context: builder, history: cloneMessages(options.InitialHistory), turn: turn}
 }
 
 // Run starts one provider turn. The returned channel closes only after the
@@ -56,7 +62,12 @@ func (e *Engine) run(ctx context.Context, prompt string, output chan<- core.Even
 
 	tools := e.toolDefinitions()
 	if e.options.Compactor != nil {
-		result := e.options.Compactor.Compact(ctx, e.request(messages, tools), e.provider)
+		request, err := e.request(ctx, messages, tools, true)
+		if err != nil {
+			sendEvent(ctx, output, contextBuildError(err))
+			return
+		}
+		result := e.options.Compactor.Compact(ctx, request, e.provider)
 		if result.Warning != "" {
 			if !sendEvent(ctx, output, core.Event{Type: core.EventWarning, Text: result.Warning}) {
 				return
@@ -77,7 +88,12 @@ func (e *Engine) run(ctx context.Context, prompt string, output chan<- core.Even
 		maximumTurns = 1
 	}
 	for turn := 1; turn <= maximumTurns; turn++ {
-		round, ok := e.providerRound(ctx, e.request(messages, tools), output)
+		request, err := e.request(ctx, messages, tools, false)
+		if err != nil {
+			sendEvent(ctx, output, contextBuildError(err))
+			return
+		}
+		round, ok := e.providerRound(ctx, request, output)
 		if !ok {
 			return
 		}
@@ -105,17 +121,23 @@ func (e *Engine) run(ctx context.Context, prompt string, output chan<- core.Even
 	}
 }
 
-func (e *Engine) request(messages []core.Message, tools []core.ToolDefinition) core.Request {
-	systemPrompt := strings.TrimSpace(e.options.SystemPrompt)
-	if systemPrompt == "" {
-		systemPrompt = DefaultSystemPrompt
+func (e *Engine) request(ctx context.Context, messages []core.Message, tools []core.ToolDefinition, allowOverBudget bool) (core.Request, error) {
+	plan, err := e.context.Build(ctx, contextbuilder.BuildInput{
+		Model: e.options.Model, Messages: messages, Tools: tools, AllowOverBudget: allowOverBudget,
+	})
+	if err != nil {
+		return core.Request{}, err
 	}
 	return core.Request{
-		Model:    e.options.Model,
-		System:   []core.ContentBlock{{Type: core.ContentText, Text: systemPrompt}},
-		Messages: messages,
-		Tools:    tools,
-	}
+		Model: e.options.Model, System: plan.System, Messages: plan.Messages,
+		Tools: plan.Tools, MaxTokens: plan.MaxOutputTokens,
+	}, nil
+}
+
+func contextBuildError(cause error) core.Event {
+	return core.Event{Type: core.EventError, Err: &core.Error{
+		Kind: core.ErrorKindConfiguration, Op: "agent.context", Message: "context could not be assembled", Cause: cause,
+	}}
 }
 
 type providerRound struct {

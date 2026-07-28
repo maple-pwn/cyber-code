@@ -29,6 +29,21 @@ cyber-code config validate
 
 持久会话采用单写者 lease：同一 session 同时只能由一个 cyber-code Runtime 打开。会话仍在运行时，第二次 `--resume` 以及 `sessions resume/export/delete` 会返回 active 错误；原 Runtime 关闭并释放 lease 后可重试。
 
+## Context 指令
+
+每次 Provider 请求都由统一 Context Builder 重新组装。系统段按以下顺序加载：
+
+1. cyber-code 编译期身份与安全边界；
+2. `<CYBER_CODE_STATE_DIR>/instructions.md` 用户指令；
+3. Git 项目根的 `CYBER.md`；
+4. 从 Git 项目根到 `--cwd` 当前目录逐层查找的 `.cyber-code/instructions.md`。
+
+不在 Git 仓库时，`--cwd` 同时作为项目根和当前目录。不存在或仅包含空白的文件会被忽略。单个指令文件最多 256 KiB，全部自动发现的指令最多 1 MiB；符号链接解析后必须仍位于相应的用户状态目录或项目根，否则启动失败。
+
+项目和用户指令会标记来源、路径、摘要、估算 Token 与“不可信策略输入”属性。它们可以指导编码行为，但不能修改权限模式、安全策略、凭据处理或沙箱状态。系统为 Context 保留 8192 个输出 Token，并以 128000 Token 作为当前保守窗口；低优先级非必需段超限时会产生确定性截断/排除诊断，身份、安全边界和未完成的消息/工具回合不会被静默删除。
+
+Skill 正文不会自动进入每次请求。可用 Skill 由只读 `load_skill` 工具列出，模型显式调用后，其正文只作为该工具回合的结果进入会话。
+
 ## 扩展状态
 
 以下路径相对于 `CYBER_CODE_STATE_DIR`。不存在的文件表示未配置对应能力。
@@ -74,4 +89,4 @@ Compact 示例：
 }
 ```
 
-LSP、Hooks 和插件配置中的命令会执行本地程序，应仅配置受信内容。插件 manifest 的能力声明用于 Broker 授权和工具注册，不限制子进程在操作系统层面的文件或网络访问。技能正文不会预先注入上下文；系统提示词只公布技能名，模型通过只读 `load_skill` 工具按需载入。
+LSP、Hooks 和插件配置中的命令会执行本地程序，应仅配置受信内容。插件 manifest 的能力声明用于 Broker 授权和工具注册，不限制子进程在操作系统层面的文件或网络访问。

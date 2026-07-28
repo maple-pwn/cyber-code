@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"cyber-code/internal/contextbuilder"
 	"cyber-code/internal/core"
 	"cyber-code/internal/provider"
 )
@@ -27,6 +28,61 @@ func TestEngineAddsCyberCodeSystemIdentity(t *testing.T) {
 		if !strings.Contains(identity, required) {
 			t.Fatalf("system identity missing %q: %q", required, fake.request.System[0].Text)
 		}
+	}
+}
+
+func TestEngineUsesLayeredContextBuilder(t *testing.T) {
+	builder, err := contextbuilder.New(contextbuilder.Options{ReservedOutput: 321, Sources: []contextbuilder.Source{{
+		ID: "project", Kind: contextbuilder.SourceProject, Content: "project instructions",
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeProvider{events: []core.Event{{Type: core.EventCompleted, FinishReason: "stop"}}}
+	engine := NewEngine(fake, Options{Model: "model-test", ContextBuilder: builder})
+
+	collectAgentEvents(t, engine.Run(context.Background(), "hello"))
+
+	if len(fake.request.System) != 2 || !strings.Contains(fake.request.System[1].Text, "project instructions") {
+		t.Fatalf("system context = %#v", fake.request.System)
+	}
+	if fake.request.MaxTokens != 321 {
+		t.Fatalf("max tokens = %d, want 321", fake.request.MaxTokens)
+	}
+}
+
+func TestEngineRebuildsContextAfterToolResults(t *testing.T) {
+	delegate, err := contextbuilder.New(contextbuilder.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder := &recordingContextBuilder{delegate: delegate}
+	model := &loopProvider{rounds: [][]core.Event{
+		{{Type: core.EventToolCall, ToolCall: &core.ToolCall{ID: "call-1", Name: "missing", Arguments: json.RawMessage(`{}`)}}, {Type: core.EventCompleted, FinishReason: "tool_calls"}},
+		{{Type: core.EventCompleted, FinishReason: "stop"}},
+	}}
+	engine := NewEngine(model, Options{MaxTurns: 2, ContextBuilder: builder})
+
+	collectAgentEvents(t, engine.Run(context.Background(), "hello"))
+
+	if builder.calls != 2 || len(builder.inputs) != 2 || len(builder.inputs[0].Messages) != 1 || len(builder.inputs[1].Messages) != 3 {
+		t.Fatalf("context builds = %d, inputs = %#v", builder.calls, builder.inputs)
+	}
+}
+
+func TestEngineContextBuildFailureDoesNotCallProvider(t *testing.T) {
+	sentinel := errors.New("context failed")
+	builder := &recordingContextBuilder{err: sentinel}
+	fake := &fakeProvider{events: []core.Event{{Type: core.EventCompleted}}}
+	engine := NewEngine(fake, Options{ContextBuilder: builder})
+
+	events := collectAgentEvents(t, engine.Run(context.Background(), "hello"))
+
+	if len(events) != 2 || events[1].Type != core.EventError || events[1].Err == nil || events[1].Err.Kind != core.ErrorKindConfiguration || !errors.Is(events[1].Err, sentinel) {
+		t.Fatalf("events = %#v", events)
+	}
+	if fake.request.Model != "" || fake.request.Messages != nil {
+		t.Fatalf("provider was called: %#v", fake.request)
 	}
 }
 
@@ -191,6 +247,22 @@ type fakeProvider struct {
 	waitForCancellation bool
 	streamError         error
 	request             core.Request
+}
+
+type recordingContextBuilder struct {
+	delegate *contextbuilder.Builder
+	err      error
+	calls    int
+	inputs   []contextbuilder.BuildInput
+}
+
+func (builder *recordingContextBuilder) Build(ctx context.Context, input contextbuilder.BuildInput) (contextbuilder.Plan, error) {
+	builder.calls++
+	builder.inputs = append(builder.inputs, input)
+	if builder.err != nil {
+		return contextbuilder.Plan{}, builder.err
+	}
+	return builder.delegate.Build(ctx, input)
 }
 
 func (fake *fakeProvider) Name() string { return "fake" }

@@ -44,7 +44,7 @@ func TestLoaderUsesFirstRootForDuplicateSkillName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(discovered) != 1 || discovered[0].Instructions != "first instructions" || discovered[0].Source != "project" {
+	if len(discovered) != 1 || discovered[0].Instructions != "" || discovered[0].Source != "project" || discovered[0].Path == "" {
 		t.Fatalf("skills = %#v", discovered)
 	}
 }

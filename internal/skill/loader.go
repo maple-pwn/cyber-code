@@ -10,6 +10,10 @@ import (
 )
 
 const maxInstructionsBytes = 1 << 20
+const (
+	maxDiscoveredSkills = 256
+	maxTotalSkillBytes  = 8 << 20
+)
 
 type Root struct {
 	Name string
@@ -51,6 +55,7 @@ func NewLoader(roots []Root) (*Loader, error) {
 func (loader *Loader) Discover() ([]Skill, error) {
 	seen := make(map[string]struct{})
 	var result []Skill
+	var totalBytes int64
 	for _, root := range loader.roots {
 		entries, err := os.ReadDir(root.Path)
 		if err != nil {
@@ -81,12 +86,12 @@ func (loader *Loader) Discover() ([]Skill, error) {
 			if err != nil || !info.Mode().IsRegular() || info.Size() > maxInstructionsBytes {
 				return nil, fmt.Errorf("skill %q instructions are invalid", name)
 			}
-			instructions, err := os.ReadFile(path)
-			if err != nil {
-				return nil, fmt.Errorf("read skill %q: %w", name, err)
+			if len(result) >= maxDiscoveredSkills || totalBytes+info.Size() > maxTotalSkillBytes {
+				return nil, fmt.Errorf("skill discovery exceeds configured limits")
 			}
 			seen[name] = struct{}{}
-			result = append(result, Skill{Name: name, Source: root.Name, Path: path, Instructions: string(instructions)})
+			totalBytes += info.Size()
+			result = append(result, Skill{Name: name, Source: root.Name, Path: path})
 		}
 	}
 	return result, nil

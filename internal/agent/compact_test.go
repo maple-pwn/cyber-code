@@ -3,9 +3,11 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
+	"cyber-code/internal/contextbuilder"
 	"cyber-code/internal/core"
 	"cyber-code/internal/provider"
 	"cyber-code/internal/session"
@@ -41,6 +43,36 @@ func TestEngineCompactsHistoryBeforeProviderRequest(t *testing.T) {
 	}
 	if initial[0].Content[0].Text != "old user" {
 		t.Fatalf("initial history was mutated: %#v", initial)
+	}
+}
+
+func TestEngineAllowsOversizedContextToReachCompactor(t *testing.T) {
+	compactor, err := session.NewCompactor(session.CompactOptions{
+		ThresholdTokens: 50, KeepRecentMessages: 1,
+		Summarize: func(context.Context, []core.Message) (string, error) { return "small summary", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder, err := contextbuilder.New(contextbuilder.Options{ContextWindow: 1000, ReservedOutput: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := &compactProvider{count: 10_000, events: []core.Event{{Type: core.EventCompleted, FinishReason: "stop"}}}
+	engine := NewEngine(model, Options{
+		ContextBuilder: builder, Compactor: compactor,
+		InitialHistory: textHistory(strings.Repeat("old history ", 1000), "old assistant"),
+	})
+
+	events := collectAgentEvents(t, engine.Run(context.Background(), "new question"))
+
+	for _, event := range events {
+		if event.Type == core.EventError {
+			t.Fatalf("oversized history failed before compact: %#v", events)
+		}
+	}
+	if len(events) < 2 || events[1].Type != core.EventCompacted {
+		t.Fatalf("events = %#v", events)
 	}
 }
 

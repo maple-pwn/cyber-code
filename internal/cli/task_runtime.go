@@ -20,7 +20,7 @@ type taskCompositionOptions struct {
 	Broker         *permissions.Broker
 	Hooks          *hooks.Runner
 	Model          string
-	SystemPrompt   string
+	ContextBuilder agent.ContextBuilder
 	SessionID      string
 	ParentMode     permissions.PermissionMode
 	ParentMaxTurns int
@@ -50,7 +50,7 @@ func configureTaskService(options taskCompositionOptions) (*tasks.ToolService, e
 			child, err := tasks.NewSubAgent(tasks.SubAgentOptions{
 				Provider: options.Provider,
 				AgentOptions: agent.Options{
-					Model: options.Model, SystemPrompt: options.SystemPrompt, MaxTurns: request.MaxTurns,
+					Model: options.Model, ContextBuilder: options.ContextBuilder, MaxTurns: request.MaxTurns,
 					Tools: options.Registry, ToolRunner: childRunner, SessionID: request.TaskID,
 				},
 				ParentMode: options.ParentMode, Mode: request.Mode,
