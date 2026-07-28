@@ -3,10 +3,12 @@
 package api
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -30,18 +32,20 @@ type AWSSigner struct {
 	secretAccessKey string
 	sessionToken    string
 	region          string
+	now             func() time.Time
 }
 
 // NewAWSSigner creates a new AWS signer.
 func NewAWSSigner(creds *AWSCredentials, region string) *AWSSigner {
 	if creds == nil {
-		return &AWSSigner{region: region}
+		return &AWSSigner{region: region, now: time.Now}
 	}
 	return &AWSSigner{
 		accessKeyID:     creds.AccessKeyID,
 		secretAccessKey: creds.SecretAccessKey,
 		sessionToken:    creds.SessionToken,
 		region:          region,
+		now:             time.Now,
 	}
 }
 
@@ -52,13 +56,18 @@ func (s *AWSSigner) SignRequest(req *http.Request) error {
 		return nil
 	}
 
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	amzDate := now.Format("20060102T150405Z")
 	dateStamp := now.Format("20060102")
 
 	// Set required headers
 	req.Header.Set("Host", req.URL.Host)
 	req.Header.Set(aws4Header, amzDate)
+	payloadHash, err := hashRequestBody(req)
+	if err != nil {
+		return fmt.Errorf("hash AWS request body: %w", err)
+	}
+	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
 
 	if s.sessionToken != "" {
 		req.Header.Set(awsSecurity, s.sessionToken)
@@ -107,13 +116,7 @@ func (s *AWSSigner) createCanonicalRequest(req *http.Request) string {
 	// Signed headers
 	signedHeaders := s.getSignedHeaders(req)
 
-	// Payload hash (for requests with body, we'd hash the body)
-	payloadHash := "UNSIGNED-PAYLOAD"
-	if req.Body == nil {
-		// For GET requests or empty body
-		hash := sha256.Sum256([]byte(""))
-		payloadHash = hex.EncodeToString(hash[:])
-	}
+	payloadHash := req.Header.Get("X-Amz-Content-Sha256")
 
 	return strings.Join([]string{
 		method,
@@ -124,6 +127,20 @@ func (s *AWSSigner) createCanonicalRequest(req *http.Request) string {
 		signedHeaders,
 		payloadHash,
 	}, "\n")
+}
+
+func hashRequestBody(request *http.Request) (string, error) {
+	if request.Body == nil {
+		hash := sha256.Sum256(nil)
+		return hex.EncodeToString(hash[:]), nil
+	}
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		return "", err
+	}
+	request.Body = io.NopCloser(bytes.NewReader(body))
+	hash := sha256.Sum256(body)
+	return hex.EncodeToString(hash[:]), nil
 }
 
 // getCanonicalQueryString creates the canonical query string.
