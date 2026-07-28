@@ -130,6 +130,7 @@ func (r *Runtime) Run(ctx context.Context, prompt string) <-chan core.Event {
 					cancel()
 					continue
 				}
+				event = record.Event
 				if event.Type == core.EventCompleted || event.Type == core.EventError {
 					snapshot := session.Snapshot{SessionID: r.session.id, LastSequence: record.Sequence, History: r.engine.History()}
 					if err := r.session.store.SaveSnapshot(runCtx, snapshot); err != nil {

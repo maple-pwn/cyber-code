@@ -12,6 +12,8 @@ const (
 	EventToolArgumentsDelta EventType = "tool_arguments_delta"
 	EventToolResult         EventType = "tool_result"
 	EventUsage              EventType = "usage"
+	EventWarning            EventType = "warning"
+	EventCompacted          EventType = "compacted"
 	EventCompleted          EventType = "completed"
 	EventError              EventType = "error"
 )
@@ -26,14 +28,16 @@ type Usage struct {
 
 // Event is the single stream shape consumed by the runtime and frontends.
 type Event struct {
-	Type           EventType   `json:"type"`
-	Text           string      `json:"text,omitempty"`
-	Message        *Message    `json:"message,omitempty"`
-	ToolCall       *ToolCall   `json:"tool_call,omitempty"`
-	ToolCallID     string      `json:"tool_call_id,omitempty"`
-	ArgumentsDelta string      `json:"arguments_delta,omitempty"`
-	ToolResult     *ToolResult `json:"tool_result,omitempty"`
-	Usage          *Usage      `json:"usage,omitempty"`
-	FinishReason   string      `json:"finish_reason,omitempty"`
-	Err            *Error      `json:"error,omitempty"`
+	Type            EventType   `json:"type"`
+	Text            string      `json:"text,omitempty"`
+	Message         *Message    `json:"message,omitempty"`
+	ToolCall        *ToolCall   `json:"tool_call,omitempty"`
+	ToolCallID      string      `json:"tool_call_id,omitempty"`
+	ArgumentsDelta  string      `json:"arguments_delta,omitempty"`
+	ToolResult      *ToolResult `json:"tool_result,omitempty"`
+	Usage           *Usage      `json:"usage,omitempty"`
+	FinishReason    string      `json:"finish_reason,omitempty"`
+	CoveredSequence uint64      `json:"covered_sequence,omitempty"`
+	CoveredMessages int         `json:"covered_messages,omitempty"`
+	Err             *Error      `json:"error,omitempty"`
 }

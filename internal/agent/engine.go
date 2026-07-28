@@ -54,11 +54,28 @@ func (e *Engine) run(ctx context.Context, prompt string, output chan<- core.Even
 		return
 	}
 
+	tools := e.toolDefinitions()
+	if e.options.Compactor != nil {
+		result := e.options.Compactor.Compact(ctx, core.Request{Model: e.options.Model, Messages: messages, Tools: tools}, e.provider)
+		if result.Warning != "" {
+			if !sendEvent(ctx, output, core.Event{Type: core.EventWarning, Text: result.Warning}) {
+				return
+			}
+		} else if result.Applied {
+			e.replaceHistory(result.Messages)
+			messages = e.History()
+			if !sendEvent(ctx, output, core.Event{
+				Type: core.EventCompacted, Message: messagePointer(*result.Summary), CoveredMessages: result.CoveredMessages,
+			}) {
+				return
+			}
+		}
+	}
+
 	maximumTurns := e.options.MaxTurns
 	if maximumTurns <= 0 {
 		maximumTurns = 1
 	}
-	tools := e.toolDefinitions()
 	for turn := 1; turn <= maximumTurns; turn++ {
 		round, ok := e.providerRound(ctx, core.Request{Model: e.options.Model, Messages: messages, Tools: tools}, output)
 		if !ok {
@@ -309,6 +326,12 @@ func (e *Engine) appendHistory(message core.Message) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.history = append(e.history, cloneMessage(message))
+}
+
+func (e *Engine) replaceHistory(messages []core.Message) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.history = cloneMessages(messages)
 }
 
 // History returns a deep copy that callers may mutate freely.

@@ -152,6 +152,7 @@ func NewCompactService() *CompactService {
 	return &CompactService{
 		readFileState:     make(map[string]*FileState),
 		loadedMemoryPaths: make(map[string]bool),
+		tokenEstimator:    NewDefaultTokenEstimator(),
 	}
 }
 

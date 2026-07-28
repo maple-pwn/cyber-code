@@ -4,7 +4,19 @@ import (
 	"encoding/json"
 	"math"
 	"strings"
+
+	"claude-code-go/internal/core"
 )
+
+// EstimateCoreRequestTokens provides the canonical fallback for providers
+// without an exact token-counting endpoint.
+func EstimateCoreRequestTokens(request core.Request) int {
+	encoded, err := json.Marshal(request)
+	if err != nil {
+		return 0
+	}
+	return (len(encoded) + DefaultBytesPerToken - 1) / DefaultBytesPerToken
+}
 
 // =============================================================================
 // Token Estimation Constants

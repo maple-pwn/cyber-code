@@ -48,6 +48,9 @@ func (store *Store) Append(ctx context.Context, sessionID string, event core.Eve
 		state.validBytes = validBytes
 		state.initialized = true
 	}
+	if event.Type == core.EventCompacted && event.CoveredSequence == 0 && state.next > 1 {
+		event.CoveredSequence = state.next - 1
+	}
 	record := EventRecord{Sequence: state.next, SessionID: sessionID, Time: store.now().UTC(), Event: event}
 	encoded, err := json.Marshal(record)
 	if err != nil {

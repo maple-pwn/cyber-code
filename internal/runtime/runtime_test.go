@@ -156,6 +156,39 @@ func TestPersistentRuntimeLogsAndResumesConversationHistory(t *testing.T) {
 	}
 }
 
+func TestPersistentRuntimeForwardsCompactionCoverageFromStore(t *testing.T) {
+	store, err := session.NewStore(t.TempDir(), session.StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	compactor, err := session.NewCompactor(session.CompactOptions{
+		ThresholdTokens:    1,
+		KeepRecentMessages: 1,
+		Summarize:          func(context.Context, []core.Message) (string, error) { return "summary", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := &completedProvider{count: 100, events: []core.Event{{Type: core.EventCompleted, FinishReason: "stop"}}}
+	persistent, err := NewPersistent(model, agent.Options{
+		InitialHistory: []core.Message{
+			{Role: core.RoleUser, Content: []core.ContentBlock{{Type: core.ContentText, Text: "old question"}}},
+			{Role: core.RoleAssistant, Content: []core.ContentBlock{{Type: core.ContentText, Text: "old answer"}}},
+		},
+		Compactor: compactor,
+	}, store, "compact-runtime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := collectRuntimeEvents(t, persistent.Run(context.Background(), "new question"))
+	if len(events) != 3 || events[1].Type != core.EventCompacted || events[1].CoveredSequence != 1 {
+		t.Fatalf("runtime events = %#v", events)
+	}
+	if err := persistent.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func assertChannelCloses(t *testing.T, events <-chan core.Event) {
 	t.Helper()
 	select {
@@ -220,6 +253,7 @@ type recordingCloser struct {
 
 type completedProvider struct {
 	mu      sync.Mutex
+	count   int
 	events  []core.Event
 	request core.Request
 }
@@ -247,7 +281,7 @@ func (model *completedProvider) Stream(ctx context.Context, request core.Request
 	return stream, nil
 }
 func (model *completedProvider) CountTokens(context.Context, core.Request) (int, error) {
-	return 0, nil
+	return model.count, nil
 }
 
 func (c *recordingCloser) Close() error {
