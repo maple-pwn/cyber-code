@@ -61,6 +61,17 @@ func TestRunWithPromptUsesInjectedRunner(t *testing.T) {
 	}
 }
 
+func TestAppInheritsConfiguredContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	app := NewApp(&Config{Context: ctx}, "test")
+	cancel()
+	select {
+	case <-app.ctx.Done():
+	default:
+		t.Fatal("app context was not canceled")
+	}
+}
+
 type cliTestRunner struct {
 	prompt string
 	events []core.Event

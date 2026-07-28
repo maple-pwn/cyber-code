@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -60,6 +61,30 @@ type permissionRespondedMsg struct{}
 type PermissionRequestMsg struct {
 	Request permissions.Request
 	Respond chan<- permissions.Decision
+}
+
+type PermissionBridge struct {
+	mu   sync.RWMutex
+	send func(tea.Msg)
+}
+
+func NewPermissionBridge() *PermissionBridge { return &PermissionBridge{} }
+
+func (bridge *PermissionBridge) Attach(send func(tea.Msg)) {
+	bridge.mu.Lock()
+	bridge.send = send
+	bridge.mu.Unlock()
+}
+
+func (bridge *PermissionBridge) Detach() {
+	bridge.Attach(nil)
+}
+
+func (bridge *PermissionBridge) Confirm(ctx context.Context, request permissions.Request) (permissions.Decision, error) {
+	bridge.mu.RLock()
+	send := bridge.send
+	bridge.mu.RUnlock()
+	return NewPermissionConfirmer(send)(ctx, request)
 }
 
 func NewModel(runner Runner, options ModelOptions) *Model {

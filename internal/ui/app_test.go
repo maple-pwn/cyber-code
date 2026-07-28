@@ -73,6 +73,23 @@ func TestModelPermissionMessageUsesDialogAndRespondsThroughMessage(t *testing.T)
 	}
 }
 
+func TestPermissionBridgeAttachesAndDefaultsToDenyWhenDetached(t *testing.T) {
+	bridge := NewPermissionBridge()
+	bridge.Attach(func(message tea.Msg) {
+		request := message.(PermissionRequestMsg)
+		request.Respond <- permissions.Decision{Behavior: permissions.PermissionBehaviorAllow}
+	})
+	decision, err := bridge.Confirm(context.Background(), permissions.Request{Tool: "shell", Action: permissions.ActionExecute})
+	if err != nil || decision.Behavior != permissions.PermissionBehaviorAllow {
+		t.Fatalf("decision = %#v, error = %v", decision, err)
+	}
+	bridge.Detach()
+	decision, err = bridge.Confirm(context.Background(), permissions.Request{Tool: "shell", Action: permissions.ActionExecute})
+	if err != nil || decision.Behavior != permissions.PermissionBehaviorDeny {
+		t.Fatalf("detached decision = %#v, error = %v", decision, err)
+	}
+}
+
 func updateModel(t *testing.T, model *Model, message tea.Msg) (*Model, tea.Cmd) {
 	t.Helper()
 	updated, command := model.Update(message)

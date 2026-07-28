@@ -51,6 +51,8 @@ type Config struct {
 	PrintJSON      bool
 	Stdout         io.Writer
 	Stderr         io.Writer
+	PermissionUI   *ui.PermissionBridge
+	Context        context.Context
 }
 
 // ExitError preserves a frontend exit status for the process entrypoint.
@@ -70,7 +72,11 @@ func NewApp(config *Config, version string) *App {
 	if config == nil {
 		config = &Config{}
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	parent := config.Context
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
 
 	return &App{
 		config:  config,
@@ -175,6 +181,10 @@ func (a *App) runInteractiveMode() error {
 
 	// Create and run the tea program
 	p := tea.NewProgram(a.uiModel, tea.WithAltScreen())
+	if a.config.PermissionUI != nil {
+		a.config.PermissionUI.Attach(p.Send)
+		defer a.config.PermissionUI.Detach()
+	}
 
 	// Handle UI events in a goroutine
 	go func() {

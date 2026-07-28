@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,6 +82,30 @@ func TestStoreRejectsCorruptMiddleRecord(t *testing.T) {
 	}
 	if _, err := store.Events(ctx, "corrupt-session"); err == nil || !strings.Contains(err.Error(), "line 2") {
 		t.Fatalf("Events error = %v", err)
+	}
+}
+
+func TestStoreDeleteRemovesSessionSnapshotAndEvents(t *testing.T) {
+	store, err := NewStore(t.TempDir(), StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := store.Append(ctx, "delete-session", core.Event{Type: core.EventCompleted}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveSnapshot(ctx, Snapshot{SessionID: "delete-session", LastSequence: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Delete(ctx, "delete-session"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Resume(ctx, "delete-session"); !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("resume error = %v", err)
+	}
+	events, err := store.Events(ctx, "delete-session")
+	if err != nil || len(events) != 0 {
+		t.Fatalf("events = %v, error = %v", events, err)
 	}
 }
 

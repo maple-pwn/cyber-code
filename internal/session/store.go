@@ -110,3 +110,29 @@ func contextError(ctx context.Context) error {
 	}
 	return ctx.Err()
 }
+
+// Delete removes all persisted data for one validated session.
+func (store *Store) Delete(ctx context.Context, sessionID string) error {
+	if err := contextError(ctx); err != nil {
+		return err
+	}
+	if err := validateSessionID(sessionID); err != nil {
+		return err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	state := store.sessions[sessionID]
+	if state == nil {
+		state = &sessionState{}
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if err := contextError(ctx); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(store.sessionDir(sessionID)); err != nil {
+		return fmt.Errorf("delete session: %w", err)
+	}
+	delete(store.sessions, sessionID)
+	return nil
+}
