@@ -49,14 +49,6 @@ var _ provider.Provider = (*Client)(nil)
 
 // New creates an Anthropic client and resolves its API key on demand.
 func New(profile config.Profile, options ...Option) (*Client, error) {
-	credential, err := config.ResolveCredential(profile)
-	if err != nil {
-		return nil, &core.Error{Kind: core.ErrorKindAuthentication, Op: "anthropic.new", Message: "Anthropic credential is unavailable", Cause: err}
-	}
-	if credential == "" {
-		return nil, &core.Error{Kind: core.ErrorKindAuthentication, Op: "anthropic.new", Message: "Anthropic credential is required"}
-	}
-
 	baseURL := strings.TrimSpace(profile.BaseURL)
 	if baseURL == "" {
 		baseURL = defaultBaseURL
@@ -71,7 +63,6 @@ func New(profile config.Profile, options ...Option) (*Client, error) {
 
 	client := &Client{
 		profile:       profile,
-		apiKey:        credential,
 		baseURL:       strings.TrimRight(baseURL, "/"),
 		httpClient:    http.DefaultClient,
 		maxRetries:    defaultMaxRetries,
@@ -87,7 +78,29 @@ func New(profile config.Profile, options ...Option) (*Client, error) {
 			return nil, err
 		}
 	}
+	if client.apiKey == "" {
+		credential, err := config.ResolveCredential(profile)
+		if err != nil {
+			return nil, &core.Error{Kind: core.ErrorKindAuthentication, Op: "anthropic.new", Message: "Anthropic credential is unavailable", Cause: err}
+		}
+		client.apiKey = credential
+	}
+	if client.apiKey == "" {
+		return nil, &core.Error{Kind: core.ErrorKindAuthentication, Op: "anthropic.new", Message: "Anthropic credential is required"}
+	}
 	return client, nil
+}
+
+// WithCredential supplies a credential from a managed source instead of an
+// environment variable. The value is retained only by the client instance.
+func WithCredential(credential string) Option {
+	return func(client *Client) error {
+		if strings.TrimSpace(credential) == "" {
+			return &core.Error{Kind: core.ErrorKindAuthentication, Op: "anthropic.new", Message: "Anthropic credential is required"}
+		}
+		client.apiKey = credential
+		return nil
+	}
 }
 
 // WithHTTPClient sets the HTTP transport used by the provider.
