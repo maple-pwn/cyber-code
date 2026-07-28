@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"claude-code-go/internal/constants"
+	"claude-code-go/internal/credential"
 )
 
 // SubscriptionType represents the type of subscription
@@ -83,9 +85,9 @@ type OAuthClient struct {
 	config     constants.OAuthConfig
 
 	// Token management
-	mu              sync.RWMutex
-	cachedTokens    *OAuthTokens
-	credentialsPath string
+	mu           sync.RWMutex
+	cachedTokens *OAuthTokens
+	store        credential.Store
 
 	// Concurrent refresh deduplication
 	pendingRefreshCheck chan struct{}
@@ -96,24 +98,53 @@ type OAuthClient struct {
 	lockPath string
 }
 
+// OAuthClientOptions supplies the process-local dependencies used by OAuth.
+// It exists so token refresh can be tested without global environment state.
+type OAuthClientOptions struct {
+	HTTPClient *http.Client
+	Config     constants.OAuthConfig
+	Store      credential.Store
+	LockPath   string
+}
+
 // NewOAuthClient creates a new OAuth client
 func NewOAuthClient() *OAuthClient {
 	config := constants.GetOAuthConfig()
 
 	// Get config directory
 	configDir, _ := getConfigDir()
-	credentialsPath := filepath.Join(configDir, ".credentials.json")
-	lockPath := filepath.Join(configDir, ".oauth.lock")
+	return NewOAuthClientWithOptions(OAuthClientOptions{
+		Config:   config,
+		Store:    credentialStoreAt(filepath.Join(configDir, ".credentials.json")),
+		LockPath: filepath.Join(configDir, ".oauth.lock"),
+	})
+}
 
-	return &OAuthClient{
-		httpClient: &http.Client{
-			Timeout: 15 * time.Second,
-		},
-		config:             config,
-		credentialsPath:    credentialsPath,
-		lockPath:           lockPath,
-		pending401Handlers: make(map[string]chan bool),
+// NewOAuthClientWithOptions creates an OAuth client with explicit dependencies.
+func NewOAuthClientWithOptions(options OAuthClientOptions) *OAuthClient {
+	if options.HTTPClient == nil {
+		options.HTTPClient = &http.Client{Timeout: 15 * time.Second}
 	}
+	if options.Config.TokenURL == "" {
+		options.Config = constants.GetOAuthConfig()
+	}
+	if options.Store == nil {
+		configDir, _ := getConfigDir()
+		options.Store = credentialStoreAt(filepath.Join(configDir, ".credentials.json"))
+	}
+	if options.LockPath == "" {
+		configDir, _ := getConfigDir()
+		options.LockPath = filepath.Join(configDir, ".oauth.lock")
+	}
+	return &OAuthClient{httpClient: options.HTTPClient, config: options.Config, store: options.Store, lockPath: options.LockPath, pending401Handlers: make(map[string]chan bool)}
+}
+
+func credentialStoreAt(path string) credential.Store {
+	store, err := credential.NewFileStore(path)
+	if err != nil {
+		return nil
+	}
+	return store
 }
 
 // GetOAuthTokens returns the current OAuth tokens
@@ -154,9 +185,12 @@ func (c *OAuthClient) LoadOAuthTokens() (*OAuthTokens, error) {
 	}
 	c.mu.RUnlock()
 
-	data, err := os.ReadFile(c.credentialsPath)
+	if c.store == nil {
+		return nil, fmt.Errorf("OAuth credential store is unavailable")
+	}
+	data, err := c.store.Load(context.Background())
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, credential.ErrNotFound) {
 			return nil, nil
 		}
 		return nil, err
@@ -173,20 +207,19 @@ func (c *OAuthClient) LoadOAuthTokens() (*OAuthTokens, error) {
 
 // SaveOAuthTokens saves OAuth tokens to storage
 func (c *OAuthClient) SaveOAuthTokens(tokens *OAuthTokens) error {
-	c.SetOAuthTokens(tokens)
-
 	data, err := json.MarshalIndent(tokens, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	// Ensure directory exists
-	dir := filepath.Dir(c.credentialsPath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
+	if c.store == nil {
+		return fmt.Errorf("OAuth credential store is unavailable")
 	}
-
-	return os.WriteFile(c.credentialsPath, data, 0600)
+	if err := c.store.Save(context.Background(), data); err != nil {
+		return fmt.Errorf("save OAuth tokens: %w", err)
+	}
+	c.SetOAuthTokens(tokens)
+	return nil
 }
 
 // IsOAuthTokenExpired checks if the OAuth token is expired
