@@ -8,6 +8,12 @@ import (
 	"syscall"
 )
 
+func configureDirectCommand(program string, arguments []string) (*exec.Cmd, Isolation) {
+	command := exec.Command(program, arguments...)
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	return command, IsolationProcessGroup
+}
+
 type unixGuard struct{}
 
 func buildCommand(request ExecRequest, workspace string, environment []string, lookPath func(string) (string, error)) (*exec.Cmd, Isolation, error) {

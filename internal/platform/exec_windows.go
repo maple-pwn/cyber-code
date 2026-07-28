@@ -10,6 +10,12 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+func configureDirectCommand(program string, arguments []string) (*exec.Cmd, Isolation) {
+	command := exec.Command(program, arguments...)
+	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
+	return command, IsolationJobObject
+}
+
 type windowsGuard struct{ job windows.Handle }
 
 func buildCommand(request ExecRequest, workspace string, environment []string, _ func(string) (string, error)) (*exec.Cmd, Isolation, error) {
