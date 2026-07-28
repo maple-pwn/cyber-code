@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +32,30 @@ type GoogleAuthManager struct {
 	mu          sync.RWMutex
 	credentials *GoogleCredentials
 	lastRefresh time.Time
+	httpClient  *http.Client
+	tokenURL    string
+	now         func() time.Time
+}
+
+// GoogleAuthOptions supplies testable network and clock dependencies.
+type GoogleAuthOptions struct {
+	HTTPClient *http.Client
+	TokenURL   string
+	Now        func() time.Time
+}
+
+// NewGoogleAuthManager creates an isolated Google credential manager.
+func NewGoogleAuthManager(options GoogleAuthOptions) *GoogleAuthManager {
+	if options.HTTPClient == nil {
+		options.HTTPClient = http.DefaultClient
+	}
+	if options.TokenURL == "" {
+		options.TokenURL = "https://oauth2.googleapis.com/token"
+	}
+	if options.Now == nil {
+		options.Now = time.Now
+	}
+	return &GoogleAuthManager{httpClient: options.HTTPClient, tokenURL: options.TokenURL, now: options.Now}
 }
 
 var (
@@ -41,7 +66,7 @@ var (
 // GetGoogleAuthManager returns the singleton Google auth manager.
 func GetGoogleAuthManager() *GoogleAuthManager {
 	googleAuthManagerOnce.Do(func() {
-		googleAuthManager = &GoogleAuthManager{}
+		googleAuthManager = NewGoogleAuthManager(GoogleAuthOptions{})
 	})
 	return googleAuthManager
 }
@@ -58,7 +83,7 @@ func (g *GoogleAuthManager) RefreshGCPCredentialsIfNeeded(ctx context.Context) e
 	defer g.mu.Unlock()
 
 	// Check if credentials are still valid
-	if g.credentials != nil && time.Now().Before(g.credentials.Expiry) {
+	if g.credentials != nil && g.now().Before(g.credentials.Expiry) {
 		return nil
 	}
 
@@ -69,7 +94,7 @@ func (g *GoogleAuthManager) RefreshGCPCredentialsIfNeeded(ctx context.Context) e
 	}
 
 	g.credentials = creds
-	g.lastRefresh = time.Now()
+	g.lastRefresh = g.now()
 	return nil
 }
 
@@ -93,7 +118,7 @@ func (g *GoogleAuthManager) GetAccessToken(ctx context.Context) (string, error) 
 func (g *GoogleAuthManager) getCredentials(ctx context.Context) (*GoogleCredentials, error) {
 	// 1. Check for explicit credentials file
 	if credsFile := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"); credsFile != "" {
-		creds, err := g.getCredsFromFile(credsFile)
+		creds, err := g.getCredsFromFile(ctx, credsFile)
 		if err == nil {
 			return creds, nil
 		}
@@ -115,7 +140,7 @@ func (g *GoogleAuthManager) getCredentials(ctx context.Context) (*GoogleCredenti
 }
 
 // getCredsFromFile loads credentials from a service account JSON file.
-func (g *GoogleAuthManager) getCredsFromFile(filePath string) (*GoogleCredentials, error) {
+func (g *GoogleAuthManager) getCredsFromFile(ctx context.Context, filePath string) (*GoogleCredentials, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read credentials file: %w", err)
@@ -158,7 +183,7 @@ func (g *GoogleAuthManager) getCredsFromFile(filePath string) (*GoogleCredential
 	}
 
 	if adc.Type == "authorized_user" {
-		return g.getADCToken(adc)
+		return g.getADCToken(ctx, adc)
 	}
 
 	return nil, fmt.Errorf("unknown credentials format")
@@ -184,21 +209,23 @@ func (g *GoogleAuthManager) getServiceAccountToken(sa struct {
 }
 
 // getADCToken refreshes an ADC token.
-func (g *GoogleAuthManager) getADCToken(adc struct {
+func (g *GoogleAuthManager) getADCToken(ctx context.Context, adc struct {
 	Type         string `json:"type"`
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
 	RefreshToken string `json:"refresh_token"`
 }) (*GoogleCredentials, error) {
-	// Use Google's OAuth2 endpoint to refresh the token
-	tokenURL := "https://oauth2.googleapis.com/token"
-
-	reqBody := fmt.Sprintf(
-		"client_id=%s&client_secret=%s&refresh_token=%s&grant_type=refresh_token",
-		adc.ClientID, adc.ClientSecret, adc.RefreshToken,
-	)
-
-	resp, err := http.Post(tokenURL, "application/x-www-form-urlencoded", strings.NewReader(reqBody))
+	values := url.Values{}
+	values.Set("client_id", adc.ClientID)
+	values.Set("client_secret", adc.ClientSecret)
+	values.Set("refresh_token", adc.RefreshToken)
+	values.Set("grant_type", "refresh_token")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.tokenURL, strings.NewReader(values.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("create ADC token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := g.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to refresh ADC token: %w", err)
 	}
@@ -227,7 +254,7 @@ func (g *GoogleAuthManager) getADCToken(adc struct {
 		AccessToken: tokenResp.AccessToken,
 		TokenType:   tokenResp.TokenType,
 		ExpiresIn:   tokenResp.ExpiresIn,
-		Expiry:      time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
+		Expiry:      g.now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
 	}, nil
 }
 
@@ -272,7 +299,7 @@ func (g *GoogleAuthManager) getCredsFromGcloud(ctx context.Context) (*GoogleCred
 	return &GoogleCredentials{
 		AccessToken: token,
 		TokenType:   "Bearer",
-		Expiry:      time.Now().Add(defaultGoogleCredentialTTL),
+		Expiry:      g.now().Add(defaultGoogleCredentialTTL),
 	}, nil
 }
 
@@ -286,7 +313,7 @@ func (g *GoogleAuthManager) getADC(ctx context.Context) (*GoogleCredentials, err
 
 	adcPath := filepath.Join(home, ".config", "gcloud", "application_default_credentials.json")
 	if _, err := os.Stat(adcPath); err == nil {
-		return g.getCredsFromFile(adcPath)
+		return g.getCredsFromFile(ctx, adcPath)
 	}
 
 	// Try to check if running on GCP (metadata server)
@@ -308,7 +335,7 @@ func (g *GoogleAuthManager) isRunningOnGCP(ctx context.Context) bool {
 	}
 	req.Header.Set("Metadata-Flavor", "Google")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := g.httpClient.Do(req)
 	if err != nil {
 		return false
 	}
@@ -329,7 +356,7 @@ func (g *GoogleAuthManager) getMetadataToken(ctx context.Context) (*GoogleCreden
 	}
 	req.Header.Set("Metadata-Flavor", "Google")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := g.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get metadata token: %w", err)
 	}
@@ -358,7 +385,7 @@ func (g *GoogleAuthManager) getMetadataToken(ctx context.Context) (*GoogleCreden
 		AccessToken: tokenResp.AccessToken,
 		TokenType:   tokenResp.TokenType,
 		ExpiresIn:   tokenResp.ExpiresIn,
-		Expiry:      time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
+		Expiry:      g.now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
 	}, nil
 }
 
@@ -386,7 +413,7 @@ func (g *GoogleAuthManager) CheckGCPCredentialsValid(ctx context.Context) bool {
 		return false
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := g.httpClient.Do(req)
 	if err != nil {
 		return false
 	}
