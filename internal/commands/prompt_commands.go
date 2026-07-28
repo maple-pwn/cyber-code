@@ -3,6 +3,8 @@ package commands
 import (
 	"context"
 	"fmt"
+
+	"cyber-code/internal/product"
 )
 
 // =============================================================================
@@ -249,7 +251,7 @@ type FeedbackCommand struct{}
 func NewFeedbackCommand() *FeedbackCommand { return &FeedbackCommand{} }
 
 func (c *FeedbackCommand) Name() string        { return "feedback" }
-func (c *FeedbackCommand) Description() string { return "Submit feedback about Claude Code" }
+func (c *FeedbackCommand) Description() string { return "Submit feedback about " + product.Name }
 func (c *FeedbackCommand) IsEnabled() bool     { return true }
 func (c *FeedbackCommand) IsHidden() bool      { return false }
 
@@ -260,7 +262,7 @@ func (c *FeedbackCommand) Execute(ctx context.Context, args string, context *Com
 - What could be improved
 - Any bugs or issues you encountered
 
-Your feedback helps us improve Claude Code.`
+Your feedback helps us improve ` + product.Name + `.`
 	if args != "" {
 		prompt += fmt.Sprintf("\n\nFeedback context: %s", args)
 	}
@@ -289,6 +291,6 @@ func (c *VersionCommand) IsHidden() bool      { return false }
 func (c *VersionCommand) Execute(ctx context.Context, args string, context *CommandContext) (*CommandResult, error) {
 	return &CommandResult{
 		Type:  "text",
-		Value: fmt.Sprintf("Claude Code Go version: %s", c.version),
+		Value: fmt.Sprintf("%s version: %s", product.Name, c.version),
 	}, nil
 }

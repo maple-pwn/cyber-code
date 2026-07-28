@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"strconv"
 	"time"
+
+	"cyber-code/internal/product"
 )
 
 type VoiceOptions struct {
@@ -74,7 +76,7 @@ func (recorder *VoiceRecorder) Capture(ctx context.Context) ([]byte, error) {
 	if err := authorizeMedia(ctx, recorder.options.Authorizer, recorder.options.Workspace, "voice_recording", recorder.program); err != nil {
 		return nil, err
 	}
-	file, err := os.CreateTemp(recorder.options.TempDir, "claude-go-voice-*.raw")
+	file, err := os.CreateTemp(recorder.options.TempDir, product.Name+"-voice-*.raw")
 	if err != nil {
 		return nil, fmt.Errorf("create voice capture file: %w", err)
 	}

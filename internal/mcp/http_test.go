@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"claude-code-go/internal/permissions"
-	toolpkg "claude-code-go/internal/tool"
+	"cyber-code/internal/permissions"
+	toolpkg "cyber-code/internal/tool"
 )
 
 func TestHTTPTransportRunsManagerProtocolAndSendsConfiguredHeaders(t *testing.T) {

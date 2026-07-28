@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"claude-code-go/internal/core"
+	"cyber-code/internal/core"
 )
 
 type SummarizeFunc func(context.Context, []core.Message) (string, error)
@@ -12,6 +12,7 @@ type SummarizeFunc func(context.Context, []core.Message) (string, error)
 type CompactOptions struct {
 	ThresholdTokens    int
 	KeepRecentMessages int
+	EstimateOnly       bool
 	Estimate           func(core.Request) int
 	Summarize          SummarizeFunc
 }
@@ -48,6 +49,9 @@ func NewCompactor(options CompactOptions) (*Compactor, error) {
 
 func (compactor *Compactor) Compact(ctx context.Context, request core.Request, counter TokenCounter) CompactResult {
 	original := cloneSessionMessages(request.Messages)
+	if compactor.options.EstimateOnly {
+		counter = nil
+	}
 	count := CountRequestTokens(ctx, counter, request, compactor.options.Estimate)
 	result := CompactResult{Messages: original, TokenCount: count.Tokens, Exact: count.Exact}
 	if count.Tokens < compactor.options.ThresholdTokens {

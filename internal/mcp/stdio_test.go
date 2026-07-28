@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	toolpkg "claude-code-go/internal/tool"
+	toolpkg "cyber-code/internal/tool"
 )
 
 func TestStdioTransportRunsManagerProtocolAndClosesProcess(t *testing.T) {

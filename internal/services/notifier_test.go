@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"claude-code-go/internal/platform"
+	"cyber-code/internal/platform"
 )
 
 func TestNotifyServiceUsesAvailableNativeAdapter(t *testing.T) {
@@ -14,6 +14,16 @@ func TestNotifyServiceUsesAvailableNativeAdapter(t *testing.T) {
 	}
 	if native.title != "title" || native.message != "message" {
 		t.Fatalf("title = %q, message = %q", native.title, native.message)
+	}
+}
+
+func TestNotificationDefaultsToCyberCodeTitle(t *testing.T) {
+	terminal := &terminalNotificationStub{}
+	if got := sendToChannel("iterm2", NotificationOptions{Message: "done"}, terminal); got != "iterm2" {
+		t.Fatalf("channel = %q", got)
+	}
+	if terminal.notification.Title != "cyber-code" {
+		t.Fatalf("notification = %#v", terminal.notification)
 	}
 }
 
@@ -27,3 +37,14 @@ func (stub *nativeNotificationStub) Notify(_ context.Context, title, message str
 	stub.title, stub.message = title, message
 	return nil
 }
+
+type terminalNotificationStub struct {
+	notification NotificationOptions
+}
+
+func (stub *terminalNotificationStub) NotifyITerm2(options NotificationOptions) {
+	stub.notification = options
+}
+func (*terminalNotificationStub) NotifyKitty(KittyNotificationOptions) {}
+func (*terminalNotificationStub) NotifyGhostty(NotificationOptions)    {}
+func (*terminalNotificationStub) NotifyBell()                          {}

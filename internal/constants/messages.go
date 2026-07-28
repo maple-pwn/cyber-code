@@ -1,5 +1,7 @@
 package constants
 
+import "cyber-code/internal/product"
+
 // =============================================================================
 // User Message Constants
 // =============================================================================
@@ -57,7 +59,7 @@ func AutoRejectMessage(toolName string) string {
 
 // DontAskRejectMessage returns a rejection message for don't ask mode
 func DontAskRejectMessage(toolName string) string {
-	return "Permission to use " + toolName + " has been denied because Claude Code is running in don't ask mode. " + DenialWorkaroundGuidance
+	return "Permission to use " + toolName + " has been denied because " + product.Name + " is running in don't ask mode. " + DenialWorkaroundGuidance
 }
 
 // BuildYoloRejectionMessage builds a rejection message for auto mode classifier denials
@@ -235,7 +237,7 @@ const (
 // Help and usage messages
 const (
 	// HelpIntro is the introduction for help
-	HelpIntro = "Claude Code - AI-powered coding assistant"
+	HelpIntro = product.Name + " - AI-powered coding assistant"
 
 	// HelpUsagePrefix is the prefix for usage instructions
 	HelpUsagePrefix = "Usage:"

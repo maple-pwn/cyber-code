@@ -8,7 +8,7 @@ import (
 	"io"
 	"sort"
 
-	"claude-code-go/internal/security"
+	"cyber-code/internal/security"
 )
 
 type ExportOptions struct {
@@ -34,6 +34,11 @@ func (store *Store) Export(ctx context.Context, sessionID string, destination io
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	release, err := store.lockSession(sessionID)
+	if err != nil {
+		return err
+	}
+	defer release()
 	events, _, _, err := readEventLog(store.eventLogPath(sessionID), sessionID)
 	if err != nil {
 		return err

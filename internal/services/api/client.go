@@ -1,4 +1,4 @@
-// Package api provides API client functionality for the claude-code CLI.
+// Package api provides API client functionality for cyber-code.
 // This file contains the Anthropic API client implementation.
 package api
 
@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"claude-code-go/internal/utils"
+	"cyber-code/internal/utils"
 )
 
 // ClientRequestIDHeader is the header for client request IDs.
@@ -128,7 +128,7 @@ func NewClient(opts ClientOptions) (*Client, error) {
 func (c *Client) setupDefaultHeaders() {
 	c.defaultHeaders["x-app"] = "cli"
 	c.defaultHeaders["User-Agent"] = utils.GetUserAgent()
-	c.defaultHeaders["X-Claude-Code-Session-Id"] = os.Getenv("CLAUDE_CODE_SESSION_ID")
+	c.defaultHeaders["X-Claude-Code-Session-Id"] = os.Getenv("CYBER_CODE_SESSION_ID")
 	c.defaultHeaders["Content-Type"] = "application/json"
 
 	// Add custom headers
@@ -138,12 +138,12 @@ func (c *Client) setupDefaultHeaders() {
 	}
 
 	// Add container ID if present
-	if containerID := os.Getenv("CLAUDE_CODE_CONTAINER_ID"); containerID != "" {
+	if containerID := os.Getenv("CYBER_CODE_CONTAINER_ID"); containerID != "" {
 		c.defaultHeaders["x-claude-remote-container-id"] = containerID
 	}
 
 	// Add remote session ID if present
-	if remoteSessionID := os.Getenv("CLAUDE_CODE_REMOTE_SESSION_ID"); remoteSessionID != "" {
+	if remoteSessionID := os.Getenv("CYBER_CODE_REMOTE_SESSION_ID"); remoteSessionID != "" {
 		c.defaultHeaders["x-claude-remote-session-id"] = remoteSessionID
 	}
 
@@ -153,7 +153,7 @@ func (c *Client) setupDefaultHeaders() {
 	}
 
 	// Add additional protection header if enabled
-	if utils.IsEnvTruthy(os.Getenv("CLAUDE_CODE_ADDITIONAL_PROTECTION")) {
+	if utils.IsEnvTruthy(os.Getenv("CYBER_CODE_ADDITIONAL_PROTECTION")) {
 		c.defaultHeaders["x-anthropic-additional-protection"] = "true"
 	}
 }

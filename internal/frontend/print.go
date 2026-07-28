@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"claude-code-go/internal/core"
+	"cyber-code/internal/core"
 )
 
 const (

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/provider"
+	"cyber-code/internal/core"
+	"cyber-code/internal/provider"
 )
 
 // Engine owns canonical conversation history and runs provider turns.

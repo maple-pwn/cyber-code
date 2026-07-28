@@ -1,6 +1,6 @@
 package services
 
-import managedlsp "claude-code-go/internal/lsp"
+import managedlsp "cyber-code/internal/lsp"
 
 // LSPServerManager and its configuration aliases keep the former services
 // boundary source-compatible with managed callers while removing the legacy

@@ -1,6 +1,6 @@
 package services
 
-import managedlsp "claude-code-go/internal/lsp"
+import managedlsp "cyber-code/internal/lsp"
 
 // LSPClient is retained as an internal compatibility alias. New code should
 // depend on internal/lsp directly.

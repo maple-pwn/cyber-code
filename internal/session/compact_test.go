@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
-	"claude-code-go/internal/core"
+	"cyber-code/internal/core"
 )
 
 func TestCompactUsesExactCountAndPreservesRecentToolContext(t *testing.T) {
@@ -48,6 +49,22 @@ func TestCompactUsesExactCountAndPreservesRecentToolContext(t *testing.T) {
 	}
 	if original[0].Content[0].Text != "old question" {
 		t.Fatalf("compactor mutated input: %#v", original)
+	}
+}
+
+func TestCompactEstimateOnlyDoesNotCallProviderCounter(t *testing.T) {
+	counter := &tokenCounter{count: 1_000_000}
+	compactor, err := NewCompactor(CompactOptions{
+		ThresholdTokens: 100, EstimateOnly: true,
+		Estimate:  func(core.Request) int { return 10 },
+		Summarize: func(context.Context, []core.Message) (string, error) { return "summary", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := compactor.Compact(context.Background(), core.Request{Messages: compactFixtureMessages()}, counter)
+	if result.Applied || result.Exact || result.TokenCount != 10 || counter.calls != 0 {
+		t.Fatalf("result=%#v counter_calls=%d", result, counter.calls)
 	}
 }
 
@@ -119,6 +136,61 @@ func TestUsagePrefersExactCountAndCalculatesConfiguredPrice(t *testing.T) {
 	}
 	if _, err := table.Cost("unknown-model", core.Usage{}); err == nil {
 		t.Fatal("unknown model pricing was accepted")
+	}
+}
+
+func TestUsageFallsBackToNonNegativeEstimate(t *testing.T) {
+	failed := &tokenCounter{count: -1, err: errors.New("unavailable")}
+	count := CountRequestTokens(context.Background(), failed, core.Request{}, func(core.Request) int { return 17 })
+	if count.Tokens != 17 || count.Exact || failed.calls != 1 {
+		t.Fatalf("fallback count = %#v, calls = %d", count, failed.calls)
+	}
+	count = CountRequestTokens(context.Background(), nil, core.Request{}, func(core.Request) int { return -9 })
+	if count.Tokens != 0 || count.Exact {
+		t.Fatalf("negative estimate = %#v", count)
+	}
+	if got := EstimateRequestTokens(core.Request{Messages: []core.Message{{Role: core.RoleUser, Content: []core.ContentBlock{{Type: core.ContentText, Text: "estimate me"}}}}}); got <= 0 {
+		t.Fatalf("default estimate = %d", got)
+	}
+	defaulted := CountRequestTokens(context.Background(), nil, core.Request{
+		Messages: []core.Message{{Role: core.RoleUser, Content: []core.ContentBlock{{Type: core.ContentText, Text: "default estimator"}}}},
+	}, nil)
+	if defaulted.Tokens <= 0 || defaulted.Exact {
+		t.Fatalf("default token count = %#v", defaulted)
+	}
+}
+
+func TestCompactorValidatesOptionsAndHandlesBoundaries(t *testing.T) {
+	if _, err := NewCompactor(CompactOptions{}); err == nil {
+		t.Fatal("non-positive threshold was accepted")
+	}
+	if _, err := NewCompactor(CompactOptions{ThresholdTokens: 1}); err == nil {
+		t.Fatal("missing summarizer was accepted")
+	}
+	compactor, err := NewCompactor(CompactOptions{
+		ThresholdTokens: 100,
+		Summarize:       func(context.Context, []core.Message) (string, error) { return "summary", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	below := compactor.Compact(context.Background(), core.Request{}, &tokenCounter{count: 99})
+	if below.Applied {
+		t.Fatalf("below-threshold compact = %#v", below)
+	}
+
+	emptySummary, err := NewCompactor(CompactOptions{
+		ThresholdTokens:    1,
+		KeepRecentMessages: 1,
+		Estimate:           func(core.Request) int { return 10 },
+		Summarize:          func(context.Context, []core.Message) (string, error) { return "", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := emptySummary.Compact(context.Background(), core.Request{Messages: compactFixtureMessages()}, nil)
+	if result.Applied || !strings.Contains(result.Warning, "empty summary") {
+		t.Fatalf("empty summary result = %#v", result)
 	}
 }
 

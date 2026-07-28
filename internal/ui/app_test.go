@@ -7,8 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/permissions"
+	"cyber-code/internal/core"
+	"cyber-code/internal/permissions"
 )
 
 func TestModelEnterSubmitsPromptThroughCommandAndConsumesRuntimeEvents(t *testing.T) {
@@ -38,6 +38,13 @@ func TestModelEnterSubmitsPromptThroughCommandAndConsumesRuntimeEvents(t *testin
 		if !strings.Contains(view, text) {
 			t.Fatalf("view missing %q: %q", text, view)
 		}
+	}
+}
+
+func TestModelViewUsesCyberCodeBrand(t *testing.T) {
+	view := NewModel(&uiTestRunner{}, ModelOptions{Width: 80, Height: 24}).View()
+	if !strings.Contains(view, "cyber-code") || strings.Contains(strings.ToLower(view), "claude code") {
+		t.Fatalf("view does not use cyber-code brand: %q", view)
 	}
 }
 
@@ -75,18 +82,34 @@ func TestModelPermissionMessageUsesDialogAndRespondsThroughMessage(t *testing.T)
 
 func TestPermissionBridgeAttachesAndDefaultsToDenyWhenDetached(t *testing.T) {
 	bridge := NewPermissionBridge()
+	if bridge.Attached() {
+		t.Fatal("new permission bridge is attached")
+	}
 	bridge.Attach(func(message tea.Msg) {
 		request := message.(PermissionRequestMsg)
 		request.Respond <- permissions.Decision{Behavior: permissions.PermissionBehaviorAllow}
 	})
+	if !bridge.Attached() {
+		t.Fatal("permission bridge did not report attachment")
+	}
 	decision, err := bridge.Confirm(context.Background(), permissions.Request{Tool: "shell", Action: permissions.ActionExecute})
 	if err != nil || decision.Behavior != permissions.PermissionBehaviorAllow {
 		t.Fatalf("decision = %#v, error = %v", decision, err)
 	}
 	bridge.Detach()
+	if bridge.Attached() {
+		t.Fatal("detached permission bridge still reports attachment")
+	}
 	decision, err = bridge.Confirm(context.Background(), permissions.Request{Tool: "shell", Action: permissions.ActionExecute})
 	if err != nil || decision.Behavior != permissions.PermissionBehaviorDeny {
 		t.Fatalf("detached decision = %#v, error = %v", decision, err)
+	}
+}
+
+func TestPermissionDescriptionIncludesNetworkTarget(t *testing.T) {
+	description := permissionDescription(permissions.Request{Action: permissions.ActionNetwork, Network: []string{"mcp.example.test"}})
+	if !strings.Contains(description, "mcp.example.test") {
+		t.Fatalf("network permission description = %q", description)
 	}
 }
 

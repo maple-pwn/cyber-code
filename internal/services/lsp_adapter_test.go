@@ -3,7 +3,7 @@ package services
 import (
 	"testing"
 
-	managedlsp "claude-code-go/internal/lsp"
+	managedlsp "cyber-code/internal/lsp"
 )
 
 func TestLSPServiceAdaptersUseManagedConstructors(t *testing.T) {

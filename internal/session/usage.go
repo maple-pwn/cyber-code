@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/services"
+	"cyber-code/internal/core"
+	"cyber-code/internal/services"
 )
 
 type TokenCounter interface {

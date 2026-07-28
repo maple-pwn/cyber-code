@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"claude-code-go/internal/config"
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/provider/openai"
-	"claude-code-go/internal/provider/testkit"
+	"cyber-code/internal/config"
+	"cyber-code/internal/core"
+	"cyber-code/internal/provider/openai"
+	"cyber-code/internal/provider/testkit"
 )
 
 func TestStreamMapsOpenAIRequestAndParallelToolCalls(t *testing.T) {

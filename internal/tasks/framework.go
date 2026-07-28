@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"sync"
 	"time"
+
+	"cyber-code/internal/product"
 )
 
 var (
@@ -433,7 +435,7 @@ func CreateRemoteAgentTask(id, command, sessionID, description string) *RemoteAg
 // GetTaskOutputPath returns the path to a task's output file.
 func GetTaskOutputPath(taskID string) string {
 	// Use system temp directory
-	return filepath.Join(os.TempDir(), "claude-code-go", "tasks", taskID+".output")
+	return filepath.Join(os.TempDir(), product.Name, "tasks", taskID+".output")
 }
 
 // InitTaskOutput initializes the task output file.

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"claude-code-go/internal/core"
+	"cyber-code/internal/core"
 )
 
 func TestPrintTextOutputsOnlyAssistantText(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"claude-code-go/internal/permissions"
+	"cyber-code/internal/permissions"
 )
 
 func TestNotificationDetectsLinuxAndWindowsBackends(t *testing.T) {

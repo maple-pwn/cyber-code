@@ -114,7 +114,7 @@ var prodOAuthConfig = OAuthConfig{
 // MCPClientMetadataURL is the Client ID Metadata Document URL for MCP OAuth
 const MCPClientMetadataURL = "https://claude.ai/oauth/claude-code-client-metadata"
 
-// AllowedOAuthBaseURLs are the allowed base URLs for CLAUDE_CODE_CUSTOM_OAUTH_URL override
+// AllowedOAuthBaseURLs are the allowed base URLs for CYBER_CODE_CUSTOM_OAUTH_URL override
 var AllowedOAuthBaseURLs = []string{
 	"https://beacon.claude-ai.staging.ant.dev",
 	"https://claude.fedstart.com",
@@ -135,11 +135,11 @@ func GetOAuthConfig() OAuthConfig {
 	}
 
 	// Allow overriding all OAuth URLs to point to an approved FedStart deployment
-	oauthBaseUrl := os.Getenv("CLAUDE_CODE_CUSTOM_OAUTH_URL")
+	oauthBaseUrl := os.Getenv("CYBER_CODE_CUSTOM_OAUTH_URL")
 	if oauthBaseUrl != "" {
 		base := strings.TrimSuffix(oauthBaseUrl, "/")
 		if !isAllowedOAuthBaseURL(base) {
-			panic("CLAUDE_CODE_CUSTOM_OAUTH_URL is not an approved endpoint")
+			panic("CYBER_CODE_CUSTOM_OAUTH_URL is not an approved endpoint")
 		}
 		config = OAuthConfig{
 			BaseAPIURL:           base,
@@ -160,7 +160,7 @@ func GetOAuthConfig() OAuthConfig {
 	}
 
 	// Allow CLIENT_ID override via environment variable
-	if clientID := os.Getenv("CLAUDE_CODE_OAUTH_CLIENT_ID"); clientID != "" {
+	if clientID := os.Getenv("CYBER_CODE_OAUTH_CLIENT_ID"); clientID != "" {
 		config.ClientID = clientID
 	}
 
@@ -227,7 +227,7 @@ func getEnvOrDefault(key, defaultValue string) string {
 
 // FileSuffixForOAuthConfig returns the file suffix for the current OAuth config
 func FileSuffixForOAuthConfig() string {
-	if os.Getenv("CLAUDE_CODE_CUSTOM_OAUTH_URL") != "" {
+	if os.Getenv("CYBER_CODE_CUSTOM_OAUTH_URL") != "" {
 		return "-custom-oauth"
 	}
 	switch getOAuthConfigType() {

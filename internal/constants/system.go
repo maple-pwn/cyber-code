@@ -2,22 +2,24 @@ package constants
 
 import (
 	"os"
+
+	"cyber-code/internal/product"
 )
 
 // System prompt prefix types
 type CLISyspromptPrefix string
 
 const (
-	DefaultPrefix                  CLISyspromptPrefix = "You are Claude Code, Anthropic's official CLI for Claude."
-	AgentSDKClaudeCodePresetPrefix CLISyspromptPrefix = "You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK."
-	AgentSDKPrefix                 CLISyspromptPrefix = "You are a Claude agent, built on Anthropic's Claude Agent SDK."
+	DefaultPrefix                 CLISyspromptPrefix = product.DefaultSystemPrompt
+	AgentSDKCyberCodePresetPrefix CLISyspromptPrefix = product.DefaultSystemPrompt + " You are running through an agent SDK."
+	AgentSDKPrefix                CLISyspromptPrefix = product.DefaultSystemPrompt + " You are running through a generic agent SDK integration."
 )
 
 // CLISyspromptPrefixes contains all possible CLI sysprompt prefix values
 var CLISyspromptPrefixes = map[CLISyspromptPrefix]bool{
-	DefaultPrefix:                  true,
-	AgentSDKClaudeCodePresetPrefix: true,
-	AgentSDKPrefix:                 true,
+	DefaultPrefix:                 true,
+	AgentSDKCyberCodePresetPrefix: true,
+	AgentSDKPrefix:                true,
 }
 
 // GetCLISyspromptPrefix returns the appropriate CLI sysprompt prefix based on context
@@ -26,7 +28,7 @@ func GetCLISyspromptPrefix(isNonInteractive bool, hasAppendSystemPrompt bool) CL
 	// TODO: Add API provider check when vertex support is added
 	if isNonInteractive {
 		if hasAppendSystemPrompt {
-			return AgentSDKClaudeCodePresetPrefix
+			return AgentSDKCyberCodePresetPrefix
 		}
 		return AgentSDKPrefix
 	}
@@ -44,7 +46,7 @@ func GetAttributionHeader(fingerprint string) string {
 	}
 
 	version := "1.0.0." + fingerprint // TODO: Use actual version
-	entrypoint := getEnvOrDefault("CLAUDE_CODE_ENTRYPOINT", "unknown")
+	entrypoint := getEnvOrDefault("CYBER_CODE_ENTRYPOINT", "unknown")
 
 	// TODO: Add native client attestation when supported
 	// TODO: Add workload context when supported
@@ -55,7 +57,7 @@ func GetAttributionHeader(fingerprint string) string {
 
 func isAttributionHeaderEnabled() bool {
 	// Check environment variable
-	val := os.Getenv("CLAUDE_CODE_ATTRIBUTION_HEADER")
+	val := os.Getenv("CYBER_CODE_ATTRIBUTION_HEADER")
 	if val == "false" || val == "0" || val == "no" {
 		return false
 	}

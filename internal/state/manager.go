@@ -1,4 +1,4 @@
-// Package state provides state management for the claude-code CLI.
+// Package state provides state management for cyber-code.
 package state
 
 import (
@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"sync"
 
-	"claude-code-go/internal/utils"
+	"cyber-code/internal/utils"
 )
 
 // ========================================

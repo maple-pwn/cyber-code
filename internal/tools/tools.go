@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"claude-code-go/internal/constants"
-	"claude-code-go/internal/types"
+	"cyber-code/internal/constants"
+	"cyber-code/internal/types"
 )
 
 // =============================================================================
@@ -669,7 +669,7 @@ func (t *WebFetchTool) Call(ctx context.Context, args json.RawMessage, toolCtx *
 			continue
 		}
 
-		req.Header.Set("User-Agent", "claude-code-go/1.0")
+		req.Header.Set("User-Agent", "cyber-code/1.0")
 		resp, err := client.Do(req)
 		if err != nil {
 			results = append(results, fmt.Sprintf("Error: failed to fetch %s: %v", rawURL, err))

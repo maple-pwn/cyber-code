@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/permissions"
-	"claude-code-go/internal/provider"
-	toolpkg "claude-code-go/internal/tool"
+	"cyber-code/internal/core"
+	"cyber-code/internal/permissions"
+	"cyber-code/internal/provider"
+	toolpkg "cyber-code/internal/tool"
 )
 
 func TestToolLoopExecutesAllowedAndReturnsDeniedResults(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"claude-code-go/internal/core"
+	"cyber-code/internal/core"
 )
 
 type Snapshot struct {
@@ -29,6 +29,11 @@ func (store *Store) SaveSnapshot(ctx context.Context, snapshot Snapshot) error {
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	release, err := store.lockSession(snapshot.SessionID)
+	if err != nil {
+		return err
+	}
+	defer release()
 	directory, err := store.ensureSessionDir(snapshot.SessionID)
 	if err != nil {
 		return err
@@ -90,6 +95,11 @@ func (store *Store) Resume(ctx context.Context, sessionID string) (Snapshot, err
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	release, err := store.lockSession(sessionID)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	defer release()
 	return store.loadSnapshot(ctx, sessionID)
 }
 

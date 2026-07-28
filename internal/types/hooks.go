@@ -1,4 +1,4 @@
-// Package types contains core type definitions for the claude-code CLI.
+// Package types contains core type definitions for cyber-code.
 // This file contains hook-related types translated from TypeScript.
 package types
 

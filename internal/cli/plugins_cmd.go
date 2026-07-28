@@ -38,12 +38,17 @@ func newPluginsCommand(environment *commandEnvironment) *cobra.Command {
 			verb = "enable"
 		}
 		command.AddCommand(&cobra.Command{Use: verb + " <name>", Args: cobra.ExactArgs(1), RunE: func(_ *cobra.Command, args []string) error {
-			plugins, err := loadPluginStates(path)
-			if err != nil {
+			if err := validatePluginName(args[0]); err != nil {
 				return err
 			}
-			plugins[args[0]] = pluginState{Name: args[0], Enabled: enabled}
-			return writeStateFile(path, plugins)
+			return withStateFileLock(path, func() error {
+				plugins, err := loadPluginStates(path)
+				if err != nil {
+					return err
+				}
+				plugins[args[0]] = pluginState{Name: args[0], Enabled: enabled}
+				return writeStateFile(path, plugins)
+			})
 		}})
 	}
 	return command

@@ -3,7 +3,7 @@ package state_test
 import (
 	"testing"
 
-	"claude-code-go/internal/state"
+	"cyber-code/internal/state"
 )
 
 type customPayload struct {

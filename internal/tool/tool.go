@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/permissions"
+	"cyber-code/internal/core"
+	"cyber-code/internal/permissions"
 )
 
 type Spec struct {

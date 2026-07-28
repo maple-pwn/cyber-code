@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -8,13 +9,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/spf13/cobra"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/frontend"
-	"claude-code-go/internal/permissions"
-	"claude-code-go/internal/ui"
+	"cyber-code/internal/core"
+	"cyber-code/internal/frontend"
+	"cyber-code/internal/permissions"
+	"cyber-code/internal/product"
+	"cyber-code/internal/ui"
 )
 
 type ExecuteOptions struct {
@@ -96,10 +99,10 @@ func errorExitCode(err error) int {
 
 func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	var printMode, jsonMode bool
-	var profile, permissionMode, model, cwd string
+	var profile, permissionMode, model, cwd, resumeSession string
 	var maxTurns int
 	command := &cobra.Command{
-		Use:           "claude-go [prompt]",
+		Use:           product.Command + " [prompt]",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.ArbitraryArgs,
@@ -108,6 +111,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 			runner := environment.options.Runner
 			var shutdown func(context.Context) error
 			var permissionUI *ui.PermissionBridge
+			bootstrapConfirmer := newBootstrapConfirmer(environment.stdin, environment.stderr)
 			if !printMode {
 				permissionUI = ui.NewPermissionBridge()
 			}
@@ -115,12 +119,8 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 				built, err := composeRuntime(environment.ctx, compositionOptions{
 					ConfigFile: environment.configFile, StateDir: environment.stateDir, Profile: profile,
 					PermissionMode: permissionMode, Model: model, Cwd: cwd, MaxTurns: maxTurns, Headless: printMode,
-					Confirmer: func(ctx context.Context, request permissions.Request) (permissions.Decision, error) {
-						if permissionUI == nil {
-							return permissions.Decision{Behavior: permissions.PermissionBehaviorDeny, Reason: "permission UI unavailable"}, nil
-						}
-						return permissionUI.Confirm(ctx, request)
-					},
+					SessionID: resumeSession,
+					Confirmer: newInteractiveConfirmer(permissionUI, bootstrapConfirmer),
 				})
 				if err != nil {
 					return err
@@ -151,6 +151,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	command.Flags().StringVar(&permissionMode, "permission-mode", "", "permission mode")
 	command.Flags().StringVarP(&model, "model", "m", "", "model override")
 	command.Flags().StringVar(&cwd, "cwd", "", "workspace directory")
+	command.Flags().StringVar(&resumeSession, "resume", "", "resume a persisted session")
 	command.Flags().IntVar(&maxTurns, "max-turns", 100, "maximum agent turns")
 	command.AddCommand(newConfigCommand(environment))
 	command.AddCommand(newDoctorCommand(environment))
@@ -160,30 +161,90 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	return command
 }
 
+func newInteractiveConfirmer(bridge *ui.PermissionBridge, bootstrap permissions.Confirmer) permissions.Confirmer {
+	return func(ctx context.Context, request permissions.Request) (permissions.Decision, error) {
+		if bridge == nil {
+			return permissions.Decision{Behavior: permissions.PermissionBehaviorDeny, Reason: "permission UI unavailable"}, nil
+		}
+		if !bridge.Attached() {
+			return bootstrap(ctx, request)
+		}
+		return bridge.Confirm(ctx, request)
+	}
+}
+
+func newBootstrapConfirmer(input io.Reader, output io.Writer) permissions.Confirmer {
+	if output == nil {
+		output = io.Discard
+	}
+	var reader *bufio.Reader
+	if input != nil {
+		reader = bufio.NewReader(input)
+	}
+	var mutex sync.Mutex
+	return func(ctx context.Context, request permissions.Request) (permissions.Decision, error) {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if err := ctx.Err(); err != nil {
+			return permissions.Decision{}, err
+		}
+		if reader == nil {
+			return permissions.Decision{Behavior: permissions.PermissionBehaviorDeny, Reason: "startup confirmation input is unavailable"}, nil
+		}
+		mutex.Lock()
+		defer mutex.Unlock()
+		if err := ctx.Err(); err != nil {
+			return permissions.Decision{}, err
+		}
+		kind := "external tool"
+		switch {
+		case request.Tool == "mcp" || strings.HasPrefix(request.Tool, "mcp.") || strings.HasPrefix(request.Tool, "mcp__"):
+			kind = "mcp"
+		case request.Tool == "plugin" || strings.HasPrefix(request.Tool, "plugin.") || strings.HasPrefix(request.Tool, "plugin__"):
+			kind = "plugin"
+		}
+		target := permissions.SafeTargetSummary(request, false)
+		if target != "" {
+			target = " to " + target
+		}
+		_, _ = fmt.Fprintf(output, "Allow %s %s access%s during startup? [y/N]: ", kind, request.Action, target)
+		answer, err := reader.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return permissions.Decision{}, fmt.Errorf("read startup permission response: %w", err)
+		}
+		answer = strings.ToLower(strings.TrimSpace(answer))
+		if answer == "y" || answer == "yes" {
+			return permissions.Decision{Behavior: permissions.PermissionBehaviorAllow, Reason: "startup access confirmed by user"}, nil
+		}
+		return permissions.Decision{Behavior: permissions.PermissionBehaviorDeny, Reason: "startup access was not confirmed"}, nil
+	}
+}
+
 func resolveConfigFile(explicit string) string {
 	if explicit != "" {
 		return explicit
 	}
-	if value := strings.TrimSpace(os.Getenv("CLAUDE_GO_CONFIG")); value != "" {
+	if value := strings.TrimSpace(os.Getenv(product.EnvConfig)); value != "" {
 		return value
 	}
 	directory, err := os.UserConfigDir()
 	if err != nil {
-		return filepath.Join(".", ".claude-go.yaml")
+		return filepath.Join(".", "."+product.Name+".yaml")
 	}
-	return filepath.Join(directory, "claude-code-go", "config.yaml")
+	return filepath.Join(directory, product.ConfigDirectory, "config.yaml")
 }
 
 func resolveStateDir(explicit string) string {
 	if explicit != "" {
 		return explicit
 	}
-	if value := strings.TrimSpace(os.Getenv("CLAUDE_GO_STATE_DIR")); value != "" {
+	if value := strings.TrimSpace(os.Getenv(product.EnvStateDir)); value != "" {
 		return value
 	}
 	directory, err := os.UserConfigDir()
 	if err != nil {
-		return filepath.Join(".", ".claude-go")
+		return filepath.Join(".", "."+product.Name)
 	}
-	return filepath.Join(directory, "claude-code-go")
+	return filepath.Join(directory, product.ConfigDirectory)
 }

@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"claude-code-go/internal/core"
+	"cyber-code/internal/core"
 )
 
 type EventRecord struct {
@@ -30,28 +30,29 @@ func (store *Store) Append(ctx context.Context, sessionID string, event core.Eve
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	release, err := store.lockSession(sessionID)
+	if err != nil {
+		return EventRecord{}, err
+	}
+	defer release()
 	if _, err := store.ensureSessionDir(sessionID); err != nil {
 		return EventRecord{}, err
 	}
 	path := store.eventLogPath(sessionID)
-	if !state.initialized {
-		records, validBytes, incomplete, err := readEventLog(path, sessionID)
-		if err != nil {
-			return EventRecord{}, err
-		}
-		if incomplete {
-			if err := os.Truncate(path, validBytes); err != nil {
-				return EventRecord{}, fmt.Errorf("truncate incomplete event log tail: %w", err)
-			}
-		}
-		state.next = uint64(len(records) + 1)
-		state.validBytes = validBytes
-		state.initialized = true
+	records, validBytes, incomplete, err := readEventLog(path, sessionID)
+	if err != nil {
+		return EventRecord{}, err
 	}
-	if event.Type == core.EventCompacted && event.CoveredSequence == 0 && state.next > 1 {
-		event.CoveredSequence = state.next - 1
+	if incomplete {
+		if err := os.Truncate(path, validBytes); err != nil {
+			return EventRecord{}, fmt.Errorf("truncate incomplete event log tail: %w", err)
+		}
 	}
-	record := EventRecord{Sequence: state.next, SessionID: sessionID, Time: store.now().UTC(), Event: event}
+	next := uint64(len(records) + 1)
+	if event.Type == core.EventCompacted && event.CoveredSequence == 0 && next > 1 {
+		event.CoveredSequence = next - 1
+	}
+	record := EventRecord{Sequence: next, SessionID: sessionID, Time: store.now().UTC(), Event: event}
 	encoded, err := json.Marshal(record)
 	if err != nil {
 		return EventRecord{}, fmt.Errorf("encode session event: %w", err)
@@ -72,11 +73,8 @@ func (store *Store) Append(ctx context.Context, sessionID string, event core.Eve
 	syncErr := file.Sync()
 	closeErr := file.Close()
 	if writeErr != nil || syncErr != nil || closeErr != nil {
-		state.initialized = false
 		return EventRecord{}, fmt.Errorf("append session event: %w", errors.Join(writeErr, syncErr, closeErr))
 	}
-	state.next++
-	state.validBytes += int64(len(encoded))
 	return record, nil
 }
 
@@ -90,6 +88,11 @@ func (store *Store) Events(ctx context.Context, sessionID string) ([]EventRecord
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	release, err := store.lockSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	records, _, _, err := readEventLog(store.eventLogPath(sessionID), sessionID)
 	if err != nil {
 		return nil, err

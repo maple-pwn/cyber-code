@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
-	"claude-code-go/internal/permissions"
+	"cyber-code/internal/permissions"
 )
 
 func TestManagerAuthorizesStartupAndReusesWorkspaceLanguageClient(t *testing.T) {
@@ -238,6 +239,31 @@ func TestManagerRejectsDeniedStartupAndFilesOutsideWorkspace(t *testing.T) {
 	query.File = filepath.Join(filepath.Dir(workspace), "outside.go")
 	if _, err := allowed.Hover(context.Background(), query); !errors.Is(err, ErrWorkspaceBoundary) {
 		t.Fatalf("outside workspace error = %v", err)
+	}
+}
+
+func TestManagerRejectsFileSymlinkOutsideWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.go")
+	if err := os.WriteFile(outside, []byte("package outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linked := filepath.Join(workspace, "linked.go")
+	if err := os.Symlink(outside, linked); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	manager, err := NewManager(ManagerOptions{
+		Configs:    []ServerConfig{{Language: "go", Command: "gopls"}},
+		Starter:    &lspTestStarter{t: t, serve: serveLSPQueries},
+		Authorizer: &lspTestAuthorizer{decision: permissions.Decision{Behavior: permissions.PermissionBehaviorAllow}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	_, err = manager.Hover(context.Background(), Query{Workspace: workspace, Language: "go", File: linked})
+	if !errors.Is(err, ErrWorkspaceBoundary) {
+		t.Fatalf("outside symlink error = %v", err)
 	}
 }
 

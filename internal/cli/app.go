@@ -12,24 +12,15 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"claude-code-go/internal/commands"
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/frontend"
-	"claude-code-go/internal/query"
-	"claude-code-go/internal/tools"
-	"claude-code-go/internal/types"
-	"claude-code-go/internal/ui"
-	"claude-code-go/pkg/api"
+	"cyber-code/internal/core"
+	"cyber-code/internal/frontend"
+	"cyber-code/internal/ui"
 )
 
 // App represents the CLI application.
 type App struct {
 	config        *Config
-	registry      *commands.Registry
-	toolRegistry  *tools.Registry
-	queryEngine   *query.QueryEngine
 	uiModel       *ui.Model
-	apiClient     *api.Client
 	ctx           context.Context
 	cancel        context.CancelFunc
 	initialPrompt string
@@ -84,54 +75,6 @@ func NewApp(config *Config, version string) *App {
 		cancel:  cancel,
 		version: version,
 	}
-}
-
-// Initialize sets up all application components.
-func (a *App) Initialize() error {
-	// Get current working directory
-	cwd := a.config.Cwd
-	if cwd == "" {
-		var err error
-		cwd, err = os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get working directory: %w", err)
-		}
-	}
-
-	// Initialize command registry
-	a.registry = commands.NewRegistry()
-	a.registerCommands()
-
-	// Initialize tool registry
-	a.toolRegistry = tools.NewToolRegistry()
-	a.registerTools()
-
-	// Initialize API client
-	a.apiClient = api.NewClient(api.Config{
-		APIKey:  a.config.APIKey,
-		BaseURL: a.config.BaseURL,
-	})
-
-	// Initialize query engine
-	queryConfig := query.QueryEngineConfig{
-		Cwd:       cwd,
-		Tools:     a.toolRegistry.List(),
-		MaxTurns:  a.config.MaxTurns,
-		APIClient: a.apiClient,
-		GetAppState: func() *types.AppState {
-			return &types.AppState{
-				MainLoopModel: a.config.Model,
-			}
-		},
-	}
-
-	if a.config.Model != "" {
-		queryConfig.UserSpecifiedModel = a.config.Model
-	}
-
-	a.queryEngine = query.NewQueryEngine(queryConfig)
-
-	return nil
 }
 
 // Run starts the application.
@@ -213,26 +156,6 @@ func (a *App) runInteractiveMode() error {
 	return nil
 }
 
-// registerCommands registers all built-in commands.
-func (a *App) registerCommands() {
-	a.registry.Register(commands.NewHelpCommand(a.registry))
-	a.registry.Register(commands.NewExitCommand())
-	a.registry.Register(commands.NewClearCommand())
-	a.registry.Register(commands.NewModelCommand())
-	a.registry.Register(commands.NewConfigCommand())
-	a.registry.Register(commands.NewCostCommand())
-	a.registry.Register(commands.NewThemeCommand())
-}
-
-// registerTools registers all built-in tools.
-func (a *App) registerTools() {
-	a.toolRegistry.Register(tools.NewBashTool())
-	a.toolRegistry.Register(tools.NewFileReadTool())
-	a.toolRegistry.Register(tools.NewFileWriteTool())
-	a.toolRegistry.Register(tools.NewGlobTool())
-	a.toolRegistry.Register(tools.NewGrepTool())
-}
-
 // Shutdown cleans up resources.
 func (a *App) Shutdown() {
 	if a.cancel != nil {
@@ -276,133 +199,16 @@ func (a *App) runner() frontend.Runner {
 	if a.config.Runtime != nil {
 		return a.config.Runtime
 	}
-	return legacyQueryRunner{engine: a.queryEngine}
+	return unconfiguredRunner{}
 }
 
-type legacyQueryRunner struct {
-	engine *query.QueryEngine
-}
+type unconfiguredRunner struct{}
 
-func (runner legacyQueryRunner) Run(ctx context.Context, prompt string) <-chan core.Event {
-	events := make(chan core.Event, 16)
-	go func() {
-		defer close(events)
-		if runner.engine == nil {
-			emitLegacyEvent(ctx, events, core.Event{Type: core.EventError, Err: &core.Error{
-				Kind: core.ErrorKindConfiguration, Op: "cli.query", Message: "runtime is not configured",
-			}})
-			return
-		}
-		messages, err := runner.engine.SubmitMessage(ctx, prompt)
-		if err != nil {
-			emitLegacyError(events, ctx, err)
-			return
-		}
-		for message := range messages {
-			switch message := message.(type) {
-			case query.SDKMessage:
-				for _, event := range legacySDKEvents(message) {
-					if !emitLegacyEvent(ctx, events, event) || event.Type == core.EventError {
-						return
-					}
-				}
-			case query.ResultMessage:
-				if message.IsError {
-					text := strings.TrimSpace(message.Result)
-					if text == "" {
-						text = strings.TrimSpace(message.Subtype)
-					}
-					emitLegacyEvent(ctx, events, core.Event{Type: core.EventError, Err: &core.Error{
-						Kind: core.ErrorKindProvider, Op: "cli.query", Message: text,
-					}})
-					return
-				}
-				if !emitLegacyEvent(ctx, events, core.Event{Type: core.EventCompleted, FinishReason: message.StopReason}) {
-					return
-				}
-			}
-		}
-	}()
+func (unconfiguredRunner) Run(context.Context, string) <-chan core.Event {
+	events := make(chan core.Event, 1)
+	events <- core.Event{Type: core.EventError, Err: &core.Error{
+		Kind: core.ErrorKindConfiguration, Op: "cli.runtime", Message: "runtime is not configured",
+	}}
+	close(events)
 	return events
-}
-
-func legacySDKEvents(message query.SDKMessage) []core.Event {
-	switch message.Type {
-	case "assistant":
-		response, ok := message.Message.(*api.MessageResponse)
-		if !ok || response == nil {
-			return nil
-		}
-		events := make([]core.Event, 0, len(response.Content))
-		for _, block := range response.Content {
-			switch block.Type {
-			case "text":
-				events = append(events, core.Event{Type: core.EventTextDelta, Text: block.Text})
-			case "tool_use":
-				events = append(events, core.Event{Type: core.EventToolCall, ToolCall: &core.ToolCall{
-					ID: block.ID, Name: block.Name, Arguments: block.Input,
-				}})
-			}
-		}
-		return events
-	case "tool_result":
-		result, ok := message.Message.(map[string]interface{})
-		if !ok {
-			return nil
-		}
-		return []core.Event{{Type: core.EventToolResult, ToolResult: &core.ToolResult{
-			ToolCallID: stringValue(result["tool_use_id"]),
-			Content:    []core.ContentBlock{{Type: core.ContentText, Text: stringValue(result["content"])}},
-		}}}
-	case "system":
-		if text := legacySystemError(message.Message); text != "" {
-			return []core.Event{{Type: core.EventError, Err: &core.Error{
-				Kind: core.ErrorKindProvider, Op: "cli.query", Message: text,
-			}}}
-		}
-	}
-	return nil
-}
-
-func legacySystemError(message interface{}) string {
-	switch value := message.(type) {
-	case map[string]string:
-		if value["subtype"] == "error" {
-			return value["error"]
-		}
-	case map[string]interface{}:
-		if stringValue(value["subtype"]) == "error" {
-			return stringValue(value["error"])
-		}
-	}
-	return ""
-}
-
-func stringValue(value interface{}) string {
-	if value == nil {
-		return ""
-	}
-	if text, ok := value.(string); ok {
-		return text
-	}
-	return fmt.Sprint(value)
-}
-
-func emitLegacyError(events chan<- core.Event, ctx context.Context, err error) {
-	kind := core.ErrorKindProvider
-	if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-		kind = core.ErrorKindCanceled
-	}
-	emitLegacyEvent(ctx, events, core.Event{Type: core.EventError, Err: &core.Error{
-		Kind: kind, Op: "cli.query", Message: err.Error(), Cause: err,
-	}})
-}
-
-func emitLegacyEvent(ctx context.Context, events chan<- core.Event, event core.Event) bool {
-	select {
-	case events <- event:
-		return true
-	case <-ctx.Done():
-		return false
-	}
 }

@@ -8,9 +8,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/permissions"
-	"claude-code-go/internal/ui/components"
+	"cyber-code/internal/core"
+	"cyber-code/internal/permissions"
+	"cyber-code/internal/product"
+	"cyber-code/internal/ui/components"
 )
 
 type Runner interface {
@@ -78,6 +79,15 @@ func (bridge *PermissionBridge) Attach(send func(tea.Msg)) {
 
 func (bridge *PermissionBridge) Detach() {
 	bridge.Attach(nil)
+}
+
+func (bridge *PermissionBridge) Attached() bool {
+	if bridge == nil {
+		return false
+	}
+	bridge.mu.RLock()
+	defer bridge.mu.RUnlock()
+	return bridge.send != nil
 }
 
 func (bridge *PermissionBridge) Confirm(ctx context.Context, request permissions.Request) (permissions.Decision, error) {
@@ -287,6 +297,46 @@ func (model *Model) AddMessage(role, content string) {
 	model.Messages = append(model.Messages, Message{Role: role, Content: content})
 }
 
+func (model *Model) View() string {
+	if !model.Ready {
+		return "Initializing..."
+	}
+	width := max(20, model.Width)
+	var output strings.Builder
+	output.WriteString(product.Name + "\n")
+	output.WriteString(strings.Repeat("-", width) + "\n")
+	for _, message := range model.Messages {
+		label := message.Role
+		switch message.Role {
+		case "user":
+			label = "You"
+		case "assistant":
+			label = "Assistant"
+		case "tool":
+			label = "Tool"
+		case "error":
+			label = "Error"
+		}
+		output.WriteString(fmt.Sprintf("%s: %s\n", label, message.Content))
+	}
+	if model.Permission != nil {
+		output.WriteString(model.Permission.View())
+		output.WriteByte('\n')
+	}
+	if model.Processing {
+		output.WriteString(model.StatusText + "\n")
+	}
+	output.WriteString(strings.Repeat("-", width) + "\n")
+	output.WriteString(model.Input.View())
+	return output.String()
+}
+
+func RunUI(runner Runner) error {
+	program := tea.NewProgram(NewModel(runner, ModelOptions{}), tea.WithAltScreen())
+	_, err := program.Run()
+	return err
+}
+
 // SetVimMode changes input behavior without replacing the input buffer.
 func (model *Model) SetVimMode(enabled bool) {
 	model.Input.SetVimEnabled(enabled)
@@ -316,11 +366,8 @@ func toolResultText(result *core.ToolResult) string {
 }
 
 func permissionDescription(request permissions.Request) string {
-	if request.Command != "" {
-		return request.Command
-	}
-	if len(request.Paths) > 0 {
-		return strings.Join(request.Paths, "\n")
+	if target := permissions.SafeTargetSummary(request, true); target != "" {
+		return target
 	}
 	return request.Action
 }

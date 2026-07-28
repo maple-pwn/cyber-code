@@ -1,4 +1,4 @@
-// Package api provides API client functionality for the claude-code CLI.
+// Package api provides API client functionality for cyber-code.
 // This file contains enhanced retry logic with exponential backoff and error handling.
 package api
 
@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"claude-code-go/internal/services/oauth"
-	"claude-code-go/internal/utils"
+	"cyber-code/internal/services/oauth"
+	"cyber-code/internal/utils"
 )
 
 // Retry constants
@@ -117,7 +117,7 @@ var Foreground529RetrySources = map[string]bool{
 
 // IsPersistentRetryEnabled checks if persistent retry mode is enabled for unattended sessions.
 func IsPersistentRetryEnabled() bool {
-	return utils.IsEnvTruthy(os.Getenv("CLAUDE_CODE_UNATTENDED_RETRY"))
+	return utils.IsEnvTruthy(os.Getenv("CYBER_CODE_UNATTENDED_RETRY"))
 }
 
 // ShouldRetry529 determines if 529 errors should be retried based on query source.
@@ -137,7 +137,7 @@ func IsTransientCapacityError(err *APIError) bool {
 // GetMaxRetries returns the maximum number of retries.
 func GetMaxRetries(opts *RetryOptions) int {
 	if opts == nil || opts.MaxRetries == 0 {
-		if maxRetries := os.Getenv("CLAUDE_CODE_MAX_RETRIES"); maxRetries != "" {
+		if maxRetries := os.Getenv("CYBER_CODE_MAX_RETRIES"); maxRetries != "" {
 			if val, err := strconv.Atoi(maxRetries); err == nil {
 				return val
 			}
@@ -352,7 +352,7 @@ func HandleCloudAuthError(err error) bool {
 	}
 
 	// AWS Bedrock auth errors
-	if utils.IsEnvTruthy(os.Getenv("CLAUDE_CODE_USE_BEDROCK")) {
+	if utils.IsEnvTruthy(os.Getenv("CYBER_CODE_USE_BEDROCK")) {
 		if apiErr.Status == 403 {
 			// Clear AWS credentials cache
 			GetAWSAuthManager().ClearCache()
@@ -361,7 +361,7 @@ func HandleCloudAuthError(err error) bool {
 	}
 
 	// Google Vertex auth errors
-	if utils.IsEnvTruthy(os.Getenv("CLAUDE_CODE_USE_VERTEX")) {
+	if utils.IsEnvTruthy(os.Getenv("CYBER_CODE_USE_VERTEX")) {
 		if apiErr.Status == 401 {
 			// Clear GCP credentials cache
 			GetGoogleAuthManager().ClearCache()

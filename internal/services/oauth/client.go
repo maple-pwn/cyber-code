@@ -1,4 +1,4 @@
-// Package oauth provides OAuth authentication functionality for the claude-code CLI.
+// Package oauth provides OAuth authentication functionality for cyber-code.
 package oauth
 
 import (
@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"claude-code-go/internal/constants"
-	"claude-code-go/internal/credential"
+	"cyber-code/internal/constants"
+	"cyber-code/internal/credential"
 )
 
 // SubscriptionType represents the type of subscription
@@ -170,7 +170,7 @@ func (c *OAuthClient) SetOAuthTokens(tokens *OAuthTokens) {
 // LoadOAuthTokens loads OAuth tokens from storage
 func (c *OAuthClient) LoadOAuthTokens() (*OAuthTokens, error) {
 	// Check for environment variable override first
-	if token := os.Getenv("CLAUDE_CODE_OAUTH_TOKEN"); token != "" {
+	if token := os.Getenv("CYBER_CODE_OAUTH_TOKEN"); token != "" {
 		return &OAuthTokens{
 			AccessToken: token,
 			Scopes:      []string{constants.ClaudeAIInferenceScope},
@@ -178,7 +178,7 @@ func (c *OAuthClient) LoadOAuthTokens() (*OAuthTokens, error) {
 	}
 
 	// Check for OAuth token from file descriptor
-	if token := os.Getenv("CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR"); token != "" {
+	if token := os.Getenv("CYBER_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR"); token != "" {
 		// Read from file descriptor (simplified for now)
 		// In production, this would read from the actual FD
 	}

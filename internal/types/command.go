@@ -1,4 +1,4 @@
-// Package types contains core type definitions for the claude-code CLI.
+// Package types contains core type definitions for cyber-code.
 // This file contains command-related types translated from TypeScript.
 // Note: Command and Message base types are defined in tool.go
 package types

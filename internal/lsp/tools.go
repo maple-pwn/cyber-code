@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/permissions"
-	toolpkg "claude-code-go/internal/tool"
+	"cyber-code/internal/core"
+	"cyber-code/internal/permissions"
+	toolpkg "cyber-code/internal/tool"
 )
 
 type Service interface {

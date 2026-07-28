@@ -1,4 +1,4 @@
-// Package utils provides utility functions for the claude-code CLI.
+// Package utils provides utility functions for cyber-code.
 // This file contains API provider detection and configuration.
 package utils
 
@@ -20,13 +20,13 @@ const (
 
 // GetAPIProvider returns the current API provider based on environment variables.
 func GetAPIProvider() APIProvider {
-	if IsEnvTruthy(os.Getenv("CLAUDE_CODE_USE_BEDROCK")) {
+	if IsEnvTruthy(os.Getenv("CYBER_CODE_USE_BEDROCK")) {
 		return APIProviderBedrock
 	}
-	if IsEnvTruthy(os.Getenv("CLAUDE_CODE_USE_VERTEX")) {
+	if IsEnvTruthy(os.Getenv("CYBER_CODE_USE_VERTEX")) {
 		return APIProviderVertex
 	}
-	if IsEnvTruthy(os.Getenv("CLAUDE_CODE_USE_FOUNDRY")) {
+	if IsEnvTruthy(os.Getenv("CYBER_CODE_USE_FOUNDRY")) {
 		return APIProviderFoundry
 	}
 	return APIProviderFirstParty

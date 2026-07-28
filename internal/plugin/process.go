@@ -3,7 +3,7 @@ package plugin
 import (
 	"context"
 
-	"claude-code-go/internal/mcp"
+	"cyber-code/internal/mcp"
 )
 
 type Process interface {

@@ -3,12 +3,14 @@ package constants
 import (
 	"os"
 	"time"
+
+	"cyber-code/internal/product"
 )
 
 // GetLocalISODate returns the LOCAL date in ISO format (YYYY-MM-DD)
 func GetLocalISODate() string {
 	// Check for date override
-	if override := os.Getenv("CLAUDE_CODE_OVERRIDE_DATE"); override != "" {
+	if override := os.Getenv("CYBER_CODE_OVERRIDE_DATE"); override != "" {
 		return override
 	}
 
@@ -19,7 +21,7 @@ func GetLocalISODate() string {
 // GetLocalMonthYear returns "Month YYYY" (e.g. "February 2026") in the user's local timezone.
 func GetLocalMonthYear() string {
 	date := time.Now()
-	if override := os.Getenv("CLAUDE_CODE_OVERRIDE_DATE"); override != "" {
+	if override := os.Getenv("CYBER_CODE_OVERRIDE_DATE"); override != "" {
 		if parsed, err := time.Parse("2006-01-02", override); err == nil {
 			date = parsed
 		}
@@ -45,7 +47,7 @@ func GetSessionStartDate() string {
 
 const (
 	// Application name
-	AppName = "claude-code-go"
+	AppName = product.Name
 
 	// Version
 	Version = "1.0.0"

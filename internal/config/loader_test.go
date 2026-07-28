@@ -35,8 +35,8 @@ profiles:
     provider: anthropic
     model: project-model
 `)
-	t.Setenv("CLAUDE_GO_PROFILE", "env-profile")
-	t.Setenv("CLAUDE_GO_PERMISSION_MODE", "plan")
+	t.Setenv("CYBER_CODE_PROFILE", "env-profile")
+	t.Setenv("CYBER_CODE_PERMISSION_MODE", "plan")
 
 	got, err := Load(LoadOptions{
 		UserFile:    userFile,
@@ -60,6 +60,26 @@ profiles:
 	}
 }
 
+func TestLoadUsesOnlyCyberCodeEnvironmentNamespace(t *testing.T) {
+	t.Setenv("CYBER_CODE_PROFILE", "cyber-profile")
+	t.Setenv("CYBER_CODE_PERMISSION_MODE", "plan")
+	t.Setenv("CLAUDE_GO_PROFILE", "legacy-profile")
+	t.Setenv("CLAUDE_GO_PERMISSION_MODE", "accept-edits")
+
+	got, err := Load(LoadOptions{CLI: Overrides{Profile: "anthropic"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PermissionMode != "plan" {
+		t.Fatalf("permission mode = %q", got.PermissionMode)
+	}
+
+	got, err = Load(LoadOptions{})
+	if err == nil || !strings.Contains(err.Error(), "cyber-profile") {
+		t.Fatalf("new profile environment was not used: config=%#v error=%v", got, err)
+	}
+}
+
 func TestLoadUsesProjectThenUserThenDefaults(t *testing.T) {
 	dir := t.TempDir()
 	userFile := filepath.Join(dir, "user.yaml")
@@ -78,8 +98,8 @@ profiles:
     provider: anthropic
     model: project-model
 `)
-	t.Setenv("CLAUDE_GO_PROFILE", "")
-	t.Setenv("CLAUDE_GO_PERMISSION_MODE", "")
+	t.Setenv("CYBER_CODE_PROFILE", "")
+	t.Setenv("CYBER_CODE_PERMISSION_MODE", "")
 
 	project, err := Load(LoadOptions{UserFile: userFile, ProjectFile: projectFile})
 	if err != nil {

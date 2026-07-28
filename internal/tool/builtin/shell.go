@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/permissions"
-	"claude-code-go/internal/platform"
-	"claude-code-go/internal/tool"
+	"cyber-code/internal/core"
+	"cyber-code/internal/permissions"
+	"cyber-code/internal/platform"
+	"cyber-code/internal/tool"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -39,11 +39,17 @@ func (shell *shellTool) Authorize(_ context.Context, arguments json.RawMessage) 
 	if err != nil {
 		return permissions.Request{}, err
 	}
-	paths, err := redirectPaths(input.Command)
+	return ShellPermissionRequest("shell", shell.workspace, input.Command)
+}
+
+// ShellPermissionRequest applies the canonical shell redirection analysis to
+// any command executed on behalf of a tool such as shell or hooks.
+func ShellPermissionRequest(toolName, workspace, command string) (permissions.Request, error) {
+	paths, err := redirectPaths(command)
 	if err != nil {
 		return permissions.Request{}, err
 	}
-	return permissions.Request{Tool: "shell", Action: permissions.ActionExecute, Workspace: shell.workspace, Command: input.Command, Paths: paths}, nil
+	return permissions.Request{Tool: toolName, Action: permissions.ActionExecute, Workspace: workspace, Command: command, Paths: paths}, nil
 }
 
 func redirectPaths(command string) ([]string, error) {

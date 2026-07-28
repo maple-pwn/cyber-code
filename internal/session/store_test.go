@@ -5,15 +5,49 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"claude-code-go/internal/core"
+	"cyber-code/internal/core"
 )
+
+func TestRestrictPrivateFileUsesPlatformPermissions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "private.json")
+	if err := os.WriteFile(path, []byte("{}"), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if err := RestrictPrivateFile(path); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm()&0o077 != 0 {
+			t.Fatalf("private file mode = %v, error = %v", info, err)
+		}
+	}
+}
+
+func TestRestrictPrivateDirectoryUsesPlatformPermissions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "private")
+	if err := os.Mkdir(path, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := RestrictPrivateDirectory(path); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm()&0o077 != 0 {
+			t.Fatalf("private directory mode = %v, error = %v", info, err)
+		}
+	}
+}
 
 func TestStoreAppendsSequencedEventsAndRecoversIncompleteTail(t *testing.T) {
 	root := t.TempDir()
@@ -203,6 +237,136 @@ func TestStoreExportRedactsCredentials(t *testing.T) {
 	}
 	if !strings.Contains(exported.String(), "[REDACTED]") || !json.Valid(exported.Bytes()) {
 		t.Fatalf("export is not valid redacted JSON: %s", exported.String())
+	}
+}
+
+func TestIndependentStoresAppendMonotonicSequences(t *testing.T) {
+	root := t.TempDir()
+	first, err := NewStore(root, StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewStore(root, StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for index, store := range []*Store{first, second, first} {
+		record, err := store.Append(ctx, "shared-session", core.Event{Type: core.EventTextDelta, Text: fmt.Sprintf("event-%d", index+1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if record.Sequence != uint64(index+1) {
+			t.Fatalf("append %d sequence=%d", index+1, record.Sequence)
+		}
+	}
+	records, err := second.Events(ctx, "shared-session")
+	if err != nil || len(records) != 3 {
+		t.Fatalf("events=%#v error=%v", records, err)
+	}
+}
+
+func TestSessionLeaseRejectsCompetingStoresAndReleasesIdempotently(t *testing.T) {
+	root := t.TempDir()
+	first, err := NewStore(root, StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewStore(root, StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.AcquireLease(""); err == nil {
+		t.Fatal("invalid session lease was accepted")
+	}
+	lease, err := first.AcquireLease("leased")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.AcquireLease("leased"); !errors.Is(err, ErrSessionActive) {
+		t.Fatalf("same-store competing lease error = %v", err)
+	}
+	if _, err := second.AcquireLease("leased"); !errors.Is(err, ErrSessionActive) {
+		t.Fatalf("cross-store competing lease error = %v", err)
+	}
+	if _, err := second.Events(context.Background(), "leased"); !errors.Is(err, ErrSessionActive) {
+		t.Fatalf("active session read error = %v", err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatalf("second lease close = %v", err)
+	}
+	reopened, err := second.AcquireLease("leased")
+	if err != nil {
+		t.Fatalf("released session could not be leased: %v", err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var nilLease *Lease
+	if err := nilLease.Close(); err != nil {
+		t.Fatalf("nil lease close = %v", err)
+	}
+}
+
+func TestStoreValidatesInputsAndCancellation(t *testing.T) {
+	if contextError(nil) != nil {
+		t.Fatal("nil context returned an error")
+	}
+	if _, err := NewStore("", StoreOptions{}); err == nil {
+		t.Fatal("empty store root was accepted")
+	}
+	store, err := NewStore(t.TempDir(), StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := []string{"", strings.Repeat("x", 513), string([]byte{0xff})}
+	for _, id := range invalid {
+		if _, err := store.Resume(context.Background(), id); err == nil {
+			t.Fatalf("invalid session ID %q was accepted", id)
+		}
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := store.SaveSnapshot(canceled, Snapshot{SessionID: "canceled"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("SaveSnapshot cancellation = %v", err)
+	}
+	if err := store.Delete(canceled, "canceled"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Delete cancellation = %v", err)
+	}
+	if err := store.Export(context.Background(), "session", nil, ExportOptions{}); err == nil {
+		t.Fatal("nil export destination was accepted")
+	}
+}
+
+func TestStoreRejectsInvalidSnapshotMetadataAndExportsWithoutSnapshot(t *testing.T) {
+	store, err := NewStore(t.TempDir(), StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := store.Append(ctx, "events-only", core.Event{Type: core.EventCompleted}); err != nil {
+		t.Fatal(err)
+	}
+	var exported bytes.Buffer
+	if err := store.Export(ctx, "events-only", &exported, ExportOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(exported.String(), `"snapshot"`) {
+		t.Fatalf("events-only export included snapshot: %s", exported.String())
+	}
+
+	path := store.snapshotPath("invalid-metadata")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"session_id":"other","updated_at":"2026-07-29T00:00:00Z"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Resume(ctx, "invalid-metadata"); err == nil || !strings.Contains(err.Error(), "invalid metadata") {
+		t.Fatalf("invalid metadata error = %v", err)
 	}
 }
 

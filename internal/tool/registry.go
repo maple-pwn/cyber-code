@@ -22,6 +22,23 @@ func NewRegistry() *Registry {
 	return &Registry{tools: make(map[string]registration)}
 }
 
+// Clone returns an independent registry containing the current immutable
+// registrations. Tool implementations are shared, while future registrations
+// and schema snapshots are isolated.
+func (registry *Registry) Clone() *Registry {
+	cloned := NewRegistry()
+	if registry == nil {
+		return cloned
+	}
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	for name, registered := range registry.tools {
+		registered.spec.Schema = append(json.RawMessage(nil), registered.spec.Schema...)
+		cloned.tools[name] = registered
+	}
+	return cloned
+}
+
 func (registry *Registry) Register(tool Tool) error {
 	if tool == nil {
 		return fmt.Errorf("tool is nil")

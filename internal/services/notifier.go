@@ -8,7 +8,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"claude-code-go/internal/platform"
+	"cyber-code/internal/platform"
+	"cyber-code/internal/product"
 )
 
 // NotificationOptions represents options for a notification
@@ -32,7 +33,7 @@ type KittyNotificationOptions struct {
 	ID int `json:"id"`
 }
 
-const defaultTitle = "Claude Code"
+const defaultTitle = product.Name
 
 // SendNotification sends a notification through the configured channel
 func SendNotification(notif NotificationOptions, terminal TerminalNotification, preferredChannel string) error {
@@ -74,6 +75,7 @@ func sendToChannel(channel string, opts NotificationOptions, terminal TerminalNo
 	if title == "" {
 		title = defaultTitle
 	}
+	opts.Title = title
 
 	switch channel {
 	case "auto":

@@ -83,7 +83,9 @@ func (broker *Broker) Decide(ctx context.Context, request Request) (Decision, er
 	if err != nil {
 		return Decision{}, err
 	}
-	broker.record(request, decision)
+	if err := broker.record(request, decision); err != nil {
+		return Decision{}, fmt.Errorf("record permission audit: %w", err)
+	}
 	return decision, nil
 }
 
@@ -178,11 +180,11 @@ func behaviorRank(behavior PermissionBehavior) int {
 	}
 }
 
-func (broker *Broker) record(request Request, decision Decision) {
+func (broker *Broker) record(request Request, decision Decision) error {
 	if broker.audit == nil {
-		return
+		return nil
 	}
-	broker.audit.Record(AuditRecord{
+	return broker.audit.Record(AuditRecord{
 		Time:         time.Now().UTC(),
 		Tool:         request.Tool,
 		Action:       request.Action,

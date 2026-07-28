@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"claude-code-go/internal/cli"
+	"cyber-code/internal/cli"
 )
 
 const version = "2.1.88"

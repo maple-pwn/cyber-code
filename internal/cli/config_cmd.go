@@ -9,7 +9,8 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	configpkg "claude-code-go/internal/config"
+	configpkg "cyber-code/internal/config"
+	"cyber-code/internal/session"
 )
 
 func newConfigCommand(environment *commandEnvironment) *cobra.Command {
@@ -47,20 +48,22 @@ func newConfigCommand(environment *commandEnvironment) *cobra.Command {
 	command.AddCommand(&cobra.Command{
 		Use: "set <key> <value>", Args: cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
-			loaded, err := loadCommandConfig(environment.configFile)
-			if err != nil {
+			if err := withStateFileLock(environment.configFile, func() error {
+				loaded, err := loadCommandConfig(environment.configFile)
+				if err != nil {
+					return err
+				}
+				if err := setConfigValue(loaded, args[0], args[1]); err != nil {
+					return err
+				}
+				if err := configpkg.Validate(loaded); err != nil {
+					return err
+				}
+				return saveCommandConfig(environment.configFile, loaded)
+			}); err != nil {
 				return err
 			}
-			if err := setConfigValue(loaded, args[0], args[1]); err != nil {
-				return err
-			}
-			if err := configpkg.Validate(loaded); err != nil {
-				return err
-			}
-			if err := saveCommandConfig(environment.configFile, loaded); err != nil {
-				return err
-			}
-			_, err = fmt.Fprintln(environment.stdout, args[1])
+			_, err := fmt.Fprintln(environment.stdout, args[1])
 			return err
 		},
 	})
@@ -84,34 +87,36 @@ func newConfigProfileCommand(environment *commandEnvironment) *cobra.Command {
 	set := &cobra.Command{
 		Use: "set <name>", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			loaded, err := loadCommandConfig(environment.configFile)
-			if err != nil {
+			if err := withStateFileLock(environment.configFile, func() error {
+				loaded, err := loadCommandConfig(environment.configFile)
+				if err != nil {
+					return err
+				}
+				profile := loaded.Profiles[args[0]]
+				if command.Flags().Changed("provider") {
+					profile.Provider = providerName
+				}
+				if command.Flags().Changed("base-url") {
+					profile.BaseURL = baseURL
+				}
+				if command.Flags().Changed("model") {
+					profile.Model = model
+				}
+				if command.Flags().Changed("api-key-env") {
+					profile.APIKeyEnv = apiKeyEnv
+				}
+				loaded.Profiles[args[0]] = profile
+				if activate {
+					loaded.ActiveProfile = args[0]
+				}
+				if err := configpkg.Validate(loaded); err != nil {
+					return err
+				}
+				return saveCommandConfig(environment.configFile, loaded)
+			}); err != nil {
 				return err
 			}
-			profile := loaded.Profiles[args[0]]
-			if command.Flags().Changed("provider") {
-				profile.Provider = providerName
-			}
-			if command.Flags().Changed("base-url") {
-				profile.BaseURL = baseURL
-			}
-			if command.Flags().Changed("model") {
-				profile.Model = model
-			}
-			if command.Flags().Changed("api-key-env") {
-				profile.APIKeyEnv = apiKeyEnv
-			}
-			loaded.Profiles[args[0]] = profile
-			if activate {
-				loaded.ActiveProfile = args[0]
-			}
-			if err := configpkg.Validate(loaded); err != nil {
-				return err
-			}
-			if err := saveCommandConfig(environment.configFile, loaded); err != nil {
-				return err
-			}
-			_, err = fmt.Fprintln(environment.stdout, args[0])
+			_, err := fmt.Fprintln(environment.stdout, args[0])
 			return err
 		},
 	}
@@ -195,6 +200,9 @@ func saveCommandConfig(path string, config *configpkg.Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
+	if err := session.RestrictPrivateDirectory(filepath.Dir(path)); err != nil {
+		return err
+	}
 	temporary, err := os.CreateTemp(filepath.Dir(path), ".config-*.yaml")
 	if err != nil {
 		return err
@@ -206,7 +214,7 @@ func saveCommandConfig(path string, config *configpkg.Config) error {
 			_ = os.Remove(name)
 		}
 	}()
-	if err := temporary.Chmod(0o600); err != nil {
+	if err := session.RestrictPrivateFile(name); err != nil {
 		temporary.Close()
 		return err
 	}
@@ -225,5 +233,5 @@ func saveCommandConfig(path string, config *configpkg.Config) error {
 		return err
 	}
 	keep = true
-	return os.Chmod(path, 0o600)
+	return session.RestrictPrivateFile(path)
 }

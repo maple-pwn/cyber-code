@@ -1,4 +1,4 @@
-// Package api provides API client functionality for the claude-code CLI.
+// Package api provides API client functionality for cyber-code.
 // This file contains AWS Bedrock authentication utilities.
 package api
 
@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"claude-code-go/internal/utils"
+	"cyber-code/internal/utils"
 )
 
 // AWSCredentials represents AWS session credentials.
@@ -276,7 +276,7 @@ func NewBedrockClient(opts ClientOptions) (*Client, error) {
 	)
 
 	// Check if we should skip auth (for testing/proxy scenarios)
-	if utils.IsEnvTruthy(os.Getenv("CLAUDE_CODE_SKIP_BEDROCK_AUTH")) {
+	if utils.IsEnvTruthy(os.Getenv("CYBER_CODE_SKIP_BEDROCK_AUTH")) {
 		return client, nil
 	}
 

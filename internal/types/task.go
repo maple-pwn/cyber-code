@@ -1,9 +1,12 @@
 package types
 
 import (
-	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
+
+	"cyber-code/internal/product"
 )
 
 // TaskType represents the different types of tasks that can be executed.
@@ -138,6 +141,5 @@ func CreateTaskStateBase(id string, taskType TaskType, description string, toolU
 
 // GetTaskOutputPath returns the path for task output files.
 func GetTaskOutputPath(taskId string) string {
-	// In production, this would use a proper temp directory
-	return fmt.Sprintf("/tmp/claude-code-task-%s.log", taskId)
+	return filepath.Join(os.TempDir(), product.Name, "tasks", taskId+".log")
 }

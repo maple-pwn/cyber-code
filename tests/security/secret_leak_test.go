@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"claude-code-go/internal/config"
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/permissions"
-	"claude-code-go/internal/provider/anthropic"
-	"claude-code-go/internal/provider/openai"
+	"cyber-code/internal/config"
+	"cyber-code/internal/core"
+	"cyber-code/internal/permissions"
+	"cyber-code/internal/provider/anthropic"
+	"cyber-code/internal/provider/openai"
 )
 
 func TestCoreErrorsAndAuditRecordsDoNotLeakCredentialText(t *testing.T) {

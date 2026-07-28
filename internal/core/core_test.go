@@ -143,6 +143,41 @@ func TestErrorUserMessageRedactsAuthorizationBearerValue(t *testing.T) {
 	}
 }
 
+func TestErrorNilReceiversAndDefaultMessages(t *testing.T) {
+	var nilError *Error
+	if got := nilError.Error(); got != "<nil>" {
+		t.Fatalf("nil Error() = %q", got)
+	}
+	if nilError.Unwrap() != nil || nilError.UserMessage() != "" {
+		t.Fatal("nil error receiver returned non-empty state")
+	}
+
+	want := map[ErrorKind]string{
+		ErrorKindConfiguration:  "configuration is invalid",
+		ErrorKindAuthentication: "authentication failed",
+		ErrorKindRateLimit:      "request rate limit exceeded",
+		ErrorKindPermission:     "operation was not permitted",
+		ErrorKindCanceled:       "operation was canceled",
+		ErrorKindProvider:       "operation failed",
+	}
+	for kind, message := range want {
+		err := &Error{Kind: kind}
+		if got := err.UserMessage(); got != message {
+			t.Errorf("UserMessage(%q) = %q, want %q", kind, got, message)
+		}
+	}
+}
+
+func TestErrorDiagnosticFallsBackToKindAndUnwrapsNilCause(t *testing.T) {
+	err := &Error{Kind: ErrorKindTool, Op: "tool.run"}
+	if got := err.Error(); got != "tool.run: tool" {
+		t.Fatalf("Error() = %q", got)
+	}
+	if err.Unwrap() != nil {
+		t.Fatal("error without cause returned a wrapped error")
+	}
+}
+
 func TestRequestJSONRoundTripPreservesProviderIndependentFields(t *testing.T) {
 	want := Request{
 		Model:  "model-name",

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/provider"
+	"cyber-code/internal/core"
+	"cyber-code/internal/provider"
 )
 
 func TestEngineAddsCyberCodeSystemIdentity(t *testing.T) {

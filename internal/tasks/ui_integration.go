@@ -3,7 +3,7 @@ package tasks
 import (
 	"fmt"
 
-	"claude-code-go/internal/types"
+	"cyber-code/internal/types"
 )
 
 // =============================================================================

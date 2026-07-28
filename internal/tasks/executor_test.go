@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"claude-code-go/internal/platform"
+	"cyber-code/internal/platform"
 )
 
 func TestExecutorCancellationWinsOverHandlerFailure(t *testing.T) {

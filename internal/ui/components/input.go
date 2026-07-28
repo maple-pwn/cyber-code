@@ -7,7 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"claude-code-go/internal/vim"
+	"cyber-code/internal/vim"
 )
 
 // =============================================================================

@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"claude-code-go/internal/agent"
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/hooks"
-	"claude-code-go/internal/permissions"
-	"claude-code-go/internal/provider"
-	"claude-code-go/internal/session"
-	"claude-code-go/internal/tasks"
-	toolpkg "claude-code-go/internal/tool"
+	"cyber-code/internal/agent"
+	"cyber-code/internal/core"
+	"cyber-code/internal/hooks"
+	"cyber-code/internal/permissions"
+	"cyber-code/internal/provider"
+	"cyber-code/internal/session"
+	"cyber-code/internal/tasks"
+	toolpkg "cyber-code/internal/tool"
 )
 
 func TestShutdownCancelsRunsBeforeClosingServices(t *testing.T) {
@@ -187,6 +187,36 @@ func TestPersistentRuntimeLogsAndResumesConversationHistory(t *testing.T) {
 		t.Fatalf("updated snapshot = %#v", snapshot)
 	}
 	if err := resumed.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPersistentRuntimeHoldsExclusiveSessionLeaseUntilShutdown(t *testing.T) {
+	root := t.TempDir()
+	firstStore, err := session.NewStore(root, session.StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondStore, err := session.NewStore(root, session.StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := NewPersistent(&completedProvider{}, agent.Options{}, firstStore, "leased-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if competing, err := NewPersistent(&completedProvider{}, agent.Options{}, secondStore, "leased-session"); err == nil {
+		_ = competing.Shutdown(context.Background())
+		t.Fatal("second runtime acquired an active session")
+	}
+	if err := first.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := NewPersistent(&completedProvider{}, agent.Options{}, secondStore, "leased-session")
+	if err != nil {
+		t.Fatalf("session lease was not released: %v", err)
+	}
+	if err := reopened.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }

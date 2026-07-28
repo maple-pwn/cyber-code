@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"claude-code-go/internal/security"
+	"cyber-code/internal/security"
 )
 
 // AuditRecord intentionally excludes commands, file contents, and credentials.
@@ -20,7 +20,7 @@ type AuditRecord struct {
 }
 
 type AuditSink interface {
-	Record(AuditRecord)
+	Record(AuditRecord) error
 }
 
 // AuditLog is a bounded, concurrency-safe in-memory audit sink.
@@ -37,9 +37,9 @@ func NewAuditLog(limit int) *AuditLog {
 	return &AuditLog{limit: limit}
 }
 
-func (log *AuditLog) Record(record AuditRecord) {
+func (log *AuditLog) Record(record AuditRecord) error {
 	if log == nil {
-		return
+		return nil
 	}
 	redactor := security.NewRedactor()
 	record.Tool = redactor.Text(record.Tool)
@@ -51,9 +51,10 @@ func (log *AuditLog) Record(record AuditRecord) {
 	if len(log.records) == log.limit {
 		copy(log.records, log.records[1:])
 		log.records[len(log.records)-1] = record
-		return
+		return nil
 	}
 	log.records = append(log.records, record)
+	return nil
 }
 
 func (log *AuditLog) Records() []AuditRecord {

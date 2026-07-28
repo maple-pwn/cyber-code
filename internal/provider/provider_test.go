@@ -2,16 +2,17 @@ package provider_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
-	"claude-code-go/internal/config"
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/provider"
-	"claude-code-go/internal/provider/testkit"
+	"cyber-code/internal/config"
+	"cyber-code/internal/core"
+	"cyber-code/internal/provider"
+	"cyber-code/internal/provider/testkit"
 )
 
 func TestRegistryRejectsDuplicateProvider(t *testing.T) {
@@ -54,6 +55,52 @@ func TestRegistryCreatesProviderByNameWithoutRetainingInstances(t *testing.T) {
 	}
 	if _, err := registry.Create("missing", profile); err == nil {
 		t.Fatal("expected unknown provider to fail")
+	}
+}
+
+func TestRegistryValidatesFactoriesAndReturnsSortedNames(t *testing.T) {
+	registry := provider.NewRegistry()
+	valid := func(config.Profile) (provider.Provider, error) { return &fakeProvider{name: "ok"}, nil }
+	for _, test := range []struct {
+		name    string
+		factory provider.Factory
+	}{
+		{name: "   ", factory: valid},
+		{name: "nil", factory: nil},
+	} {
+		if err := registry.Register(test.name, test.factory); err == nil {
+			t.Fatalf("Register(%q) accepted invalid input", test.name)
+		}
+	}
+	if err := registry.Register(" Zeta ", valid); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Register("alpha", valid); err != nil {
+		t.Fatal(err)
+	}
+	if got := registry.Names(); len(got) != 2 || got[0] != "alpha" || got[1] != "zeta" {
+		t.Fatalf("Names() = %#v", got)
+	}
+}
+
+func TestRegistryWrapsFactoryFailuresAndRejectsNilProviders(t *testing.T) {
+	registry := provider.NewRegistry()
+	sentinel := errors.New("factory failed")
+	if err := registry.Register("failure", func(config.Profile) (provider.Provider, error) {
+		return nil, sentinel
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Create(" FAILURE ", config.Profile{}); !errors.Is(err, sentinel) {
+		t.Fatalf("Create failure = %v", err)
+	}
+	if err := registry.Register("nil-provider", func(config.Profile) (provider.Provider, error) {
+		return nil, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Create("nil-provider", config.Profile{}); err == nil || !strings.Contains(err.Error(), "returned nil") {
+		t.Fatalf("nil provider error = %v", err)
 	}
 }
 
@@ -128,6 +175,34 @@ func TestScriptedServerRejectsUnexpectedExtraRequest(t *testing.T) {
 		if response.StatusCode != wantStatus {
 			t.Fatalf("request %d status = %d, want %d", index, response.StatusCode, wantStatus)
 		}
+	}
+}
+
+func TestScriptedServerWritesJSONSSEAndReturnsRequestSnapshots(t *testing.T) {
+	server := testkit.NewServer(func(response http.ResponseWriter, request *http.Request) {
+		if err := testkit.WriteSSEJSON(response, "message", map[string]string{"text": "hello"}); err != nil {
+			t.Errorf("write JSON SSE: %v", err)
+		}
+	})
+	defer server.Close()
+
+	response, err := server.Client().Get(server.URL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `data: {"text":"hello"}`) {
+		t.Fatalf("SSE body = %q", body)
+	}
+	first := server.Requests()
+	first[0].Header.Set("X-Mutated", "true")
+	second := server.Requests()
+	if second[0].Header.Get("X-Mutated") != "" {
+		t.Fatal("Requests returned mutable captured headers")
 	}
 }
 

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/hooks"
-	"claude-code-go/internal/permissions"
+	"cyber-code/internal/core"
+	"cyber-code/internal/hooks"
+	"cyber-code/internal/permissions"
 )
 
 func TestHookDoesNotRunWhenBrokerDeniedTool(t *testing.T) {

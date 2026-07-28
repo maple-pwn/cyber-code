@@ -3,7 +3,7 @@ package mcp
 import (
 	"testing"
 
-	runtimemcp "claude-code-go/internal/mcp"
+	runtimemcp "cyber-code/internal/mcp"
 )
 
 func TestToRuntimeConfigAdaptsSupportedExistingConfigs(t *testing.T) {

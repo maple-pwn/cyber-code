@@ -1,4 +1,4 @@
-// Package plugin implements isolated plugin discovery and execution.
+// Package plugin implements trusted out-of-process plugin discovery and execution.
 package plugin
 
 import (

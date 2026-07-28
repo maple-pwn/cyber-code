@@ -5,7 +5,7 @@ import (
 	"math"
 	"strings"
 
-	"claude-code-go/internal/core"
+	"cyber-code/internal/core"
 )
 
 // EstimateCoreRequestTokens provides the canonical fallback for providers

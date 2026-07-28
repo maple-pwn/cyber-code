@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"claude-code-go/internal/cli"
+	"cyber-code/internal/cli"
 )
 
 func TestOpenAICompatibleCLIReturnsDeniedToolResultToModel(t *testing.T) {

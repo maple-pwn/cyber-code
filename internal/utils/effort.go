@@ -1,4 +1,4 @@
-// Package utils provides utility functions for the claude-code CLI.
+// Package utils provides utility functions for cyber-code.
 // This file contains effort level configuration and utilities.
 package utils
 
@@ -47,7 +47,7 @@ func ModelSupportsEffort(model string) bool {
 	m := strings.ToLower(model)
 
 	// Check for environment override
-	if IsEnvTruthy(os.Getenv("CLAUDE_CODE_ALWAYS_ENABLE_EFFORT")) {
+	if IsEnvTruthy(os.Getenv("CYBER_CODE_ALWAYS_ENABLE_EFFORT")) {
 		return true
 	}
 
@@ -158,7 +158,7 @@ func ToPersistableEffort(value *EffortValue) *EffortLevel {
 
 // GetEffortEnvOverride gets the effort level override from environment.
 func GetEffortEnvOverride() *EffortValue {
-	envOverride := os.Getenv("CLAUDE_CODE_EFFORT_LEVEL")
+	envOverride := os.Getenv("CYBER_CODE_EFFORT_LEVEL")
 	if envOverride == "" {
 		return nil
 	}
@@ -173,10 +173,10 @@ func GetEffortEnvOverride() *EffortValue {
 }
 
 // ResolveAppliedEffort resolves the effort value that will be sent to the API.
-// Priority: env CLAUDE_CODE_EFFORT_LEVEL → appState.effortValue → model default
+// Priority: env CYBER_CODE_EFFORT_LEVEL → appState.effortValue → model default
 func ResolveAppliedEffort(model string, appStateEffortValue *EffortValue) *EffortValue {
 	envOverride := GetEffortEnvOverride()
-	if envOverride == nil && os.Getenv("CLAUDE_CODE_EFFORT_LEVEL") != "" {
+	if envOverride == nil && os.Getenv("CYBER_CODE_EFFORT_LEVEL") != "" {
 		// Env was explicitly set to "unset" or "auto"
 		return nil
 	}
@@ -393,5 +393,5 @@ func GetAntModelOverrideConfig() *AntModelConfig {
 
 // IsUltrathinkEnabled checks if ultrathink mode is enabled.
 func IsUltrathinkEnabled() bool {
-	return IsEnvTruthy(os.Getenv("CLAUDE_CODE_ULTRATHINK"))
+	return IsEnvTruthy(os.Getenv("CYBER_CODE_ULTRATHINK"))
 }

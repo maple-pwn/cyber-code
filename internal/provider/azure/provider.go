@@ -7,13 +7,18 @@ import (
 	"net/http"
 	"strings"
 
-	"claude-code-go/internal/config"
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/provider"
-	"claude-code-go/internal/provider/anthropic"
+	"cyber-code/internal/config"
+	"cyber-code/internal/core"
+	"cyber-code/internal/provider"
+	"cyber-code/internal/provider/anthropic"
 )
 
-type settings struct{ httpClient *http.Client }
+type TokenSource func(context.Context) (string, error)
+
+type settings struct {
+	httpClient  *http.Client
+	tokenSource TokenSource
+}
 type Option func(*settings) error
 
 // WithHTTPClient sets the transport used by the Foundry provider.
@@ -23,6 +28,17 @@ func WithHTTPClient(client *http.Client) Option {
 			return fmt.Errorf("Azure HTTP client is nil")
 		}
 		settings.httpClient = client
+		return nil
+	}
+}
+
+// WithTokenSource enables a refreshable Azure AD credential.
+func WithTokenSource(source TokenSource) Option {
+	return func(settings *settings) error {
+		if source == nil {
+			return fmt.Errorf("Azure token source is nil")
+		}
+		settings.tokenSource = source
 		return nil
 	}
 }
@@ -51,8 +67,12 @@ func New(profile config.Profile, options ...Option) (*Client, error) {
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
-	httpClient.Transport = foundryTransport{next: transport}
-	delegate, err := anthropic.New(profile, anthropic.WithHTTPClient(&httpClient))
+	httpClient.Transport = foundryTransport{next: transport, tokenSource: configured.tokenSource}
+	anthropicOptions := []anthropic.Option{anthropic.WithHTTPClient(&httpClient)}
+	if configured.tokenSource != nil {
+		anthropicOptions = append(anthropicOptions, anthropic.WithCredential("managed-by-azure-transport"))
+	}
+	delegate, err := anthropic.New(profile, anthropicOptions...)
 	if err != nil {
 		return nil, err
 	}
@@ -70,11 +90,26 @@ func (client *Client) CountTokens(ctx context.Context, request core.Request) (in
 	return client.delegate.CountTokens(ctx, request)
 }
 
-type foundryTransport struct{ next http.RoundTripper }
+type foundryTransport struct {
+	next        http.RoundTripper
+	tokenSource TokenSource
+}
 
 func (transport foundryTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	clone := request.Clone(request.Context())
 	clone.Header = request.Header.Clone()
+	if transport.tokenSource != nil {
+		token, err := transport.tokenSource(request.Context())
+		if err != nil {
+			return nil, fmt.Errorf("resolve Azure access token: %w", err)
+		}
+		if strings.TrimSpace(token) == "" {
+			return nil, fmt.Errorf("Azure access token is empty")
+		}
+		clone.Header.Del("X-Api-Key")
+		clone.Header.Set("Authorization", "Bearer "+token)
+		return transport.next.RoundTrip(clone)
+	}
 	if key := clone.Header.Get("X-Api-Key"); key != "" {
 		clone.Header.Del("X-Api-Key")
 		clone.Header.Set("api-key", key)

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"claude-code-go/internal/constants"
-	"claude-code-go/internal/types"
+	"cyber-code/internal/constants"
+	"cyber-code/internal/types"
 )
 
 // =============================================================================

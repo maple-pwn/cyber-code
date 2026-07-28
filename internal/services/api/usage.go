@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"claude-code-go/internal/constants"
-	"claude-code-go/internal/utils"
+	"cyber-code/internal/constants"
+	"cyber-code/internal/utils"
 )
 
 // =============================================================================
@@ -164,7 +164,7 @@ func FetchUtilization(apiKey, oauthToken string, isSubscriber bool) (*Utilizatio
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", utils.GetClaudeCodeUserAgent())
+	req.Header.Set("User-Agent", utils.GetCyberCodeUserAgent())
 	for key, value := range authResult.Headers {
 		req.Header.Set(key, value)
 	}
@@ -229,7 +229,7 @@ func FetchUtilizationWithContext(ctx context.Context, apiKey, oauthToken string,
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", utils.GetClaudeCodeUserAgent())
+	req.Header.Set("User-Agent", utils.GetCyberCodeUserAgent())
 	for key, value := range authResult.Headers {
 		req.Header.Set(key, value)
 	}

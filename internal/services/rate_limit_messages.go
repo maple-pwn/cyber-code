@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"claude-code-go/internal/utils"
+	"cyber-code/internal/utils"
 )
 
 // Rate limit error message prefixes
@@ -265,7 +265,7 @@ func getWarningUpsellText(rateLimitType RateLimitType) string {
 	// Free tier users always get upsell
 	if subType == utils.SubscriptionFree {
 		if rateLimitType == RateLimitTypeFiveHour {
-			return "/upgrade to keep using Claude Code"
+			return "/upgrade to keep using cyber-code"
 		}
 		return "/upgrade for higher limits"
 	}

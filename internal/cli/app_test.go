@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/frontend"
+	"cyber-code/internal/core"
+	"cyber-code/internal/frontend"
 )
 
 func TestPrintModeUsesInjectedRunner(t *testing.T) {

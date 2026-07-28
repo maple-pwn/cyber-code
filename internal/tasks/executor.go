@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"claude-code-go/internal/platform"
-	"claude-code-go/internal/types"
+	"cyber-code/internal/platform"
+	"cyber-code/internal/types"
 )
 
 var ErrExecutorClosed = errors.New("task executor is closed")
@@ -276,6 +276,14 @@ func NewManager(store *types.AppStateStore) *Manager {
 		store:    store,
 		taskChan: make(chan TaskNotification, 100),
 	}
+}
+
+// Close cancels and waits for every task owned by the manager.
+func (m *Manager) Close() error {
+	if m == nil || m.executor == nil {
+		return nil
+	}
+	return m.executor.Close()
 }
 
 // SpawnLocalAgent spawns a new local agent task.

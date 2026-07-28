@@ -4,8 +4,8 @@ package provider
 import (
 	"context"
 
-	"claude-code-go/internal/config"
-	"claude-code-go/internal/core"
+	"cyber-code/internal/config"
+	"cyber-code/internal/core"
 )
 
 // Capabilities describes optional behavior supported by a provider.

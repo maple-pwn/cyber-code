@@ -1,4 +1,4 @@
-// Package utils provides utility functions for the claude-code CLI.
+// Package utils provides utility functions for cyber-code.
 // This file contains HTTP utility functions.
 package utils
 
@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"cyber-code/internal/product"
 )
 
 // GetUserAgent returns the User-Agent header for API requests.
@@ -16,7 +18,7 @@ func GetUserAgent() string {
 		userType = "external"
 	}
 
-	entrypoint := os.Getenv("CLAUDE_CODE_ENTRYPOINT")
+	entrypoint := os.Getenv(product.EnvPrefix + "_ENTRYPOINT")
 	if entrypoint == "" {
 		entrypoint = "cli"
 	}
@@ -38,7 +40,7 @@ func GetUserAgent() string {
 		suffix = ", " + strings.Join(parts, ", ")
 	}
 
-	return fmt.Sprintf("claude-cli/%s (%s, %s%s)", version, userType, entrypoint, suffix)
+	return fmt.Sprintf("%s/%s (%s, %s%s)", product.Name, version, userType, entrypoint, suffix)
 }
 
 // GetMCPUserAgent returns the User-Agent for MCP requests.
@@ -46,7 +48,7 @@ func GetMCPUserAgent() string {
 	version := "1.0.0"
 	var parts []string
 
-	if entrypoint := os.Getenv("CLAUDE_CODE_ENTRYPOINT"); entrypoint != "" {
+	if entrypoint := os.Getenv(product.EnvPrefix + "_ENTRYPOINT"); entrypoint != "" {
 		parts = append(parts, entrypoint)
 	}
 	if sdkVersion := os.Getenv("CLAUDE_AGENT_SDK_VERSION"); sdkVersion != "" {
@@ -61,18 +63,18 @@ func GetMCPUserAgent() string {
 		suffix = " (" + strings.Join(parts, ", ") + ")"
 	}
 
-	return fmt.Sprintf("claude-code/%s%s", version, suffix)
+	return fmt.Sprintf("%s/%s%s", product.Name, version, suffix)
 }
 
 // GetWebFetchUserAgent returns the User-Agent for web fetch requests.
 func GetWebFetchUserAgent() string {
-	return fmt.Sprintf("Claude-User (%s; +https://support.anthropic.com/)", GetClaudeCodeUserAgent())
+	return fmt.Sprintf("%s (%s)", product.Name, GetCyberCodeUserAgent())
 }
 
-// GetClaudeCodeUserAgent returns a simplified claude-code user agent.
-func GetClaudeCodeUserAgent() string {
+// GetCyberCodeUserAgent returns a simplified cyber-code user agent.
+func GetCyberCodeUserAgent() string {
 	version := "1.0.0"
-	return fmt.Sprintf("claude-code/%s", version)
+	return fmt.Sprintf("%s/%s", product.Name, version)
 }
 
 // AuthHeaders represents authentication headers for API requests.

@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"time"
 
-	"claude-code-go/internal/constants"
-	"claude-code-go/internal/utils"
+	"cyber-code/internal/constants"
+	"cyber-code/internal/utils"
 )
 
 // BootstrapResponse represents the response from the bootstrap API
@@ -88,7 +88,7 @@ func fetchBootstrapAPI(apiKey, oauthToken string, isSubscriber bool) (*Bootstrap
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", utils.GetClaudeCodeUserAgent())
+	req.Header.Set("User-Agent", utils.GetCyberCodeUserAgent())
 	for key, value := range authHeaders {
 		req.Header.Set(key, value)
 	}

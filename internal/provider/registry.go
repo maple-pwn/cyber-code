@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"claude-code-go/internal/config"
+	"cyber-code/internal/config"
 )
 
 // Registry stores provider factories rather than live provider instances.

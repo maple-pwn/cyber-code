@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"claude-code-go/internal/permissions"
-	"claude-code-go/internal/tool"
+	"cyber-code/internal/permissions"
+	"cyber-code/internal/tool"
 )
 
 func TestWriteFileUsesRunnerPermissionBoundaryAndAtomicReplace(t *testing.T) {
@@ -46,7 +46,7 @@ func TestWriteFileUsesRunnerPermissionBoundaryAndAtomicReplace(t *testing.T) {
 	if err != nil || info.Mode().Perm() != 0o640 {
 		t.Fatalf("mode=%v err=%v", info.Mode(), err)
 	}
-	matches, err := filepath.Glob(filepath.Join(workspace, ".claude-go-*"))
+	matches, err := filepath.Glob(filepath.Join(workspace, ".cyber-code-*"))
 	if err != nil || len(matches) != 0 {
 		t.Fatalf("temporary files = %#v, err=%v", matches, err)
 	}
@@ -89,6 +89,81 @@ func TestEditFileDoesNotWriteOnZeroOrMultipleMatches(t *testing.T) {
 		if err != nil || string(content) != original {
 			t.Fatalf("file changed after failed edit: %q, %v", content, err)
 		}
+	}
+}
+
+func TestReadAndEditFileSuccessfulPaths(t *testing.T) {
+	workspace := t.TempDir()
+	target := filepath.Join(workspace, "file.txt")
+	if err := os.WriteFile(target, []byte("before value"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	registry := tool.NewRegistry()
+	for _, model := range []tool.Tool{NewReadFile(workspace), NewEditFile(workspace)} {
+		if err := registry.Register(model); err != nil {
+			t.Fatal(err)
+		}
+	}
+	broker, err := permissions.NewBroker(permissions.Options{Mode: permissions.PermissionModeAcceptEdits})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := tool.NewRunner(registry, broker, tool.RunnerOptions{})
+	readArguments, _ := json.Marshal(map[string]string{"path": target})
+	read, err := runner.Run(context.Background(), "read_file", readArguments)
+	if err != nil || read.Content[0].Text != "before value" {
+		t.Fatalf("read result = %#v, error = %v", read, err)
+	}
+	editArguments, _ := json.Marshal(map[string]string{"path": target, "old_text": "before", "new_text": "after"})
+	if _, err := runner.Run(context.Background(), "edit_file", editArguments); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(target)
+	if err != nil || string(content) != "after value" {
+		t.Fatalf("edited content = %q, error = %v", content, err)
+	}
+}
+
+func TestFileToolRejectsMalformedUnsupportedAndCanceledOperations(t *testing.T) {
+	workspace := t.TempDir()
+	read := NewReadFile(workspace)
+	if _, err := read.Authorize(context.Background(), json.RawMessage(`{`)); err == nil {
+		t.Fatal("malformed authorization input was accepted")
+	}
+	if _, err := read.Run(context.Background(), json.RawMessage(`{`)); err == nil {
+		t.Fatal("malformed read input was accepted")
+	}
+	if _, err := read.Run(context.Background(), json.RawMessage(`{"path":"missing.txt"}`)); err == nil {
+		t.Fatal("missing file read succeeded")
+	}
+	unknown := &fileTool{workspace: workspace, spec: tool.Spec{Name: "unknown"}}
+	if _, err := unknown.Run(context.Background(), json.RawMessage(`{}`)); err == nil {
+		t.Fatal("unsupported file operation succeeded")
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := atomicWrite(canceled, filepath.Join(workspace, "canceled.txt"), []byte("content")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled write error = %v", err)
+	}
+}
+
+func TestWriteFileCreatesMissingDirectories(t *testing.T) {
+	workspace := t.TempDir()
+	registry := tool.NewRegistry()
+	if err := registry.Register(NewWriteFile(workspace)); err != nil {
+		t.Fatal(err)
+	}
+	broker, err := permissions.NewBroker(permissions.Options{Mode: permissions.PermissionModeAcceptEdits})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(workspace, "nested", "file.txt")
+	if _, err := tool.NewRunner(registry, broker, tool.RunnerOptions{}).Run(context.Background(), "write_file", writeArgs(target, "created")); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(target)
+	if err != nil || string(content) != "created" {
+		t.Fatalf("created content = %q, error = %v", content, err)
 	}
 }
 

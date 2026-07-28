@@ -10,7 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"claude-code-go/internal/platform"
+	"cyber-code/internal/platform"
 )
 
 const defaultMaxMessageBytes = 4 << 20

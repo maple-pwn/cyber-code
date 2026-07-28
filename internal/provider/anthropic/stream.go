@@ -8,8 +8,8 @@ import (
 	"io"
 	"strings"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/security"
+	"cyber-code/internal/core"
+	"cyber-code/internal/security"
 )
 
 type streamState struct {

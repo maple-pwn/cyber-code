@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"claude-code-go/internal/doctor"
+	"cyber-code/internal/doctor"
 )
 
 func newDoctorCommand(environment *commandEnvironment) *cobra.Command {

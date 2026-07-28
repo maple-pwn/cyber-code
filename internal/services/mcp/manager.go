@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"claude-code-go/internal/utils"
+	"cyber-code/internal/utils"
 )
 
 // ConnectionManager manages MCP server connections

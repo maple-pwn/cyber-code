@@ -7,12 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"gopkg.in/yaml.v3"
-)
+	"cyber-code/internal/product"
 
-const (
-	envProfile        = "CLAUDE_GO_PROFILE"
-	envPermissionMode = "CLAUDE_GO_PERMISSION_MODE"
+	"gopkg.in/yaml.v3"
 )
 
 // Load merges defaults, user config, project config, environment variables,
@@ -34,10 +31,10 @@ func Load(options LoadOptions) (*Config, error) {
 		merge(&merged, loaded)
 	}
 
-	if value := strings.TrimSpace(os.Getenv(envProfile)); value != "" {
+	if value := strings.TrimSpace(os.Getenv(product.EnvProfile)); value != "" {
 		merged.ActiveProfile = value
 	}
-	if value := strings.TrimSpace(os.Getenv(envPermissionMode)); value != "" {
+	if value := strings.TrimSpace(os.Getenv(product.EnvPermissionMode)); value != "" {
 		merged.PermissionMode = value
 	}
 	if value := strings.TrimSpace(options.CLI.Profile); value != "" {

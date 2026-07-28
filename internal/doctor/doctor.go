@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"strings"
 
-	"claude-code-go/internal/config"
+	"cyber-code/internal/config"
 )
 
 type Status string

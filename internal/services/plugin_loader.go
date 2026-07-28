@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"claude-code-go/internal/hooks"
-	"claude-code-go/internal/services/mcp"
-	"claude-code-go/internal/types"
+	"cyber-code/internal/hooks"
+	"cyber-code/internal/services/mcp"
+	"cyber-code/internal/types"
 )
 
 // =============================================================================

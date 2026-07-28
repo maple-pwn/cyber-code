@@ -1,4 +1,4 @@
-// Package types contains core type definitions for the claude-code CLI.
+// Package types contains core type definitions for cyber-code.
 // These types are translated from the TypeScript source to Go.
 package types
 
@@ -8,7 +8,7 @@ import (
 	"regexp"
 )
 
-// SessionId uniquely identifies a Claude Code session.
+// SessionId uniquely identifies a cyber-code session.
 // This is a branded type to prevent mixing with other string IDs.
 type SessionId string
 

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"claude-code-go/internal/platform"
+	"cyber-code/internal/platform"
 )
 
 func TestHookRunnerPreservesOrderMergesResultsAndStopsOnDenial(t *testing.T) {

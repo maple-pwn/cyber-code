@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"claude-code-go/internal/permissions"
-	toolpkg "claude-code-go/internal/tool"
+	"cyber-code/internal/permissions"
+	toolpkg "cyber-code/internal/tool"
 )
 
 func TestRegisterToolsAddsReadOnlyLSPQueries(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"claude-code-go/internal/constants"
+	"cyber-code/internal/constants"
 )
 
 func TestOAuthClientRefreshesOnceWithInjectedStore(t *testing.T) {

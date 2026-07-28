@@ -15,10 +15,10 @@ import (
 	"strings"
 	"time"
 
-	"claude-code-go/internal/config"
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/provider"
-	"claude-code-go/internal/security"
+	"cyber-code/internal/config"
+	"cyber-code/internal/core"
+	"cyber-code/internal/provider"
+	"cyber-code/internal/security"
 )
 
 const (

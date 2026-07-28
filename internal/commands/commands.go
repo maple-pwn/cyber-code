@@ -7,7 +7,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"claude-code-go/internal/utils"
+	"cyber-code/internal/product"
+	"cyber-code/internal/utils"
 )
 
 // CommandResult represents the result of command execution.
@@ -469,31 +470,31 @@ type InitCommand struct{}
 
 func NewInitCommand() *InitCommand { return &InitCommand{} }
 
-func (c *InitCommand) Name() string        { return "init" }
-func (c *InitCommand) Description() string { return "Initialize Claude in the current project" }
-func (c *InitCommand) IsEnabled() bool     { return true }
-func (c *InitCommand) IsHidden() bool      { return false }
+func (c *InitCommand) Name() string { return "init" }
+func (c *InitCommand) Description() string {
+	return "Initialize " + product.Name + " in the current project"
+}
+func (c *InitCommand) IsEnabled() bool { return true }
+func (c *InitCommand) IsHidden() bool  { return false }
 
 func (c *InitCommand) Execute(ctx context.Context, args string, context *CommandContext) (*CommandResult, error) {
 	var sb strings.Builder
-	sb.WriteString("Initializing Claude in current directory...\n\n")
+	sb.WriteString("Initializing " + product.Name + " in current directory...\n\n")
 
-	// Create .claude directory
-	claudeDir := ".claude"
-	if err := mkdirAll(claudeDir); err != nil {
+	productDir := "." + product.Name
+	if err := mkdirAll(productDir); err != nil {
 		return &CommandResult{
 			Type:  "text",
-			Value: "Failed to create .claude directory: " + err.Error(),
+			Value: "Failed to create " + productDir + " directory: " + err.Error(),
 		}, nil
 	}
-	sb.WriteString("✓ Created " + claudeDir + "/\n")
+	sb.WriteString("✓ Created " + productDir + "/\n")
 
-	// Create CLAUDE.md if not exists
-	claudeMd := "CLAUDE.md"
-	if _, err := exists(claudeMd); err != nil {
-		content := `# Project Instructions for Claude
+	instructionsFile := "CYBER.md"
+	if _, err := exists(instructionsFile); err != nil {
+		content := `# Project Instructions for cyber-code
 
-This file contains instructions for Claude Code to understand and work with this project.
+This file contains instructions for cyber-code to understand and work with this project.
 
 ## Project Overview
 
@@ -513,13 +514,13 @@ This file contains instructions for Claude Code to understand and work with this
 
 <!-- List important files and their purposes -->
 `
-		if err := writeFile(claudeMd, content); err != nil {
-			sb.WriteString("○ Could not create CLAUDE.md: " + err.Error() + "\n")
+		if err := writeFile(instructionsFile, content); err != nil {
+			sb.WriteString("○ Could not create " + instructionsFile + ": " + err.Error() + "\n")
 		} else {
-			sb.WriteString("✓ Created " + claudeMd + "\n")
+			sb.WriteString("✓ Created " + instructionsFile + "\n")
 		}
 	} else {
-		sb.WriteString("○ CLAUDE.md already exists\n")
+		sb.WriteString("○ " + instructionsFile + " already exists\n")
 	}
 
 	sb.WriteString("\nProject initialized successfully!")

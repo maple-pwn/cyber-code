@@ -11,11 +11,11 @@ import (
 	"net/url"
 	"strings"
 
-	"claude-code-go/internal/config"
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/provider"
-	"claude-code-go/internal/provider/anthropic"
-	api "claude-code-go/internal/services/api"
+	"cyber-code/internal/config"
+	"cyber-code/internal/core"
+	"cyber-code/internal/provider"
+	"cyber-code/internal/provider/anthropic"
+	api "cyber-code/internal/services/api"
 )
 
 const bedrockAnthropicVersion = "bedrock-2023-05-31"

@@ -9,18 +9,19 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/session"
+	"cyber-code/internal/core"
+	"cyber-code/internal/session"
 )
 
 func TestExecuteConfigSetGetListAndValidate(t *testing.T) {
 	configFile := filepath.Join(t.TempDir(), "config.yaml")
-	t.Setenv("CLAUDE_GO_CONFIG", configFile)
-	t.Setenv("CLAUDE_GO_STATE_DIR", t.TempDir())
+	t.Setenv("CYBER_CODE_CONFIG", configFile)
+	t.Setenv("CYBER_CODE_STATE_DIR", t.TempDir())
 
 	for _, test := range []struct {
 		args []string
@@ -39,15 +40,15 @@ func TestExecuteConfigSetGetListAndValidate(t *testing.T) {
 			t.Fatalf("args %v: stdout = %q", test.args, stdout.String())
 		}
 	}
-	if info, err := os.Stat(configFile); err != nil || info.Mode().Perm()&0o077 != 0 {
+	if info, err := os.Stat(configFile); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0) {
 		t.Fatalf("config permissions = %v, error = %v", info, err)
 	}
 }
 
 func TestExecuteConfigProfileSetCreatesCompleteProfile(t *testing.T) {
 	configFile := filepath.Join(t.TempDir(), "config.yaml")
-	t.Setenv("CLAUDE_GO_CONFIG", configFile)
-	t.Setenv("CLAUDE_GO_STATE_DIR", t.TempDir())
+	t.Setenv("CYBER_CODE_CONFIG", configFile)
+	t.Setenv("CYBER_CODE_STATE_DIR", t.TempDir())
 	var stdout, stderr bytes.Buffer
 	args := []string{
 		"config", "profile", "set", "deepseek",
@@ -68,8 +69,8 @@ func TestExecuteConfigProfileSetCreatesCompleteProfile(t *testing.T) {
 }
 
 func TestExecuteMCPAndPluginManagement(t *testing.T) {
-	t.Setenv("CLAUDE_GO_CONFIG", filepath.Join(t.TempDir(), "config.yaml"))
-	t.Setenv("CLAUDE_GO_STATE_DIR", t.TempDir())
+	t.Setenv("CYBER_CODE_CONFIG", filepath.Join(t.TempDir(), "config.yaml"))
+	t.Setenv("CYBER_CODE_STATE_DIR", t.TempDir())
 	commands := []struct {
 		args []string
 		want string
@@ -94,10 +95,38 @@ func TestExecuteMCPAndPluginManagement(t *testing.T) {
 	}
 }
 
+func TestExecuteMCPAddStoresHeaderEnvironmentReferenceWithoutSecret(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("CYBER_CODE_CONFIG", filepath.Join(t.TempDir(), "config.yaml"))
+	t.Setenv("CYBER_CODE_STATE_DIR", stateDir)
+	t.Setenv("MCP_AUTH_VALUE", "Bearer secret-token")
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), strings.NewReader(""), &stdout, &stderr, []string{
+		"mcp", "add", "private", "--url", "https://example.test/mcp", "--header-env", "Authorization=MCP_AUTH_VALUE",
+	})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	encoded, err := os.ReadFile(filepath.Join(stateDir, "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte("secret-token")) {
+		t.Fatalf("MCP state contains credential: %s", encoded)
+	}
+	entries, err := loadMCPEntries(filepath.Join(stateDir, "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entries["private"].HeaderEnv["Authorization"] != "MCP_AUTH_VALUE" {
+		t.Fatalf("MCP entry = %#v", entries["private"])
+	}
+}
+
 func TestExecuteSessionManagement(t *testing.T) {
 	stateDir := t.TempDir()
-	t.Setenv("CLAUDE_GO_CONFIG", filepath.Join(t.TempDir(), "config.yaml"))
-	t.Setenv("CLAUDE_GO_STATE_DIR", stateDir)
+	t.Setenv("CYBER_CODE_CONFIG", filepath.Join(t.TempDir(), "config.yaml"))
+	t.Setenv("CYBER_CODE_STATE_DIR", stateDir)
 	store, err := session.NewStore(filepath.Join(stateDir, "sessions"), session.StoreOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -128,9 +157,125 @@ func TestExecuteSessionManagement(t *testing.T) {
 	}
 }
 
+func TestExecuteSessionExportRedactsConfiguredProviderCredential(t *testing.T) {
+	stateDir := t.TempDir()
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	secret := "unlabeled-provider-secret-value"
+	t.Setenv("SESSION_EXPORT_API_KEY", secret)
+	configText := "active_profile: test\nprofiles:\n  test:\n    provider: openai-compatible\n    base_url: https://example.test\n    model: test\n    api_key_env: SESSION_EXPORT_API_KEY\n"
+	if err := os.WriteFile(configFile, []byte(configText), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := session.NewStore(filepath.Join(stateDir, "sessions"), session.StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Append(context.Background(), "secret-session", core.Event{Type: core.EventTextDelta, Text: "prefix " + secret + " suffix"}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &stdout, &stderr,
+		[]string{"sessions", "export", "secret-session"}, ExecuteOptions{ConfigFile: configFile, StateDir: stateDir})
+	if code != 0 || stderr.Len() != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), secret) || !strings.Contains(stdout.String(), "[REDACTED]") {
+		t.Fatalf("export was not credential-redacted: %s", stdout.String())
+	}
+}
+
+func TestExecuteSessionExportRedactsImplicitCloudCredentials(t *testing.T) {
+	for _, test := range []struct {
+		name, provider, environment string
+	}{
+		{name: "bedrock", provider: "bedrock", environment: "AWS_BEARER_TOKEN_BEDROCK"},
+		{name: "azure", provider: "azure", environment: "ANTHROPIC_FOUNDRY_API_KEY"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			configFile := filepath.Join(t.TempDir(), "config.yaml")
+			secret := "implicit-" + test.name + "-credential"
+			t.Setenv(test.environment, secret)
+			configText := fmt.Sprintf("active_profile: cloud\nprofiles:\n  cloud:\n    provider: %s\n    base_url: https://example.test\n    model: test\n", test.provider)
+			if err := os.WriteFile(configFile, []byte(configText), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			store, err := session.NewStore(filepath.Join(stateDir, "sessions"), session.StoreOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.Append(context.Background(), "cloud-session", core.Event{Type: core.EventTextDelta, Text: secret}); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+			code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &stdout, &stderr,
+				[]string{"sessions", "export", "cloud-session"}, ExecuteOptions{ConfigFile: configFile, StateDir: stateDir})
+			if code != 0 || strings.Contains(stdout.String(), secret) || !strings.Contains(stdout.String(), "[REDACTED]") {
+				t.Fatalf("code=%d stdout=%s stderr=%q", code, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func TestExecuteSessionDeletePreservesDataWhenIndexIsCorrupt(t *testing.T) {
+	stateDir := t.TempDir()
+	store, err := session.NewStore(filepath.Join(stateDir, "sessions"), session.StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Append(context.Background(), "preserved-session", core.Event{Type: core.EventCompleted}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "sessions.json"), []byte("not-json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &stdout, &stderr,
+		[]string{"sessions", "delete", "preserved-session"}, ExecuteOptions{ConfigFile: filepath.Join(t.TempDir(), "missing.yaml"), StateDir: stateDir})
+	if code == 0 {
+		t.Fatal("delete unexpectedly succeeded with a corrupt index")
+	}
+	records, err := store.Events(context.Background(), "preserved-session")
+	if err != nil || len(records) != 1 {
+		t.Fatalf("session data was lost: records=%#v error=%v", records, err)
+	}
+}
+
+func TestExecuteSessionDeleteRejectsActiveSessionWithoutChangingState(t *testing.T) {
+	stateDir := t.TempDir()
+	store, err := session.NewStore(filepath.Join(stateDir, "sessions"), session.StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Append(context.Background(), "active-session", core.Event{Type: core.EventCompleted}); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordSession(stateDir, sessionMetadata{ID: "active-session"}); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := store.AcquireLease("active-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Close()
+	var stdout, stderr bytes.Buffer
+	code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &stdout, &stderr,
+		[]string{"sessions", "delete", "active-session"}, ExecuteOptions{ConfigFile: filepath.Join(t.TempDir(), "missing.yaml"), StateDir: stateDir})
+	if code == 0 || !strings.Contains(stderr.String(), "active") {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	entries, err := loadSessionIndex(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := entries["active-session"]; !exists {
+		t.Fatal("active session index was removed")
+	}
+}
+
 func TestExecuteDoctorJSONHasStableSchema(t *testing.T) {
-	t.Setenv("CLAUDE_GO_CONFIG", filepath.Join(t.TempDir(), "config.yaml"))
-	t.Setenv("CLAUDE_GO_STATE_DIR", t.TempDir())
+	t.Setenv("CYBER_CODE_CONFIG", filepath.Join(t.TempDir(), "config.yaml"))
+	t.Setenv("CYBER_CODE_STATE_DIR", t.TempDir())
 	var stdout, stderr bytes.Buffer
 	code := Execute(context.Background(), strings.NewReader(""), &stdout, &stderr, []string{"doctor", "--json"})
 	if code != 0 {
@@ -186,6 +331,39 @@ func TestExecutePrintComposesOpenAICompatibleRuntime(t *testing.T) {
 	})
 	if code != 0 || stdout.String() != "deepseek ok\n" || stderr.Len() != 0 {
 		t.Fatalf("code = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestExecutePrintDiscoversCyberCodeProjectConfig(t *testing.T) {
+	t.Setenv("PROJECT_CONFIG_API_KEY", "test-secret")
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		var payload struct {
+			Model string `json:"model"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil || payload.Model != "project-model" {
+			response.WriteHeader(http.StatusBadRequest)
+			_, _ = fmt.Fprintf(response, `{"error":{"message":"model was %s"}}`, payload.Model)
+			return
+		}
+		response.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(response, "data: {\"choices\":[{\"delta\":{\"content\":\"project ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	userConfig := fmt.Sprintf("active_profile: local\nprofiles:\n  local:\n    provider: openai-compatible\n    base_url: %s\n    model: user-model\n    api_key_env: PROJECT_CONFIG_API_KEY\n", server.URL)
+	if err := os.WriteFile(configFile, []byte(userConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, ".cyber-code.yaml"), []byte("profiles:\n  local:\n    model: project-model\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &stdout, &stderr,
+		[]string{"--print", "--cwd", workspace, "hello"}, ExecuteOptions{ConfigFile: configFile, StateDir: t.TempDir()})
+	if code != 0 || stdout.String() != "project ok\n" || stderr.Len() != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }
 

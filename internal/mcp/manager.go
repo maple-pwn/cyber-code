@@ -10,9 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/permissions"
-	toolpkg "claude-code-go/internal/tool"
+	"cyber-code/internal/core"
+	"cyber-code/internal/permissions"
+	"cyber-code/internal/product"
+	toolpkg "cyber-code/internal/tool"
 )
 
 type TransportKind string
@@ -233,7 +234,7 @@ func (manager *Manager) discover(conn *connection) error {
 	var initialized InitializeResult
 	if err := manager.callTransport(conn.ctx, conn.transport, "initialize", InitializeParams{
 		ProtocolVersion: ProtocolVersion, Capabilities: map[string]any{},
-		ClientInfo: Implementation{Name: "claude-code-go", Version: "1"},
+		ClientInfo: Implementation{Name: product.Name, Version: "1"},
 	}, &initialized); err != nil {
 		return err
 	}

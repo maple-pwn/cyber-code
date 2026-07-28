@@ -6,6 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"cyber-code/internal/product"
 )
 
 // =============================================================================
@@ -110,7 +112,7 @@ func (m *ChatModel) View() string {
 	var b strings.Builder
 
 	// Header
-	b.WriteString(chatHeaderStyle.Render("Claude Code") + "\n")
+	b.WriteString(chatHeaderStyle.Render(product.Name) + "\n")
 	b.WriteString(dividerStyle.Render(strings.Repeat("─", m.Width)) + "\n")
 
 	// Messages area

@@ -3,7 +3,7 @@ package core
 import (
 	"strings"
 
-	"claude-code-go/internal/security"
+	"cyber-code/internal/security"
 )
 
 // ErrorKind is a stable, provider-independent failure category.

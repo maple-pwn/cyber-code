@@ -3,7 +3,7 @@ package mcp
 import (
 	"fmt"
 
-	runtimemcp "claude-code-go/internal/mcp"
+	runtimemcp "cyber-code/internal/mcp"
 )
 
 // ToRuntimeConfig converts legacy configuration types without reusing the

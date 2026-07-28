@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"claude-code-go/internal/utils"
+	"cyber-code/internal/utils"
 )
 
 // =============================================================================

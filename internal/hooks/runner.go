@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"claude-code-go/internal/platform"
+	"cyber-code/internal/platform"
 )
 
 type RunnerOptions struct {

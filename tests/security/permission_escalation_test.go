@@ -6,9 +6,9 @@ import (
 	"errors"
 	"testing"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/permissions"
-	"claude-code-go/internal/tool"
+	"cyber-code/internal/core"
+	"cyber-code/internal/permissions"
+	"cyber-code/internal/tool"
 )
 
 func TestChildAndUntrustedToolOutputCannotEscalatePermissions(t *testing.T) {

@@ -1,4 +1,4 @@
-// Package api provides API client functionality for the claude-code CLI.
+// Package api provides API client functionality for cyber-code.
 // This file contains Google Vertex AI authentication utilities.
 package api
 
@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"claude-code-go/internal/utils"
+	"cyber-code/internal/utils"
 )
 
 // GoogleCredentials represents Google Cloud credentials.
@@ -440,7 +440,7 @@ func NewVertexClient(ctx context.Context, opts ClientOptions) (*Client, error) {
 	)
 
 	// Check if we should skip auth (for testing/proxy scenarios)
-	if utils.IsEnvTruthy(os.Getenv("CLAUDE_CODE_SKIP_VERTEX_AUTH")) {
+	if utils.IsEnvTruthy(os.Getenv("CYBER_CODE_SKIP_VERTEX_AUTH")) {
 		return client, nil
 	}
 

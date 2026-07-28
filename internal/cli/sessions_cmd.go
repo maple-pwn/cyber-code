@@ -1,15 +1,19 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
-	"claude-code-go/internal/session"
+	configpkg "cyber-code/internal/config"
+	"cyber-code/internal/product"
+	"cyber-code/internal/session"
 )
 
 type sessionMetadata struct {
@@ -64,39 +68,97 @@ func newSessionsCommand(environment *commandEnvironment) *cobra.Command {
 			defer file.Close()
 			writer = file
 		}
-		return store.Export(environment.ctx, args[0], writer, session.ExportOptions{})
+		secrets, err := configuredExportSecrets(environment.configFile)
+		if err != nil {
+			return err
+		}
+		return store.Export(environment.ctx, args[0], writer, session.ExportOptions{Secrets: secrets})
 	}}
 	export.Flags().StringVarP(&destination, "output", "o", "", "output file")
 	command.AddCommand(export)
 	command.AddCommand(&cobra.Command{Use: "delete <id>", Args: cobra.ExactArgs(1), RunE: func(_ *cobra.Command, args []string) error {
-		entries, err := loadSessionIndex(environment.stateDir)
-		if err != nil {
-			return err
-		}
-		if _, ok := entries[args[0]]; !ok {
-			return fmt.Errorf("session %q does not exist", args[0])
-		}
 		store, err := session.NewStore(filepath.Join(environment.stateDir, "sessions"), session.StoreOptions{})
 		if err != nil {
 			return err
 		}
-		if err := store.Delete(environment.ctx, args[0]); err != nil {
+		lease, err := store.AcquireLease(args[0])
+		if err != nil {
 			return err
 		}
-		delete(entries, args[0])
-		return writeStateFile(filepath.Join(environment.stateDir, "sessions.json"), entries)
+		defer lease.Close()
+		path := filepath.Join(environment.stateDir, "sessions.json")
+		return withStateFileLock(path, func() error {
+			entries, err := loadSessionIndex(environment.stateDir)
+			if err != nil {
+				return err
+			}
+			if _, ok := entries[args[0]]; !ok {
+				return fmt.Errorf("session %q does not exist", args[0])
+			}
+			metadata := entries[args[0]]
+			delete(entries, args[0])
+			if err := writeStateFile(path, entries); err != nil {
+				return err
+			}
+			if err := store.Delete(environment.ctx, args[0]); err != nil {
+				entries[args[0]] = metadata
+				return errors.Join(err, writeStateFile(path, entries))
+			}
+			return nil
+		})
 	}})
 	return command
 }
 
-func recordSession(stateDir string, metadata sessionMetadata) error {
-	entries, err := loadSessionIndex(stateDir)
-	if err != nil {
-		return err
+func configuredExportSecrets(configFile string) ([]string, error) {
+	projectFile := ""
+	if cwd, err := os.Getwd(); err == nil {
+		projectFile = filepath.Join(cwd, "."+product.Name+".yaml")
 	}
-	metadata.Updated = time.Now().UTC()
-	entries[metadata.ID] = metadata
-	return writeStateFile(filepath.Join(stateDir, "sessions.json"), entries)
+	loaded, err := configpkg.Load(configpkg.LoadOptions{UserFile: configFile, ProjectFile: projectFile})
+	if err != nil {
+		return nil, fmt.Errorf("load export redaction credentials: %w", err)
+	}
+	seen := make(map[string]struct{})
+	secrets := make([]string, 0, len(loaded.Profiles))
+	for _, profile := range loaded.Profiles {
+		addExportSecretFromEnvironment(profile.APIKeyEnv, seen, &secrets)
+	}
+	for _, name := range []string{
+		"AWS_BEARER_TOKEN_BEDROCK", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+		"ANTHROPIC_FOUNDRY_API_KEY", "AZURE_CLIENT_SECRET",
+	} {
+		addExportSecretFromEnvironment(name, seen, &secrets)
+	}
+	return secrets, nil
+}
+
+func addExportSecretFromEnvironment(name string, seen map[string]struct{}, secrets *[]string) {
+	if name == "" {
+		return
+	}
+	value, ok := os.LookupEnv(name)
+	if !ok || strings.TrimSpace(value) == "" {
+		return
+	}
+	if _, duplicate := seen[value]; duplicate {
+		return
+	}
+	seen[value] = struct{}{}
+	*secrets = append(*secrets, value)
+}
+
+func recordSession(stateDir string, metadata sessionMetadata) error {
+	path := filepath.Join(stateDir, "sessions.json")
+	return withStateFileLock(path, func() error {
+		entries, err := loadSessionIndex(stateDir)
+		if err != nil {
+			return err
+		}
+		metadata.Updated = time.Now().UTC()
+		entries[metadata.ID] = metadata
+		return writeStateFile(path, entries)
+	})
 }
 
 func loadSessionIndex(stateDir string) (map[string]sessionMetadata, error) {

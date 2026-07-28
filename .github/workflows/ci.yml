@@ -31,12 +31,24 @@ jobs:
         run: |
           sh scripts/check-placeholders.sh --self-test
           sh scripts/check-placeholders.sh
+          sh scripts/check-brand.sh
 
       - name: Test
         run: go test ./...
+
+      - name: Race test
+        if: runner.os == 'Linux'
+        run: go test -race ./...
+
+      - name: Security and integration tests
+        run: go test ./tests/security ./tests/integration
+
+      - name: Coverage thresholds
+        if: runner.os == 'Linux'
+        run: sh scripts/check-coverage.sh
 
       - name: Vet
         run: go vet ./...
 
       - name: Build CLI
-        run: go build ./cmd/cli
+        run: go build -o cyber-code${{ runner.os == 'Windows' && '.exe' || '' }} ./cmd/cli

@@ -9,9 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/permissions"
-	"claude-code-go/internal/tool"
+	"cyber-code/internal/core"
+	"cyber-code/internal/permissions"
+	"cyber-code/internal/product"
+	"cyber-code/internal/tool"
 )
 
 const maxFileBytes = 16 << 20
@@ -153,7 +154,7 @@ func atomicWrite(ctx context.Context, path string, content []byte) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	temporary, err := os.CreateTemp(directory, ".claude-go-*")
+	temporary, err := os.CreateTemp(directory, "."+product.Name+"-*")
 	if err != nil {
 		return err
 	}

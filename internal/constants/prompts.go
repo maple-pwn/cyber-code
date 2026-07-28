@@ -1,5 +1,7 @@
 package constants
 
+import "cyber-code/internal/product"
+
 // =============================================================================
 // System Prompt Constants
 // Translated from TypeScript: src/constants/prompts.ts
@@ -75,7 +77,7 @@ func GetSimpleDoingTasksSection() string {
  - Avoid backwards-compatibility hacks like renaming unused _vars, re-exporting types, adding // removed comments for removed code, etc. If you are certain that something is unused, you can delete it completely.
  - Report outcomes faithfully: if tests fail, say so with the relevant output; if you did not run a verification step, say that rather than implying it succeeded. Never claim "all tests pass" when output shows failures, never suppress or simplify failing checks (tests, lints, type errors) to manufacture a green result, and never characterize incomplete or broken work as done. Equally, when a check did pass or a task is complete, state it plainly — do not hedge confirmed results with unnecessary disclaimers, downgrade finished work to "partial," or re-verify things you already checked. The goal is an accurate report, not a defensive one.
  - If the user asks for help or wants to give feedback inform them of the following:
-   - /help: Get help with using Claude Code
+   - /help: Get help with using ` + product.Name + `
    - To give feedback, users can file an issue`
 }
 
@@ -214,12 +216,11 @@ You have been invoked in the following environment:
  - OS Version: ` + osVersion + `
  - ` + modelDesc + cutoffMsg + `
  - The most recent Claude model family is Claude 4.5/4.6. Model IDs — Opus 4.6: '` + ClaudeOpus4_6ModelID + `', Sonnet 4.6: '` + ClaudeSonnet4_6ModelID + `', Haiku 4.5: '` + ClaudeHaiku4_5ModelID + `'. When building AI applications, default to the latest and most capable Claude models.
- - Claude Code is available as a CLI in the terminal, desktop app (Mac/Windows), web app (claude.ai/code), and IDE extensions (VS Code, JetBrains).
- - Fast mode for Claude Code uses the same ` + FrontierModelName + ` model with faster output. It does NOT switch to a different model. It can be toggled with /fast.`
+ - ` + product.Name + ` is available as a CLI on supported desktop and server platforms.`
 }
 
 // DefaultAgentPrompt is the default prompt for agent subagents.
-const DefaultAgentPrompt = `You are an agent for Claude Code, Anthropic's official CLI for Claude. Given the user's message, you should use the tools available to complete the task. Complete the task fully—don't gold-plate, but don't leave it half-done. When you complete the task, respond with a concise report covering what was done and any key findings — the caller will relay this to the user, so it only needs the essentials.`
+const DefaultAgentPrompt = product.DefaultSystemPrompt + ` Given the user's message, use the available tools to complete the task fully without adding unrelated work. When complete, respond with a concise report covering what was done and any key findings.`
 
 // Helper functions
 

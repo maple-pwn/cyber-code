@@ -10,7 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"claude-code-go/internal/permissions"
+	"cyber-code/internal/permissions"
+	"cyber-code/internal/product"
 )
 
 var (
@@ -108,14 +109,14 @@ func detectNotificationBackend(goos string, lookPath CommandFinder) (string, str
 
 func notificationArguments(goos, title, message string) []string {
 	if title == "" {
-		title = "Claude Code Go"
+		title = product.Name
 	}
 	if goos == "linux" {
 		return []string{title, message}
 	}
 	encode := func(value string) string { return base64.StdEncoding.EncodeToString([]byte(value)) }
-	const script = `$title=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($args[0]));$message=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($args[1]));[Windows.UI.Notifications.ToastNotificationManager,Windows.UI.Notifications,ContentType=WindowsRuntime]|Out-Null;$xml=[Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02);$nodes=$xml.GetElementsByTagName('text');$nodes.Item(0).AppendChild($xml.CreateTextNode($title))|Out-Null;$nodes.Item(1).AppendChild($xml.CreateTextNode($message))|Out-Null;$toast=[Windows.UI.Notifications.ToastNotification]::new($xml);[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Claude Code Go').Show($toast)`
-	return []string{"-NoProfile", "-NonInteractive", "-Command", script, encode(title), encode(message)}
+	const script = `$title=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($args[0]));$message=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($args[1]));$app=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($args[2]));[Windows.UI.Notifications.ToastNotificationManager,Windows.UI.Notifications,ContentType=WindowsRuntime]|Out-Null;$xml=[Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02);$nodes=$xml.GetElementsByTagName('text');$nodes.Item(0).AppendChild($xml.CreateTextNode($title))|Out-Null;$nodes.Item(1).AppendChild($xml.CreateTextNode($message))|Out-Null;$toast=[Windows.UI.Notifications.ToastNotification]::new($xml);[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app).Show($toast)`
+	return []string{"-NoProfile", "-NonInteractive", "-Command", script, encode(title), encode(message), encode(product.Name)}
 }
 
 func authorizeMedia(ctx context.Context, authorizer Authorizer, workspace, tool, program string) error {

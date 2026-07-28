@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"claude-code-go/internal/permissions"
-	"claude-code-go/internal/tool"
-	"claude-code-go/internal/tool/builtin"
+	"cyber-code/internal/permissions"
+	"cyber-code/internal/tool"
+	"cyber-code/internal/tool/builtin"
 )
 
 func TestTraversalAndShellRedirectionCannotEscapeWorkspace(t *testing.T) {

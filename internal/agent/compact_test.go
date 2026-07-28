@@ -6,9 +6,9 @@ import (
 	"sync"
 	"testing"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/provider"
-	"claude-code-go/internal/session"
+	"cyber-code/internal/core"
+	"cyber-code/internal/provider"
+	"cyber-code/internal/session"
 )
 
 func TestEngineCompactsHistoryBeforeProviderRequest(t *testing.T) {

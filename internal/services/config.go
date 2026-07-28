@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"claude-code-go/internal/types"
+	"cyber-code/internal/types"
 )
 
 // =============================================================================
@@ -229,13 +229,13 @@ func (cm *ConfigManager) loadFromEnv() {
 	}
 
 	// Load provider settings
-	if os.Getenv("CLAUDE_CODE_USE_BEDROCK") == "true" {
+	if os.Getenv("CYBER_CODE_USE_BEDROCK") == "true" {
 		cm.config.Provider = "bedrock"
 	}
-	if os.Getenv("CLAUDE_CODE_USE_VERTEX") == "true" {
+	if os.Getenv("CYBER_CODE_USE_VERTEX") == "true" {
 		cm.config.Provider = "vertex"
 	}
-	if os.Getenv("CLAUDE_CODE_USE_FOUNDRY") == "true" {
+	if os.Getenv("CYBER_CODE_USE_FOUNDRY") == "true" {
 		cm.config.Provider = "foundry"
 	}
 

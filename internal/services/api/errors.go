@@ -1,4 +1,4 @@
-// Package api provides API client functionality for the claude-code CLI.
+// Package api provides API client functionality for cyber-code.
 // This file contains API error handling translated from TypeScript.
 package api
 
@@ -24,7 +24,7 @@ const (
 	Repeated529ErrorMessage                = "Repeated 529 Overloaded errors"
 	CustomOffSwitchMessage                 = "Opus is experiencing high load, please use /model to switch to Sonnet"
 	APITimeoutErrorMessage                 = "Request timed out"
-	OAuthOrgNotAllowedErrorMessage         = "Your account does not have access to Claude Code. Please run /login."
+	OAuthOrgNotAllowedErrorMessage         = "Your account does not have access to cyber-code. Please run /login."
 )
 
 // APIError represents an API error with status code and message.
@@ -592,5 +592,5 @@ func GetMaxOutputTokensErrorMessage(stopReason string, maxOutputTokens int) stri
 	if stopReason == "model_context_window_exceeded" {
 		return APIErrorMessagePrefix + ": The model has reached its context window limit."
 	}
-	return fmt.Sprintf("%s: Claude's response exceeded the %d output token maximum. To configure this behavior, set the CLAUDE_CODE_MAX_OUTPUT_TOKENS environment variable.", APIErrorMessagePrefix, maxOutputTokens)
+	return fmt.Sprintf("%s: Claude's response exceeded the %d output token maximum. To configure this behavior, set the CYBER_CODE_MAX_OUTPUT_TOKENS environment variable.", APIErrorMessagePrefix, maxOutputTokens)
 }

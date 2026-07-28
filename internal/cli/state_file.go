@@ -3,9 +3,24 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+
+	"cyber-code/internal/filelock"
+	"cyber-code/internal/session"
 )
+
+func withStateFileLock(path string, action func() error) (err error) {
+	release, err := filelock.Acquire(path + ".lock")
+	if err != nil {
+		return fmt.Errorf("lock state file: %w", err)
+	}
+	defer func() {
+		err = errors.Join(err, release())
+	}()
+	return action()
+}
 
 func readStateFile(path string, destination any) error {
 	encoded, err := os.ReadFile(path)
@@ -27,6 +42,9 @@ func writeStateFile(path string, value any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
+	if err := session.RestrictPrivateDirectory(filepath.Dir(path)); err != nil {
+		return err
+	}
 	temporary, err := os.CreateTemp(filepath.Dir(path), ".state-*.json")
 	if err != nil {
 		return err
@@ -38,7 +56,7 @@ func writeStateFile(path string, value any) error {
 			_ = os.Remove(name)
 		}
 	}()
-	if err := temporary.Chmod(0o600); err != nil {
+	if err := session.RestrictPrivateFile(name); err != nil {
 		temporary.Close()
 		return err
 	}
@@ -57,5 +75,5 @@ func writeStateFile(path string, value any) error {
 		return err
 	}
 	keep = true
-	return os.Chmod(path, 0o600)
+	return session.RestrictPrivateFile(path)
 }

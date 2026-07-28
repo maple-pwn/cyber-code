@@ -4,11 +4,11 @@ import (
 	"errors"
 	"fmt"
 
-	"claude-code-go/internal/agent"
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/permissions"
-	"claude-code-go/internal/provider"
-	toolpkg "claude-code-go/internal/tool"
+	"cyber-code/internal/agent"
+	"cyber-code/internal/core"
+	"cyber-code/internal/permissions"
+	"cyber-code/internal/provider"
+	toolpkg "cyber-code/internal/tool"
 )
 
 var (

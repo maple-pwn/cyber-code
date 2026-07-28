@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"claude-code-go/internal/types"
+	"cyber-code/internal/types"
 )
 
 // =============================================================================

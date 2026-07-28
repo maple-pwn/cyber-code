@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"claude-code-go/internal/config"
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/provider/anthropic"
-	"claude-code-go/internal/provider/testkit"
+	"cyber-code/internal/config"
+	"cyber-code/internal/core"
+	"cyber-code/internal/provider/anthropic"
+	"cyber-code/internal/provider/testkit"
 )
 
 func TestStreamMapsAnthropicRequestAndEvents(t *testing.T) {

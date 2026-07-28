@@ -13,9 +13,12 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"cyber-code/internal/filelock"
 )
 
 var ErrSessionNotFound = errors.New("session not found")
+var ErrSessionActive = errors.New("session is active in another runtime")
 
 type StoreOptions struct {
 	Now func() time.Time
@@ -27,13 +30,20 @@ type Store struct {
 
 	mu       sync.Mutex
 	sessions map[string]*sessionState
+	leases   map[string]*Lease
 }
 
 type sessionState struct {
-	mu          sync.Mutex
-	initialized bool
-	next        uint64
-	validBytes  int64
+	mu sync.Mutex
+}
+
+// Lease holds exclusive ownership of an active session until Close.
+type Lease struct {
+	store   *Store
+	id      string
+	release filelock.Release
+	once    sync.Once
+	err     error
 }
 
 func NewStore(root string, options StoreOptions) (*Store, error) {
@@ -53,7 +63,7 @@ func NewStore(root string, options StoreOptions) (*Store, error) {
 	if options.Now == nil {
 		options.Now = time.Now
 	}
-	return &Store{root: absolute, now: options.Now, sessions: make(map[string]*sessionState)}, nil
+	return &Store{root: absolute, now: options.Now, sessions: make(map[string]*sessionState), leases: make(map[string]*Lease)}, nil
 }
 
 func (store *Store) state(sessionID string) (*sessionState, error) {
@@ -82,8 +92,68 @@ func (store *Store) ensureSessionDir(sessionID string) (string, error) {
 }
 
 func (store *Store) sessionDir(sessionID string) string {
+	return filepath.Join(store.root, sessionStorageKey(sessionID))
+}
+
+func (store *Store) lockSession(sessionID string) (filelock.Release, error) {
+	store.mu.Lock()
+	_, leased := store.leases[sessionID]
+	store.mu.Unlock()
+	if leased {
+		return func() error { return nil }, nil
+	}
+	release, err := filelock.TryAcquire(filepath.Join(store.root, "."+sessionStorageKey(sessionID)+".lock"))
+	if err != nil {
+		if errors.Is(err, filelock.ErrLocked) {
+			return nil, ErrSessionActive
+		}
+		return nil, fmt.Errorf("lock session: %w", err)
+	}
+	return release, nil
+}
+
+// AcquireLease claims one session for a Runtime without waiting for another
+// active process. Store operations performed through this Store reuse it.
+func (store *Store) AcquireLease(sessionID string) (*Lease, error) {
+	if err := validateSessionID(sessionID); err != nil {
+		return nil, err
+	}
+	store.mu.Lock()
+	if _, exists := store.leases[sessionID]; exists {
+		store.mu.Unlock()
+		return nil, ErrSessionActive
+	}
+	store.mu.Unlock()
+	release, err := filelock.TryAcquire(filepath.Join(store.root, "."+sessionStorageKey(sessionID)+".lock"))
+	if err != nil {
+		if errors.Is(err, filelock.ErrLocked) {
+			return nil, ErrSessionActive
+		}
+		return nil, fmt.Errorf("acquire session lease: %w", err)
+	}
+	lease := &Lease{store: store, id: sessionID, release: release}
+	store.mu.Lock()
+	store.leases[sessionID] = lease
+	store.mu.Unlock()
+	return lease, nil
+}
+
+func (lease *Lease) Close() error {
+	if lease == nil {
+		return nil
+	}
+	lease.once.Do(func() {
+		lease.store.mu.Lock()
+		delete(lease.store.leases, lease.id)
+		lease.store.mu.Unlock()
+		lease.err = lease.release()
+	})
+	return lease.err
+}
+
+func sessionStorageKey(sessionID string) string {
 	digest := sha256.Sum256([]byte(sessionID))
-	return filepath.Join(store.root, hex.EncodeToString(digest[:]))
+	return hex.EncodeToString(digest[:])
 }
 
 func (store *Store) eventLogPath(sessionID string) string {
@@ -119,20 +189,25 @@ func (store *Store) Delete(ctx context.Context, sessionID string) error {
 	if err := validateSessionID(sessionID); err != nil {
 		return err
 	}
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	state := store.sessions[sessionID]
-	if state == nil {
-		state = &sessionState{}
+	state, err := store.state(sessionID)
+	if err != nil {
+		return err
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	release, err := store.lockSession(sessionID)
+	if err != nil {
+		return err
+	}
+	defer release()
 	if err := contextError(ctx); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(store.sessionDir(sessionID)); err != nil {
 		return fmt.Errorf("delete session: %w", err)
 	}
+	store.mu.Lock()
 	delete(store.sessions, sessionID)
+	store.mu.Unlock()
 	return nil
 }

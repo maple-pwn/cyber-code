@@ -1,4 +1,4 @@
-// Package utils provides utility functions for the claude-code CLI.
+// Package utils provides utility functions for cyber-code.
 // This file contains environment variable utilities.
 package utils
 
@@ -9,7 +9,7 @@ import (
 )
 
 // ========================================
-// Claude Code Environment Variables
+// cyber-code environment variables
 // ========================================
 
 // GetClaudeConfigHome returns the Claude config home directory.
@@ -102,7 +102,7 @@ func IsInternalUser() bool {
 
 // IsFeatureEnabled checks if a feature flag is enabled.
 func IsFeatureEnabled(feature string) bool {
-	envVar := "CLAUDE_CODE_FEATURE_" + strings.ToUpper(feature)
+	envVar := "CYBER_CODE_FEATURE_" + strings.ToUpper(feature)
 	return IsEnvTruthy(os.Getenv(envVar))
 }
 
@@ -113,7 +113,7 @@ func IsProactiveModeEnabled() bool {
 
 // IsExperimentalModeEnabled checks if experimental features are enabled.
 func IsExperimentalModeEnabled() bool {
-	return IsEnvTruthy(os.Getenv("CLAUDE_CODE_EXPERIMENTAL"))
+	return IsEnvTruthy(os.Getenv("CYBER_CODE_EXPERIMENTAL"))
 }
 
 // ========================================
@@ -122,13 +122,13 @@ func IsExperimentalModeEnabled() bool {
 
 // IsDebugEnabled checks if debug mode is enabled.
 func IsDebugEnabled() bool {
-	return IsEnvTruthy(os.Getenv("CLAUDE_CODE_DEBUG")) ||
+	return IsEnvTruthy(os.Getenv("CYBER_CODE_DEBUG")) ||
 		IsEnvTruthy(os.Getenv("DEBUG"))
 }
 
 // IsVerboseEnabled checks if verbose mode is enabled.
 func IsVerboseEnabled() bool {
-	return IsEnvTruthy(os.Getenv("CLAUDE_CODE_VERBOSE")) ||
+	return IsEnvTruthy(os.Getenv("CYBER_CODE_VERBOSE")) ||
 		IsEnvTruthy(os.Getenv("VERBOSE"))
 }
 
@@ -140,7 +140,7 @@ func IsVerboseEnabled() bool {
 func GetHTTPProxy() string {
 	// Check multiple proxy environment variables
 	for _, env := range []string{
-		"CLAUDE_CODE_HTTP_PROXY",
+		"CYBER_CODE_HTTP_PROXY",
 		"HTTPS_PROXY",
 		"https_proxy",
 		"HTTP_PROXY",
@@ -167,7 +167,7 @@ func GetNoProxy() string {
 // Entrypoint Detection
 // ========================================
 
-// Entrypoint represents where Claude Code was invoked from.
+// Entrypoint represents where cyber-code was invoked from.
 type Entrypoint string
 
 const (
@@ -181,7 +181,7 @@ const (
 
 // GetEntrypoint returns the entrypoint for this session.
 func GetEntrypoint() Entrypoint {
-	entrypoint := os.Getenv("CLAUDE_CODE_ENTRYPOINT")
+	entrypoint := os.Getenv("CYBER_CODE_ENTRYPOINT")
 	if entrypoint == "" {
 		return EntrypointCLI
 	}
@@ -206,12 +206,12 @@ func GetEntrypoint() Entrypoint {
 
 // GetSessionID returns the current session ID.
 func GetSessionID() string {
-	return os.Getenv("CLAUDE_CODE_SESSION_ID")
+	return os.Getenv("CYBER_CODE_SESSION_ID")
 }
 
 // GetParentProcessID returns the parent process ID (if set).
 func GetParentProcessID() string {
-	return os.Getenv("CLAUDE_CODE_PARENT_PID")
+	return os.Getenv("CYBER_CODE_PARENT_PID")
 }
 
 // ========================================
@@ -230,7 +230,7 @@ const (
 
 // GetSubscriptionType returns the subscription type from environment.
 func GetSubscriptionType() SubscriptionType {
-	sub := os.Getenv("CLAUDE_CODE_SUBSCRIPTION_TYPE")
+	sub := os.Getenv("CYBER_CODE_SUBSCRIPTION_TYPE")
 	if sub == "" {
 		return SubscriptionFree
 	}
@@ -255,7 +255,7 @@ func HasBillingAccess() bool {
 
 // GetMCPConfigPath returns the MCP configuration file path.
 func GetMCPConfigPath() string {
-	if path := os.Getenv("CLAUDE_CODE_MCP_CONFIG"); path != "" {
+	if path := os.Getenv("CYBER_CODE_MCP_CONFIG"); path != "" {
 		return path
 	}
 
@@ -278,7 +278,7 @@ const (
 
 // GetPrivacyLevel returns the privacy level.
 func GetPrivacyLevel() PrivacyLevel {
-	level := os.Getenv("CLAUDE_CODE_PRIVACY_LEVEL")
+	level := os.Getenv("CYBER_CODE_PRIVACY_LEVEL")
 	if level == "" {
 		return PrivacyLevelDefault
 	}
@@ -293,7 +293,7 @@ func IsTelemetryEnabled() bool {
 	}
 
 	// Check explicit setting
-	if disabled := IsEnvTruthy(os.Getenv("CLAUDE_CODE_DISABLE_TELEMETRY")); disabled {
+	if disabled := IsEnvTruthy(os.Getenv("CYBER_CODE_DISABLE_TELEMETRY")); disabled {
 		return false
 	}
 

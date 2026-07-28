@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"sync"
 	"time"
+
+	"cyber-code/internal/product"
 )
 
 // =============================================================================
@@ -334,7 +336,7 @@ func (c *Client) initialize(ctx context.Context) error {
 	params := map[string]interface{}{
 		"protocolVersion": "2024-11-05",
 		"clientInfo": map[string]interface{}{
-			"name":    "claude-code-go",
+			"name":    product.Name,
 			"version": "1.0.0",
 		},
 		"capabilities": map[string]interface{}{},

@@ -1,4 +1,4 @@
-// Package utils provides utility functions for the claude-code CLI.
+// Package utils provides utility functions for cyber-code.
 // This file contains authentication utilities.
 package utils
 
@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"claude-code-go/internal/services/oauth"
+	"cyber-code/internal/services/oauth"
 )
 
 // APIKeySource represents the source of an API key.
@@ -108,9 +108,9 @@ func (a *AuthManager) SetIsSubscriber(isSubscriber bool) {
 // IsAnthropicAuthEnabled checks if Anthropic auth is enabled.
 func (a *AuthManager) IsAnthropicAuthEnabled() bool {
 	// Check if using 3rd party services
-	if IsEnvTruthy(os.Getenv("CLAUDE_CODE_USE_BEDROCK")) ||
-		IsEnvTruthy(os.Getenv("CLAUDE_CODE_USE_VERTEX")) ||
-		IsEnvTruthy(os.Getenv("CLAUDE_CODE_USE_FOUNDRY")) {
+	if IsEnvTruthy(os.Getenv("CYBER_CODE_USE_BEDROCK")) ||
+		IsEnvTruthy(os.Getenv("CYBER_CODE_USE_VERTEX")) ||
+		IsEnvTruthy(os.Getenv("CYBER_CODE_USE_FOUNDRY")) {
 		return false
 	}
 
@@ -124,8 +124,8 @@ func (a *AuthManager) IsAnthropicAuthEnabled() bool {
 
 // isManagedOAuthContext checks if this is a managed OAuth context.
 func (a *AuthManager) isManagedOAuthContext() bool {
-	return IsEnvTruthy(os.Getenv("CLAUDE_CODE_REMOTE")) ||
-		os.Getenv("CLAUDE_CODE_ENTRYPOINT") == "claude-desktop"
+	return IsEnvTruthy(os.Getenv("CYBER_CODE_REMOTE")) ||
+		os.Getenv("CYBER_CODE_ENTRYPOINT") == "claude-desktop"
 }
 
 // GetAPIKeyFromAPIKeyHelper executes the API key helper command to get an API key.

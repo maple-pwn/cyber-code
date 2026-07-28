@@ -11,10 +11,10 @@ import (
 	"net/url"
 	"strings"
 
-	"claude-code-go/internal/config"
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/provider"
-	"claude-code-go/internal/provider/anthropic"
+	"cyber-code/internal/config"
+	"cyber-code/internal/core"
+	"cyber-code/internal/provider"
+	"cyber-code/internal/provider/anthropic"
 )
 
 const vertexAnthropicVersion = "vertex-2023-10-16"

@@ -1,4 +1,4 @@
-// Package api provides API client functionality for the claude-code CLI.
+// Package api provides API client functionality for cyber-code.
 // This file contains AWS SigV4 signing utilities for Bedrock requests.
 package api
 

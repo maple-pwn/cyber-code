@@ -13,13 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"claude-code-go/internal/config"
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/provider/azure"
-	"claude-code-go/internal/provider/bedrock"
-	"claude-code-go/internal/provider/testkit"
-	"claude-code-go/internal/provider/vertex"
-	api "claude-code-go/internal/services/api"
+	"cyber-code/internal/config"
+	"cyber-code/internal/core"
+	"cyber-code/internal/provider/azure"
+	"cyber-code/internal/provider/bedrock"
+	"cyber-code/internal/provider/testkit"
+	"cyber-code/internal/provider/vertex"
+	api "cyber-code/internal/services/api"
 )
 
 func TestAzureProviderUsesFoundryAPIKeyAndCanonicalEvents(t *testing.T) {

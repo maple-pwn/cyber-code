@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"claude-code-go/internal/permissions"
-	"claude-code-go/internal/platform"
+	"cyber-code/internal/permissions"
+	"cyber-code/internal/platform"
 )
 
 var (
@@ -381,14 +381,9 @@ func (manager *Manager) normalizeQuery(query Query) (Query, string, string, erro
 	if !filepath.IsAbs(file) {
 		file = filepath.Join(workspace, file)
 	}
-	file, err = filepath.Abs(file)
+	file, err = permissions.ResolvePath(workspace, file)
 	if err != nil {
-		return Query{}, "", "", err
-	}
-	file = filepath.Clean(file)
-	relative, err := filepath.Rel(workspace, file)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
-		return Query{}, "", "", ErrWorkspaceBoundary
+		return Query{}, "", "", fmt.Errorf("%w: %v", ErrWorkspaceBoundary, err)
 	}
 	language := strings.ToLower(strings.TrimSpace(query.Language))
 	if language == "" {

@@ -9,11 +9,11 @@ import (
 	"strings"
 	"sync"
 
-	"claude-code-go/internal/agent"
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/hooks"
-	"claude-code-go/internal/provider"
-	"claude-code-go/internal/session"
+	"cyber-code/internal/agent"
+	"cyber-code/internal/core"
+	"cyber-code/internal/hooks"
+	"cyber-code/internal/provider"
+	"cyber-code/internal/session"
 )
 
 // Runtime owns one agent engine and the resources used by that engine.
@@ -58,9 +58,15 @@ func NewPersistent(modelProvider provider.Provider, options agent.Options, store
 		return nil, fmt.Errorf("agent session ID %q does not match persistent session %q", options.SessionID, sessionID)
 	}
 	options.SessionID = sessionID
-	if _, err := store.Events(context.Background(), sessionID); err != nil {
+	lease, err := store.AcquireLease(sessionID)
+	if err != nil {
 		return nil, fmt.Errorf("open session %q: %w", sessionID, err)
 	}
+	if _, err := store.Events(context.Background(), sessionID); err != nil {
+		_ = lease.Close()
+		return nil, fmt.Errorf("open session %q: %w", sessionID, err)
+	}
+	services = append([]io.Closer{lease}, services...)
 	return newRuntime(modelProvider, options, &persistentSession{store: store, id: sessionID}, services...), nil
 }
 
@@ -70,12 +76,22 @@ func Resume(modelProvider provider.Provider, options agent.Options, store *sessi
 	if store == nil {
 		return nil, fmt.Errorf("session store is required")
 	}
-	snapshot, err := store.Resume(context.Background(), sessionID)
+	if options.SessionID != "" && options.SessionID != sessionID {
+		return nil, fmt.Errorf("agent session ID %q does not match persistent session %q", options.SessionID, sessionID)
+	}
+	lease, err := store.AcquireLease(sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("resume session %q: %w", sessionID, err)
 	}
+	snapshot, err := store.Resume(context.Background(), sessionID)
+	if err != nil {
+		_ = lease.Close()
+		return nil, fmt.Errorf("resume session %q: %w", sessionID, err)
+	}
 	options.InitialHistory = snapshot.History
-	return NewPersistent(modelProvider, options, store, sessionID, services...)
+	options.SessionID = sessionID
+	services = append([]io.Closer{lease}, services...)
+	return newRuntime(modelProvider, options, &persistentSession{store: store, id: sessionID}, services...), nil
 }
 
 func newRuntime(modelProvider provider.Provider, options agent.Options, persisted *persistentSession, services ...io.Closer) *Runtime {

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"claude-code-go/internal/types"
+	"cyber-code/internal/types"
 )
 
 func TestPluginServiceReturnsImmutableSnapshots(t *testing.T) {

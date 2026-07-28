@@ -4,7 +4,7 @@ set -eu
 
 # Keep this list limited to paths that have completed migration. Callers may
 # provide explicit paths to check a different, similarly reviewed scope.
-MIGRATED_PATHS="internal/state"
+MIGRATED_PATHS="internal/state internal/core internal/provider internal/agent internal/runtime internal/tool internal/permissions internal/session internal/hooks internal/mcp internal/plugin internal/skill internal/tasks internal/lsp internal/platform internal/frontend internal/ui internal/cli internal/doctor internal/security tests"
 
 usage() {
 	printf 'usage: %s [--self-test] [PATH ...]\n' "$0"

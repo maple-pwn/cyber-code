@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"claude-code-go/internal/core"
-	"claude-code-go/internal/permissions"
-	toolpkg "claude-code-go/internal/tool"
+	"cyber-code/internal/core"
+	"cyber-code/internal/permissions"
+	toolpkg "cyber-code/internal/tool"
 )
 
 func TestManagerConnectsDiscoversAndBridgesToolsAndResources(t *testing.T) {
@@ -34,6 +34,9 @@ func TestManagerConnectsDiscoversAndBridgesToolsAndResources(t *testing.T) {
 
 	if got := transport.methods(); !reflect.DeepEqual(got, []string{"initialize", "tools/list", "resources/list"}) {
 		t.Fatalf("handshake methods = %#v", got)
+	}
+	if transport.clientInfo.Name != "cyber-code" {
+		t.Fatalf("MCP client info = %#v", transport.clientInfo)
 	}
 	if got := registry.Specs(); len(got) != 1 || got[0].Name != "mcp__docs_server__lookup" || !got[0].ReadOnly {
 		t.Fatalf("registered specs = %#v", got)
@@ -76,6 +79,37 @@ func TestManagerConnectsDiscoversAndBridgesToolsAndResources(t *testing.T) {
 	health, ok := manager.Health("docs.server")
 	if !ok || health.State != HealthConnected || health.LastError != "" {
 		t.Fatalf("health = %#v, present = %v", health, ok)
+	}
+}
+
+func TestRegisterResourceToolReadsOnlyDiscoveredResource(t *testing.T) {
+	transport := newScriptedTransport()
+	registry := toolpkg.NewRegistry()
+	manager := newTestManager(t, registry, allowAllAuthorizer(), func(context.Context, ServerConfig) (Transport, error) {
+		return transport, nil
+	})
+	t.Cleanup(func() { _ = manager.Close() })
+	if err := manager.Connect(context.Background(), ServerConfig{Name: "docs", Transport: TransportHTTP, URL: "https://example.test"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RegisterResourceTool(registry, manager); err != nil {
+		t.Fatal(err)
+	}
+	resourceTool, ok := registry.Get("mcp_read_resource")
+	if !ok || !resourceTool.Spec().ReadOnly {
+		t.Fatalf("resource tool = %#v, present = %t", resourceTool, ok)
+	}
+	arguments := json.RawMessage(`{"server":"docs","uri":"docs://guide"}`)
+	request, err := resourceTool.Authorize(context.Background(), arguments)
+	if err != nil || request.Action != permissions.ActionRead {
+		t.Fatalf("permission request = %#v, error = %v", request, err)
+	}
+	result, err := resourceTool.Run(context.Background(), arguments)
+	if err != nil || len(result.Content) != 1 || !strings.Contains(result.Content[0].Text, "guide body") {
+		t.Fatalf("resource result = %#v, error = %v", result, err)
+	}
+	if _, err := resourceTool.Run(context.Background(), json.RawMessage(`{"server":"docs","uri":"docs://missing"}`)); err == nil {
+		t.Fatal("undiscovered resource URI was accepted")
 	}
 }
 
@@ -286,6 +320,7 @@ type scriptedTransport struct {
 	closed       bool
 	toolText     string
 	callOverride func(context.Context, string, any, any) error
+	clientInfo   Implementation
 }
 
 func newScriptedTransport() *scriptedTransport { return &scriptedTransport{toolText: "found: go"} }
@@ -300,6 +335,13 @@ func (transport *scriptedTransport) Call(ctx context.Context, method string, par
 	}
 	switch method {
 	case "initialize":
+		var request InitializeParams
+		if err := assignJSON(&request, params); err != nil {
+			return err
+		}
+		transport.mu.Lock()
+		transport.clientInfo = request.ClientInfo
+		transport.mu.Unlock()
 		return assignJSON(result, InitializeResult{ProtocolVersion: ProtocolVersion, ServerInfo: Implementation{Name: "fake", Version: "1.0"}})
 	case "tools/list":
 		return assignJSON(result, ListToolsResult{Tools: []Tool{{Name: "lookup", Description: "looks up docs", InputSchema: json.RawMessage(`{"type":"object","required":["query"],"properties":{"query":{"type":"string"}}}`)}}})
