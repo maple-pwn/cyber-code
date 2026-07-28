@@ -90,12 +90,18 @@ type OAuthClient struct {
 	store        credential.Store
 
 	// Concurrent refresh deduplication
-	pendingRefreshCheck chan struct{}
+	pendingRefreshCheck *refreshCall
 	pending401Handlers  map[string]chan bool
 	pending401Mu        sync.Mutex
 
 	// Lock for cross-process coordination
 	lockPath string
+}
+
+type refreshCall struct {
+	done    chan struct{}
+	changed bool
+	err     error
 }
 
 // OAuthClientOptions supplies the process-local dependencies used by OAuth.
@@ -341,28 +347,40 @@ func (c *OAuthClient) fetchProfileInfo(ctx context.Context, accessToken string) 
 }
 
 // CheckAndRefreshOAuthTokenIfNeeded checks if the OAuth token needs refresh
-func (c *OAuthClient) CheckAndRefreshOAuthTokenIfNeeded(ctx context.Context, force bool) (bool, error) {
-	// Deduplicate concurrent non-force calls
-	c.mu.Lock()
-	if !force && c.pendingRefreshCheck != nil {
-		ch := c.pendingRefreshCheck
+func (c *OAuthClient) CheckAndRefreshOAuthTokenIfNeeded(ctx context.Context, force bool) (changed bool, err error) {
+	// Deduplicate all concurrent refreshes. A force caller retries only when the
+	// in-flight non-force check completed without refreshing a token.
+	for {
+		c.mu.Lock()
+		if c.pendingRefreshCheck == nil {
+			break
+		}
+		pending := c.pendingRefreshCheck
 		c.mu.Unlock()
-		<-ch
-		// Return the result from the completed refresh
-		tokens := c.GetOAuthTokens()
-		return tokens != nil && !IsOAuthTokenExpired(tokens.ExpiresAt), nil
+		select {
+		case <-pending.done:
+			if !force || pending.changed || pending.err != nil {
+				return pending.changed, pending.err
+			}
+		case <-ctx.Done():
+			return false, ctx.Err()
+		}
 	}
 
 	// Mark refresh as in progress
-	ch := make(chan struct{})
-	c.pendingRefreshCheck = ch
+	pending := &refreshCall{done: make(chan struct{})}
+	c.pendingRefreshCheck = pending
 	c.mu.Unlock()
 
 	defer func() {
 		c.mu.Lock()
-		c.pendingRefreshCheck = nil
+		pending.changed = changed
+		pending.err = err
+		if c.pendingRefreshCheck == pending {
+			c.pendingRefreshCheck = nil
+		}
 		c.mu.Unlock()
-		close(ch)
+		close(pending.done)
 	}()
 
 	// Load tokens

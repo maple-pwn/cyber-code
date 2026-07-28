@@ -66,6 +66,55 @@ func TestOAuthClientRefreshesOnceWithInjectedStore(t *testing.T) {
 	}
 }
 
+func TestOAuthRefreshWaiterHonorsCancellation(t *testing.T) {
+	store := &memoryStore{}
+	expired := OAuthTokens{AccessToken: "old", RefreshToken: "refresh", ExpiresAt: time.Now().Add(-time.Hour).UnixMilli(), Scopes: []string{constants.ClaudeAIInferenceScope}}
+	encoded, err := json.Marshal(expired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(context.Background(), encoded); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/token" {
+			close(started)
+			<-release
+			_, _ = io.WriteString(response, `{"access_token":"new","refresh_token":"refresh","expires_in":3600,"scope":"user:inference"}`)
+			return
+		}
+		_, _ = io.WriteString(response, `{}`)
+	}))
+	defer server.Close()
+	client := NewOAuthClientWithOptions(OAuthClientOptions{Store: store, HTTPClient: server.Client(), Config: constants.OAuthConfig{TokenURL: server.URL + "/token", BaseAPIURL: server.URL}})
+	leaderDone := make(chan error, 1)
+	go func() {
+		_, err := client.CheckAndRefreshOAuthTokenIfNeeded(context.Background(), false)
+		leaderDone <- err
+	}()
+	<-started
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	waiterDone := make(chan error, 1)
+	go func() { _, err := client.CheckAndRefreshOAuthTokenIfNeeded(ctx, false); waiterDone <- err }()
+	select {
+	case err := <-waiterDone:
+		if err != context.Canceled {
+			t.Fatalf("waiter error = %v, want context.Canceled", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		close(release)
+		<-leaderDone
+		t.Fatal("OAuth refresh waiter ignored cancellation")
+	}
+	close(release)
+	if err := <-leaderDone; err != nil {
+		t.Fatalf("leader refresh: %v", err)
+	}
+}
+
 type memoryStore struct {
 	mu   sync.Mutex
 	data []byte

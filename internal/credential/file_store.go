@@ -58,7 +58,7 @@ func (store *FileStore) Save(ctx context.Context, value []byte) error {
 	}
 	temporaryPath := temporary.Name()
 	cleanup := func() { _ = temporary.Close(); _ = os.Remove(temporaryPath) }
-	if err := temporary.Chmod(0o600); err != nil {
+	if err := restrictFile(temporaryPath); err != nil {
 		cleanup()
 		return fmt.Errorf("restrict temporary credential file: %w", err)
 	}
@@ -78,11 +78,11 @@ func (store *FileStore) Save(ctx context.Context, value []byte) error {
 		_ = os.Remove(temporaryPath)
 		return err
 	}
-	if err := os.Rename(temporaryPath, store.path); err != nil {
+	if err := replaceFile(temporaryPath, store.path); err != nil {
 		_ = os.Remove(temporaryPath)
 		return fmt.Errorf("replace credential atomically: %w", err)
 	}
-	if err := os.Chmod(store.path, 0o600); err != nil {
+	if err := restrictFile(store.path); err != nil {
 		return fmt.Errorf("restrict credential file: %w", err)
 	}
 	return nil

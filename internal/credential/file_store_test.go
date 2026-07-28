@@ -33,6 +33,27 @@ func TestFileStoreWritesPrivateAtomicValues(t *testing.T) {
 	}
 }
 
+func TestFileStoreReplacesExistingValue(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "credentials.json")
+	store, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(context.Background(), []byte("first")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(context.Background(), []byte("second")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "second" {
+		t.Fatalf("value = %q, want second", got)
+	}
+}
+
 func TestFileStoreConcurrentSaveNeverProducesPartialValue(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "credentials.json")
 	store, err := NewFileStore(path)
