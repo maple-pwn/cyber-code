@@ -3,12 +3,17 @@ package tasks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"claude-code-go/internal/platform"
 	"claude-code-go/internal/types"
 )
+
+var ErrExecutorClosed = errors.New("task executor is closed")
 
 // =============================================================================
 // Task Executor
@@ -19,6 +24,8 @@ type Executor struct {
 	registry    *Registry
 	cancelFuncs map[string]context.CancelFunc
 	mu          sync.RWMutex
+	runs        sync.WaitGroup
+	closed      bool
 }
 
 // NewExecutor creates a new task executor.
@@ -31,32 +38,36 @@ func NewExecutor(registry *Registry) *Executor {
 
 // ExecuteLocalAgent starts a local agent task.
 func (e *Executor) ExecuteLocalAgent(ctx context.Context, task *LocalAgentTaskState, handler AgentHandler) error {
-	e.mu.Lock()
-	execCtx, cancel := context.WithCancel(ctx)
-	e.cancelFuncs[task.ID] = cancel
-	e.mu.Unlock()
-
-	task.Status = TaskStatusRunning
-	e.registry.Register(task)
+	if handler == nil {
+		return fmt.Errorf("agent handler is required")
+	}
+	if task == nil || e.registry.Get(task.ID) == nil {
+		return fmt.Errorf("task is not registered")
+	}
+	execCtx, err := e.start(ctx, task.ID)
+	if err != nil {
+		return err
+	}
 
 	go func() {
+		defer e.runs.Done()
 		defer func() {
 			e.mu.Lock()
 			delete(e.cancelFuncs, task.ID)
 			e.mu.Unlock()
 		}()
 
-		result, err := handler(execCtx, task)
-		if err != nil {
-			task.Error = err.Error()
-			task.Status = TaskStatusFailed
-		} else {
-			task.Result = result
-			task.Status = TaskStatusCompleted
+		running := e.registry.Get(task.ID).(*LocalAgentTaskState)
+		result, err := handler(execCtx, running)
+		if e.registry.Get(task.ID).GetBase().Status == TaskStatusCancelled {
+			return
 		}
-		now := time.Now()
-		task.EndTime = &now
-		e.registry.Register(task)
+		if err != nil {
+			_ = e.registry.Transition(task.ID, TaskStatusFailed, err)
+		} else {
+			_ = e.registry.Update(task.ID, func(state TaskState) TaskState { state.(*LocalAgentTaskState).Result = result; return state })
+			_ = e.registry.Transition(task.ID, TaskStatusCompleted, nil)
+		}
 	}()
 
 	return nil
@@ -64,32 +75,41 @@ func (e *Executor) ExecuteLocalAgent(ctx context.Context, task *LocalAgentTaskSt
 
 // ExecuteLocalShell starts a local shell task.
 func (e *Executor) ExecuteLocalShell(ctx context.Context, task *LocalShellTaskState, handler ShellHandler) error {
-	e.mu.Lock()
-	execCtx, cancel := context.WithCancel(ctx)
-	e.cancelFuncs[task.ID] = cancel
-	e.mu.Unlock()
-
-	task.Status = TaskStatusRunning
-	e.registry.Register(task)
+	if handler == nil {
+		return fmt.Errorf("shell handler is required")
+	}
+	if task == nil || e.registry.Get(task.ID) == nil {
+		return fmt.Errorf("task is not registered")
+	}
+	execCtx, err := e.start(ctx, task.ID)
+	if err != nil {
+		return err
+	}
 
 	go func() {
+		defer e.runs.Done()
 		defer func() {
 			e.mu.Lock()
 			delete(e.cancelFuncs, task.ID)
 			e.mu.Unlock()
 		}()
 
-		exitCode, err := handler(execCtx, task)
-		if err != nil {
-			task.Error = err.Error()
-			task.Status = TaskStatusFailed
-		} else {
-			task.ExitCode = exitCode
-			task.Status = TaskStatusCompleted
+		running := e.registry.Get(task.ID).(*LocalShellTaskState)
+		exitCode, err := handler(execCtx, running)
+		if e.registry.Get(task.ID).GetBase().Status == TaskStatusCancelled {
+			return
 		}
-		now := time.Now()
-		task.EndTime = &now
-		e.registry.Register(task)
+		if exitCode != nil {
+			_ = e.registry.Update(task.ID, func(state TaskState) TaskState {
+				state.(*LocalShellTaskState).ExitCode = exitCode
+				return state
+			})
+		}
+		if err != nil {
+			_ = e.registry.Transition(task.ID, TaskStatusFailed, err)
+		} else {
+			_ = e.registry.Transition(task.ID, TaskStatusCompleted, nil)
+		}
 	}()
 
 	return nil
@@ -97,36 +117,94 @@ func (e *Executor) ExecuteLocalShell(ctx context.Context, task *LocalShellTaskSt
 
 // ExecuteRemoteAgent starts a remote agent task.
 func (e *Executor) ExecuteRemoteAgent(ctx context.Context, task *RemoteAgentTaskState, handler RemoteAgentHandler) error {
-	e.mu.Lock()
-	execCtx, cancel := context.WithCancel(ctx)
-	e.cancelFuncs[task.ID] = cancel
-	e.mu.Unlock()
-
-	task.Status = TaskStatusRunning
-	task.IsBackgrounded = true
-	e.registry.Register(task)
+	if handler == nil {
+		return fmt.Errorf("remote agent handler is required")
+	}
+	if task == nil || e.registry.Get(task.ID) == nil {
+		return fmt.Errorf("task is not registered")
+	}
+	execCtx, err := e.start(ctx, task.ID)
+	if err != nil {
+		return err
+	}
 
 	go func() {
+		defer e.runs.Done()
 		defer func() {
 			e.mu.Lock()
 			delete(e.cancelFuncs, task.ID)
 			e.mu.Unlock()
 		}()
 
-		result, err := handler(execCtx, task)
+		running := e.registry.Get(task.ID).(*RemoteAgentTaskState)
+		result, err := handler(execCtx, running)
+		if e.registry.Get(task.ID).GetBase().Status == TaskStatusCancelled {
+			return
+		}
 		if err != nil {
-			task.Error = err.Error()
-			task.Status = TaskStatusFailed
+			_ = e.registry.Transition(task.ID, TaskStatusFailed, err)
 		} else {
-			task.Status = TaskStatusCompleted
+			_ = e.registry.Transition(task.ID, TaskStatusCompleted, nil)
 			_ = result
 		}
-		now := time.Now()
-		task.EndTime = &now
-		e.registry.Register(task)
 	}()
 
 	return nil
+}
+
+func (e *Executor) start(ctx context.Context, taskID string) (context.Context, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed {
+		return nil, ErrExecutorClosed
+	}
+	if err := e.registry.Transition(taskID, TaskStatusRunning, nil); err != nil {
+		return nil, err
+	}
+	execCtx, cancel := context.WithCancel(ctx)
+	e.cancelFuncs[taskID] = cancel
+	e.runs.Add(1)
+	return execCtx, nil
+}
+
+type ManagedShellOptions struct {
+	Environment    map[string]string
+	Stdin          string
+	Timeout        time.Duration
+	Sandbox        bool
+	MaxOutputBytes int
+}
+
+func (e *Executor) ExecuteManagedShell(ctx context.Context, task *LocalShellTaskState, runner platform.Executor, options ManagedShellOptions) error {
+	if runner == nil {
+		return fmt.Errorf("platform executor is required")
+	}
+	if options.MaxOutputBytes <= 0 {
+		options.MaxOutputBytes = 1 << 20
+	}
+	return e.ExecuteLocalShell(ctx, task, func(ctx context.Context, running *LocalShellTaskState) (*int, error) {
+		result, runErr := runner.Run(ctx, platform.ExecRequest{
+			Command: running.Command, Workspace: running.Directory, Environment: options.Environment,
+			Stdin: options.Stdin, Timeout: options.Timeout, Sandbox: options.Sandbox,
+		})
+		output := result.Stdout
+		if result.Stderr != "" {
+			if output != "" && !strings.HasSuffix(output, "\n") {
+				output += "\n"
+			}
+			output += result.Stderr
+		}
+		if output != "" {
+			if err := e.registry.AppendOutput(running.ID, []byte(output), options.MaxOutputBytes); err != nil && runErr == nil {
+				runErr = err
+			}
+		}
+		exitCode := result.ExitCode
+		return &exitCode, runErr
+	})
 }
 
 // KillTask kills a running task.
@@ -139,14 +217,31 @@ func (e *Executor) KillTask(taskID string) error {
 		return fmt.Errorf("task %s not found or not running", taskID)
 	}
 
-	cancel()
-
-	task := e.registry.Get(taskID)
-	if task != nil {
-		KillTask(task)
-		e.registry.Register(task)
+	if err := e.registry.Transition(taskID, TaskStatusCancelled, context.Canceled); err != nil {
+		return err
 	}
+	cancel()
+	return nil
+}
 
+func (e *Executor) Close() error {
+	e.mu.Lock()
+	if e.closed {
+		e.mu.Unlock()
+		e.runs.Wait()
+		return nil
+	}
+	e.closed = true
+	cancels := make(map[string]context.CancelFunc, len(e.cancelFuncs))
+	for id, cancel := range e.cancelFuncs {
+		cancels[id] = cancel
+	}
+	e.mu.Unlock()
+	for id, cancel := range cancels {
+		_ = e.registry.Transition(id, TaskStatusCancelled, context.Canceled)
+		cancel()
+	}
+	e.runs.Wait()
 	return nil
 }
 
@@ -193,7 +288,7 @@ func (m *Manager) SpawnLocalAgent(ctx context.Context, prompt, agentType, descri
 		return nil, err
 	}
 
-	m.store.Update(func(state *types.AppState) *types.AppState {
+	m.updateStore(func(state *types.AppState) *types.AppState {
 		state.Tasks[id] = types.TaskStateBase{
 			Id:          id,
 			Type:        types.TaskTypeLocalAgent,
@@ -218,7 +313,7 @@ func (m *Manager) SpawnLocalShell(ctx context.Context, command, directory, descr
 		return nil, err
 	}
 
-	m.store.Update(func(state *types.AppState) *types.AppState {
+	m.updateStore(func(state *types.AppState) *types.AppState {
 		state.Tasks[id] = types.TaskStateBase{
 			Id:          id,
 			Type:        types.TaskTypeLocalBash,
@@ -242,7 +337,7 @@ func (m *Manager) SpawnRemoteAgent(ctx context.Context, command, sessionID, desc
 		return nil, err
 	}
 
-	m.store.Update(func(state *types.AppState) *types.AppState {
+	m.updateStore(func(state *types.AppState) *types.AppState {
 		state.Tasks[id] = types.TaskStateBase{
 			Id:          id,
 			Type:        types.TaskTypeRemoteAgent,
@@ -290,7 +385,7 @@ func (m *Manager) KillTask(id string) error {
 		return err
 	}
 
-	m.store.Update(func(state *types.AppState) *types.AppState {
+	m.updateStore(func(state *types.AppState) *types.AppState {
 		if t, ok := state.Tasks[id]; ok {
 			t.Status = types.TaskStatusKilled
 			now := time.Now()
@@ -320,10 +415,22 @@ func (m *Manager) RetrieveTask(id string) (interface{}, error) {
 		return nil, fmt.Errorf("task %s is still running", id)
 	}
 
+	if err := m.registry.Update(id, func(state TaskState) TaskState {
+		state.(*LocalAgentTaskState).Retrieved = true
+		return state
+	}); err != nil {
+		return nil, err
+	}
 	agentTask.Retrieved = true
 	m.notifyTaskRetrieved(agentTask)
 
 	return agentTask.Result, nil
+}
+
+func (m *Manager) updateStore(update func(*types.AppState) *types.AppState) {
+	if m.store != nil {
+		m.store.Update(update)
+	}
 }
 
 // Notifications returns the notification channel.

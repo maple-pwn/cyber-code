@@ -46,6 +46,17 @@ func NewRunner(registry *Registry, authorizer Authorizer, options RunnerOptions)
 	}
 }
 
+// WithAuthorizer returns an independent runner that preserves tool and hook
+// configuration while using a different permission boundary.
+func (runner *Runner) WithAuthorizer(authorizer Authorizer) *Runner {
+	if runner == nil {
+		return nil
+	}
+	clone := *runner
+	clone.authorizer = authorizer
+	return &clone
+}
+
 func (runner *Runner) Run(ctx context.Context, name string, arguments json.RawMessage) (core.ToolResult, error) {
 	if runner.registry == nil {
 		return core.ToolResult{}, fmt.Errorf("%w: registry unavailable", ErrToolNotFound)

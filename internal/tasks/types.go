@@ -28,7 +28,8 @@ const (
 	TaskStatusRunning   TaskStatus = "running"
 	TaskStatusCompleted TaskStatus = "completed"
 	TaskStatusFailed    TaskStatus = "failed"
-	TaskStatusKilled    TaskStatus = "killed"
+	TaskStatusCancelled TaskStatus = "cancelled"
+	TaskStatusKilled    TaskStatus = TaskStatusCancelled
 )
 
 // =============================================================================

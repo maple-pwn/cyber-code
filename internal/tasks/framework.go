@@ -2,12 +2,19 @@ package tasks
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"time"
+)
+
+var (
+	ErrInvalidTransition = errors.New("invalid task state transition")
+	ErrInvalidTaskUpdate = errors.New("invalid task update")
 )
 
 // =============================================================================
@@ -18,19 +25,39 @@ import (
 type Registry struct {
 	mu     sync.RWMutex
 	tasks  map[string]TaskState
-	output map[string]string // task ID -> output file path
+	output map[string]*taskOutput
+}
+
+type taskOutput struct {
+	data        []byte
+	startOffset int
+	truncated   bool
+}
+type OutputPage struct {
+	Data        []byte
+	StartOffset int
+	NextOffset  int
+	Total       int
+	Truncated   bool
 }
 
 // NewRegistry creates a new task registry.
 func NewRegistry() *Registry {
 	return &Registry{
 		tasks:  make(map[string]TaskState),
-		output: make(map[string]string),
+		output: make(map[string]*taskOutput),
 	}
 }
 
 // Register adds a task to the registry.
 func (r *Registry) Register(task TaskState) error {
+	if task == nil || task.GetBase() == nil || task.GetBase().ID == "" {
+		return fmt.Errorf("task and task ID are required")
+	}
+	cloned := cloneTaskState(task)
+	if cloned == nil {
+		return fmt.Errorf("unsupported task state type %T", task)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -39,8 +66,68 @@ func (r *Registry) Register(task TaskState) error {
 		return fmt.Errorf("task %s already exists", id)
 	}
 
-	r.tasks[id] = task
+	r.tasks[id] = cloned
+	r.output[id] = &taskOutput{}
 	return nil
+}
+
+func (r *Registry) AppendOutput(taskID string, data []byte, maximum int) error {
+	if maximum <= 0 {
+		return fmt.Errorf("maximum output size must be positive")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	output, ok := r.output[taskID]
+	if !ok {
+		return fmt.Errorf("task %s not found", taskID)
+	}
+	total := output.startOffset + len(output.data) + len(data)
+	if len(data) >= maximum {
+		output.data = append([]byte(nil), data[len(data)-maximum:]...)
+		output.startOffset = total - maximum
+		output.truncated = total > maximum
+		return nil
+	}
+	if dropped := len(output.data) + len(data) - maximum; dropped > 0 {
+		copy(output.data, output.data[dropped:])
+		output.data = output.data[:len(output.data)-dropped]
+		output.startOffset += dropped
+		output.truncated = true
+	}
+	output.data = append(output.data, data...)
+	return nil
+}
+
+func (r *Registry) ReadOutput(taskID string, offset, limit int) (OutputPage, error) {
+	if offset < 0 || limit <= 0 {
+		return OutputPage{}, fmt.Errorf("invalid output page")
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	output, ok := r.output[taskID]
+	if !ok {
+		return OutputPage{}, fmt.Errorf("task %s not found", taskID)
+	}
+	total := output.startOffset + len(output.data)
+	if offset < output.startOffset {
+		offset = output.startOffset
+	}
+	if offset > total {
+		offset = total
+	}
+	end := total
+	if limit <= total-offset {
+		end = offset + limit
+	}
+	if end > total {
+		end = total
+	}
+	startIndex := offset - output.startOffset
+	endIndex := end - output.startOffset
+	return OutputPage{
+		Data: append([]byte(nil), output.data[startIndex:endIndex]...), StartOffset: output.startOffset,
+		NextOffset: end, Total: total, Truncated: output.truncated,
+	}, nil
 }
 
 // Unregister removes a task from the registry.
@@ -57,7 +144,7 @@ func (r *Registry) Get(taskID string) TaskState {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	return r.tasks[taskID]
+	return cloneTaskState(r.tasks[taskID])
 }
 
 // GetAll returns all tasks.
@@ -67,13 +154,16 @@ func (r *Registry) GetAll() map[string]TaskState {
 
 	result := make(map[string]TaskState)
 	for k, v := range r.tasks {
-		result[k] = v
+		result[k] = cloneTaskState(v)
 	}
 	return result
 }
 
 // Update updates a task's state.
 func (r *Registry) Update(taskID string, updateFn func(TaskState) TaskState) error {
+	if updateFn == nil {
+		return fmt.Errorf("%w: update function is required", ErrInvalidTaskUpdate)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -82,8 +172,198 @@ func (r *Registry) Update(taskID string, updateFn func(TaskState) TaskState) err
 		return fmt.Errorf("task %s not found", taskID)
 	}
 
-	r.tasks[taskID] = updateFn(task)
+	before := *task.GetBase()
+	beforeType := reflect.TypeOf(task)
+	updated := updateFn(cloneTaskState(task))
+	if updated == nil || updated.GetBase() == nil {
+		return fmt.Errorf("%w: update returned no task", ErrInvalidTaskUpdate)
+	}
+	if updated.GetBase().Status != before.Status {
+		return fmt.Errorf("%w: %w: Update cannot change task status", ErrInvalidTaskUpdate, ErrInvalidTransition)
+	}
+	if updated.GetBase().ID != before.ID || updated.GetBase().Type != before.Type || reflect.TypeOf(updated) != beforeType {
+		return fmt.Errorf("%w: Update cannot change task identity or type", ErrInvalidTaskUpdate)
+	}
+	r.tasks[taskID] = cloneTaskState(updated)
 	return nil
+}
+
+func (r *Registry) Transition(taskID string, status TaskStatus, cause error) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	task, ok := r.tasks[taskID]
+	if !ok {
+		return fmt.Errorf("task %s not found", taskID)
+	}
+	current := task.GetBase().Status
+	if !allowedTransition(current, status) {
+		return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, current, status)
+	}
+	base := task.GetBase()
+	base.Status = status
+	if status == TaskStatusCompleted || status == TaskStatusFailed || status == TaskStatusCancelled {
+		now := time.Now()
+		base.EndTime = &now
+	}
+	if cause != nil {
+		setTaskError(task, cause.Error())
+	}
+	return nil
+}
+
+func allowedTransition(from, to TaskStatus) bool {
+	switch from {
+	case TaskStatusPending:
+		return to == TaskStatusRunning || to == TaskStatusCancelled
+	case TaskStatusRunning:
+		return to == TaskStatusCompleted || to == TaskStatusFailed || to == TaskStatusCancelled
+	default:
+		return false
+	}
+}
+
+func setTaskError(task TaskState, message string) {
+	switch typed := task.(type) {
+	case *LocalAgentTaskState:
+		typed.Error = message
+	case *LocalShellTaskState:
+		typed.Error = message
+	case *RemoteAgentTaskState:
+		typed.Error = message
+	}
+}
+
+func cloneTaskState(task TaskState) TaskState {
+	if task == nil {
+		return nil
+	}
+	switch typed := task.(type) {
+	case *LocalShellTaskState:
+		clone := *typed
+		clone.TaskStateBase = cloneTaskBase(typed.TaskStateBase)
+		if typed.ExitCode != nil {
+			value := *typed.ExitCode
+			clone.ExitCode = &value
+		}
+		return &clone
+	case *LocalAgentTaskState:
+		clone := *typed
+		clone.TaskStateBase = cloneTaskBase(typed.TaskStateBase)
+		clone.Result = cloneTaskValue(typed.Result)
+		if typed.Progress != nil {
+			clone.Progress = cloneTaskValue(typed.Progress).(*AgentProgress)
+		}
+		if typed.Messages != nil {
+			clone.Messages = cloneTaskValue(typed.Messages).([]interface{})
+		}
+		clone.PendingMessages = append([]string(nil), typed.PendingMessages...)
+		if typed.EvictAfter != nil {
+			value := *typed.EvictAfter
+			clone.EvictAfter = &value
+		}
+		return &clone
+	case *RemoteAgentTaskState:
+		clone := *typed
+		clone.TaskStateBase = cloneTaskBase(typed.TaskStateBase)
+		return &clone
+	default:
+		return nil
+	}
+}
+
+type cloneTaskVisit struct {
+	typeOf  reflect.Type
+	pointer uintptr
+	length  int
+}
+
+func cloneTaskValue(value interface{}) interface{} {
+	cloned := cloneTaskData(reflect.ValueOf(value), make(map[cloneTaskVisit]reflect.Value))
+	if !cloned.IsValid() {
+		return nil
+	}
+	return cloned.Interface()
+}
+
+func cloneTaskData(value reflect.Value, seen map[cloneTaskVisit]reflect.Value) reflect.Value {
+	if !value.IsValid() {
+		return reflect.Value{}
+	}
+	switch value.Kind() {
+	case reflect.Interface:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		cloned := reflect.New(value.Type()).Elem()
+		cloned.Set(cloneTaskData(value.Elem(), seen))
+		return cloned
+	case reflect.Pointer:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		visit := cloneTaskVisit{typeOf: value.Type(), pointer: value.Pointer()}
+		if cloned, ok := seen[visit]; ok {
+			return cloned
+		}
+		cloned := reflect.New(value.Type().Elem())
+		seen[visit] = cloned
+		cloned.Elem().Set(cloneTaskData(value.Elem(), seen))
+		return cloned
+	case reflect.Map:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		visit := cloneTaskVisit{typeOf: value.Type(), pointer: value.Pointer()}
+		if cloned, ok := seen[visit]; ok {
+			return cloned
+		}
+		cloned := reflect.MakeMapWithSize(value.Type(), value.Len())
+		seen[visit] = cloned
+		iterator := value.MapRange()
+		for iterator.Next() {
+			cloned.SetMapIndex(iterator.Key(), cloneTaskData(iterator.Value(), seen))
+		}
+		return cloned
+	case reflect.Slice:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		visit := cloneTaskVisit{typeOf: value.Type(), pointer: value.Pointer(), length: value.Len()}
+		if cloned, ok := seen[visit]; ok {
+			return cloned
+		}
+		cloned := reflect.MakeSlice(value.Type(), value.Len(), value.Len())
+		seen[visit] = cloned
+		for index := 0; index < value.Len(); index++ {
+			cloned.Index(index).Set(cloneTaskData(value.Index(index), seen))
+		}
+		return cloned
+	case reflect.Array:
+		cloned := reflect.New(value.Type()).Elem()
+		for index := 0; index < value.Len(); index++ {
+			cloned.Index(index).Set(cloneTaskData(value.Index(index), seen))
+		}
+		return cloned
+	case reflect.Struct:
+		cloned := reflect.New(value.Type()).Elem()
+		cloned.Set(value)
+		for index := 0; index < value.NumField(); index++ {
+			if value.Type().Field(index).PkgPath == "" {
+				cloned.Field(index).Set(cloneTaskData(value.Field(index), seen))
+			}
+		}
+		return cloned
+	default:
+		return value
+	}
+}
+
+func cloneTaskBase(base TaskStateBase) TaskStateBase {
+	if base.EndTime != nil {
+		value := *base.EndTime
+		base.EndTime = &value
+	}
+	return base
 }
 
 // =============================================================================

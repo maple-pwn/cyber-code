@@ -16,6 +16,7 @@ import (
 	"claude-code-go/internal/permissions"
 	"claude-code-go/internal/provider"
 	"claude-code-go/internal/session"
+	"claude-code-go/internal/tasks"
 	toolpkg "claude-code-go/internal/tool"
 )
 
@@ -44,6 +45,35 @@ func TestShutdownCancelsRunsBeforeClosingServices(t *testing.T) {
 	}
 	if service.closeCount() != 1 {
 		t.Fatalf("service closed %d times", service.closeCount())
+	}
+}
+
+func TestShutdownCancelsOwnedBackgroundTasks(t *testing.T) {
+	registry := tasks.NewRegistry()
+	executor := tasks.NewExecutor(registry)
+	task := tasks.CreateLocalShellTask("background-shell", "long-running", t.TempDir(), "test")
+	if err := registry.Register(task); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan struct{})
+	if err := executor.ExecuteLocalShell(context.Background(), task, func(ctx context.Context, _ *tasks.LocalShellTaskState) (*int, error) {
+		<-ctx.Done()
+		close(exited)
+		return nil, ctx.Err()
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runtime := New(newBlockingProvider(), agent.Options{}, executor)
+	if err := runtime.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-exited:
+	default:
+		t.Fatal("runtime shutdown returned before background task exited")
+	}
+	if status := registry.Get(task.ID).GetBase().Status; status != tasks.TaskStatusCancelled {
+		t.Fatalf("task status = %s", status)
 	}
 }
 
