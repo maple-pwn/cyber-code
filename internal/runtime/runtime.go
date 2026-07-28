@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"cyber-code/internal/agent"
+	"cyber-code/internal/controlplane"
 	"cyber-code/internal/core"
 	"cyber-code/internal/hooks"
 	"cyber-code/internal/provider"
@@ -32,6 +33,7 @@ type Runtime struct {
 	hooks     *hooks.Runner
 	sessionID string
 	started   bool
+	commands  *controlplane.Registry
 
 	shutdownOnce sync.Once
 	shutdownDone chan struct{}
@@ -116,6 +118,24 @@ func newRuntime(modelProvider provider.Provider, options agent.Options, persiste
 	}
 }
 
+// AttachControlPlane installs the command registry shared by CLI, TUI and
+// Print frontends. Handlers operate through Runtime-owned state and events.
+func (r *Runtime) AttachControlPlane(registry *controlplane.Registry) {
+	r.mu.Lock()
+	r.commands = registry
+	r.mu.Unlock()
+}
+
+// SessionID returns the persistent session identifier, if this runtime has one.
+func (r *Runtime) SessionID() string {
+	if r == nil {
+		return ""
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.sessionID
+}
+
 // Run starts one agent turn governed by both ctx and the runtime lifetime.
 func (r *Runtime) Run(ctx context.Context, prompt string) <-chan core.Event {
 	if ctx == nil {
@@ -126,6 +146,26 @@ func (r *Runtime) Run(ctx context.Context, prompt string) <-chan core.Event {
 	if r.closed {
 		r.mu.Unlock()
 		return closedRuntimeEvents()
+	}
+	commands := r.commands
+	if commands != nil {
+		_, parseErr := controlplane.Parse(prompt)
+		if parseErr == nil {
+			r.mu.Unlock()
+			events, dispatchErr := commands.Dispatch(ctx, prompt)
+			if dispatchErr != nil {
+				events = []core.Event{{Type: core.EventError, Err: &core.Error{
+					Kind: core.ErrorKindConfiguration, Op: "runtime.command", Message: "command failed", Cause: dispatchErr,
+				}}}
+			}
+			return eventChannel(ctx, events)
+		}
+		if !errors.Is(parseErr, controlplane.ErrNotCommand) {
+			r.mu.Unlock()
+			return eventChannel(ctx, []core.Event{{Type: core.EventError, Err: &core.Error{
+				Kind: core.ErrorKindConfiguration, Op: "runtime.command", Message: "invalid command", Cause: parseErr,
+			}}})
+		}
 	}
 	runCtx, cancel := context.WithCancel(r.rootCtx)
 	stopCallerCancellation := context.AfterFunc(ctx, cancel)
@@ -213,6 +253,21 @@ func (r *Runtime) Run(ctx context.Context, prompt string) <-chan core.Event {
 			select {
 			case output <- event:
 			case <-runCtx.Done():
+			}
+		}
+	}()
+	return output
+}
+
+func eventChannel(ctx context.Context, events []core.Event) <-chan core.Event {
+	output := make(chan core.Event, len(events))
+	go func() {
+		defer close(output)
+		for _, event := range events {
+			select {
+			case output <- event:
+			case <-ctx.Done():
+				return
 			}
 		}
 	}()

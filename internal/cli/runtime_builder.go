@@ -213,6 +213,12 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 		return nil, err
 	}
 	services = nil // Runtime owns the service lifetime after successful construction.
+	commands, err := buildControlPlane(built, profile.Model, mode, hookRunner, discoveredSkills, contextBuilder)
+	if err != nil {
+		_ = built.Shutdown(context.Background())
+		return nil, fmt.Errorf("configure command control plane: %w", err)
+	}
+	built.AttachControlPlane(commands)
 	if options.SessionID == "" {
 		err = recordSession(options.StateDir, sessionMetadata{ID: sessionID, Profile: loaded.ActiveProfile, Model: profile.Model})
 	}
