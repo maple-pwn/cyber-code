@@ -15,7 +15,7 @@ import (
 	"cyber-code/internal/skill"
 )
 
-func buildControlPlane(runtime *runtimepkg.Runtime, model string, mode permissions.PermissionMode, hooksRunner *hooks.Runner, skills []skill.Skill, contextBuilder *contextbuilder.Builder) (*controlplane.Registry, error) {
+func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model string, mode permissions.PermissionMode, hooksRunner *hooks.Runner, skills []skill.Skill, contextBuilder *contextbuilder.Builder) (*controlplane.Registry, error) {
 	registry := controlplane.NewRegistry()
 	register := func(spec controlplane.Spec) error { return registry.Register(spec) }
 	if err := register(controlplane.Spec{Name: "help", Aliases: []string{"h"}, Usage: "/help", Description: "list available commands", Handler: registry.Help}); err != nil {
@@ -93,6 +93,49 @@ func buildControlPlane(runtime *runtimepkg.Runtime, model string, mode permissio
 			return controlplane.TextEvents("conversation is below the compact threshold"), nil
 		}
 		return controlplane.TextEvents(fmt.Sprintf("conversation compacted; covered %d messages", result.CoveredMessages)), nil
+	}}); err != nil {
+		return nil, err
+	}
+	if err := register(controlplane.Spec{Name: "checkpoint", Usage: "/checkpoint [name]", Description: "save a conversation checkpoint", Handler: func(ctx context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
+		name := "manual"
+		if len(invocation.Args) > 1 {
+			return nil, fmt.Errorf("/checkpoint accepts at most one name")
+		}
+		if len(invocation.Args) == 1 {
+			name = invocation.Args[0]
+		}
+		checkpoint, err := runtime.CreateCheckpoint(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		return controlplane.TextEvents(fmt.Sprintf("checkpoint %s saved at sequence %d", checkpoint.ID, checkpoint.Sequence)), nil
+	}}); err != nil {
+		return nil, err
+	}
+	if err := register(controlplane.Spec{Name: "rewind", Usage: "/rewind CHECKPOINT_ID", Description: "rewind conversation history", Handler: func(ctx context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
+		if len(invocation.Args) != 1 {
+			return nil, fmt.Errorf("/rewind requires a checkpoint ID")
+		}
+		snapshot, err := runtime.Rewind(ctx, invocation.Args[0])
+		if err != nil {
+			return nil, err
+		}
+		return controlplane.TextEvents(fmt.Sprintf("rewound to %s at sequence %d", invocation.Args[0], snapshot.LastSequence)), nil
+	}}); err != nil {
+		return nil, err
+	}
+	if err := register(controlplane.Spec{Name: "branch", Usage: "/branch CHECKPOINT_ID SESSION_ID", Description: "create a session branch", Handler: func(ctx context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
+		if len(invocation.Args) != 2 {
+			return nil, fmt.Errorf("/branch requires a checkpoint ID and session ID")
+		}
+		branch, err := runtime.Branch(ctx, invocation.Args[0], invocation.Args[1])
+		if err != nil {
+			return nil, err
+		}
+		if err := recordSession(stateDir, sessionMetadata{ID: branch.SessionID, Profile: profileName, Model: model}); err != nil {
+			return nil, fmt.Errorf("record branch session: %w", err)
+		}
+		return controlplane.TextEvents(fmt.Sprintf("branch %s created from %s", branch.SessionID, branch.CheckpointID)), nil
 	}}); err != nil {
 		return nil, err
 	}

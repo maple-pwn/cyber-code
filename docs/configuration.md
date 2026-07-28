@@ -55,6 +55,7 @@ Skill 正文不会自动进入每次请求。可用 Skill 由只读 `load_skill`
 - `hooks.json`：Hook event 到命令数组的映射。
 - `compact.json`：压缩阈值和保留消息数。缺省使用 100000 tokens 与 8 条近期消息，并使用本地 token 估算避免额外计数请求。
 - `audit.json`：最多 1000 条权限决策记录，由程序维护。
+- 会话目录中的 `graph.json` 与 `checkpoint-*.json`：checkpoint 元数据和独立历史快照，由 `/checkpoint`、`/rewind`、`/branch` 管理。
 
 LSP 示例：
 
@@ -88,5 +89,15 @@ Compact 示例：
   "keep_recent_messages": 10
 }
 ```
+
+会话控制面命令：
+
+```text
+/checkpoint [name]
+/rewind CHECKPOINT_ID
+/branch CHECKPOINT_ID SESSION_ID
+```
+
+`/rewind` 只回退会话对话历史，不覆盖工作区文件；它会追加一条审计性 warning 事件并写入新快照。`/branch` 创建独立 session，继承 checkpoint 历史，事件序列从分支重新开始，并登记到 `sessions` 索引。工作区文件恢复需要后续显式确认和摘要冲突检查。
 
 LSP、Hooks 和插件配置中的命令会执行本地程序，应仅配置受信内容。插件 manifest 的能力声明用于 Broker 授权和工具注册，不限制子进程在操作系统层面的文件或网络访问。

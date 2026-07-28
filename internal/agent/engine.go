@@ -405,6 +405,22 @@ func (e *Engine) Compact(ctx context.Context) (session.CompactResult, error) {
 	return result, nil
 }
 
+// ReplaceHistory atomically replaces the in-memory conversation for session
+// rewind/resume operations.
+func (e *Engine) ReplaceHistory(ctx context.Context, messages []core.Message) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-e.turn:
+	}
+	defer func() { e.turn <- struct{}{} }()
+	e.replaceHistory(messages)
+	return nil
+}
+
 func cloneMessages(messages []core.Message) []core.Message {
 	if messages == nil {
 		return nil

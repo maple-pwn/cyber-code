@@ -36,7 +36,7 @@ func TestCLIControlPlaneHelpUsesSharedRuntimeWithoutProviderTurn(t *testing.T) {
 	if code != 0 || stderr.Len() != 0 || providerCalls.Load() != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q provider calls=%d", code, stdout.String(), stderr.String(), providerCalls.Load())
 	}
-	for _, expected := range []string{"/compact", "/context", "/hooks", "/model", "/permissions", "/skills", "/status", "/tasks"} {
+	for _, expected := range []string{"/branch", "/checkpoint", "/compact", "/context", "/hooks", "/model", "/permissions", "/rewind", "/skills", "/status", "/tasks"} {
 		if !strings.Contains(stdout.String(), expected) {
 			t.Fatalf("help missing %q: %q", expected, stdout.String())
 		}

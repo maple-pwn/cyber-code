@@ -350,6 +350,69 @@ func (r *Runtime) Compact(ctx context.Context) (session.CompactResult, error) {
 	return result, nil
 }
 
+func (r *Runtime) CreateCheckpoint(ctx context.Context, name string) (session.Checkpoint, error) {
+	if r == nil || r.session == nil {
+		return session.Checkpoint{}, fmt.Errorf("persistent session is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-ctx.Done():
+		return session.Checkpoint{}, ctx.Err()
+	case <-r.turn:
+	}
+	defer func() { r.turn <- struct{}{} }()
+	return r.session.store.CreateCheckpoint(ctx, r.session.id, name)
+}
+
+func (r *Runtime) Rewind(ctx context.Context, checkpointID string) (session.Snapshot, error) {
+	if r == nil || r.session == nil {
+		return session.Snapshot{}, fmt.Errorf("persistent session is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-ctx.Done():
+		return session.Snapshot{}, ctx.Err()
+	case <-r.turn:
+	}
+	defer func() { r.turn <- struct{}{} }()
+	snapshot, err := r.session.store.Rewind(ctx, r.session.id, checkpointID)
+	if err != nil {
+		return session.Snapshot{}, err
+	}
+	if err := r.engine.ReplaceHistory(ctx, snapshot.History); err != nil {
+		return session.Snapshot{}, err
+	}
+	record, err := r.session.store.Append(ctx, r.session.id, core.Event{Type: core.EventWarning, Text: "conversation rewound to checkpoint " + checkpointID})
+	if err != nil {
+		return session.Snapshot{}, fmt.Errorf("persist rewind event: %w", err)
+	}
+	snapshot.LastSequence = record.Sequence
+	if err := r.session.store.SaveSnapshot(ctx, snapshot); err != nil {
+		return session.Snapshot{}, fmt.Errorf("persist rewind snapshot: %w", err)
+	}
+	return snapshot, nil
+}
+
+func (r *Runtime) Branch(ctx context.Context, checkpointID, branchID string) (session.BranchInfo, error) {
+	if r == nil || r.session == nil {
+		return session.BranchInfo{}, fmt.Errorf("persistent session is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-ctx.Done():
+		return session.BranchInfo{}, ctx.Err()
+	case <-r.turn:
+	}
+	defer func() { r.turn <- struct{}{} }()
+	return r.session.store.Branch(ctx, r.session.id, checkpointID, branchID)
+}
+
 // Shutdown cancels active turns and starts cleanup exactly once. ctx limits
 // how long this caller waits; cleanup continues so later calls can await it.
 func (r *Runtime) Shutdown(ctx context.Context) error {

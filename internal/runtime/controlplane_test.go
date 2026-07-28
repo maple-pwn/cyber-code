@@ -8,6 +8,7 @@ import (
 	"cyber-code/internal/agent"
 	"cyber-code/internal/controlplane"
 	"cyber-code/internal/core"
+	"cyber-code/internal/session"
 )
 
 func TestRuntimeDispatchesCommandsWithoutCallingProvider(t *testing.T) {
@@ -51,5 +52,34 @@ func TestRuntimeReportsUnknownSlashCommand(t *testing.T) {
 	}
 	if event.Type != core.EventError || event.Err == nil || !strings.Contains(event.Err.Error(), "unknown command") {
 		t.Fatalf("event = %#v", event)
+	}
+}
+
+func TestPersistentRuntimeCheckpointAndRewindRestoreEngineHistory(t *testing.T) {
+	store, err := session.NewStore(t.TempDir(), session.StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewPersistent(&completedProvider{}, agent.Options{}, store, "runtime-graph")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Shutdown(context.Background())
+	for range runtime.Run(context.Background(), "first") {
+	}
+	checkpoint, err := runtime.CreateCheckpoint(context.Background(), "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range runtime.Run(context.Background(), "second") {
+	}
+	if got := len(runtime.History()); got != 2 {
+		t.Fatalf("history before rewind = %d", got)
+	}
+	if _, err := runtime.Rewind(context.Background(), checkpoint.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(runtime.History()); got != 1 || runtime.History()[0].Content[0].Text != "first" {
+		t.Fatalf("history after rewind = %#v", runtime.History())
 	}
 }
