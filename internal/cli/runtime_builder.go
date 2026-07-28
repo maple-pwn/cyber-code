@@ -18,6 +18,7 @@ import (
 	"cyber-code/internal/hooks"
 	"cyber-code/internal/lsp"
 	"cyber-code/internal/mcp"
+	"cyber-code/internal/memory"
 	"cyber-code/internal/permissions"
 	"cyber-code/internal/platform"
 	"cyber-code/internal/plugin"
@@ -329,6 +330,22 @@ func buildContextBuilder(currentDir, stateDir string) (*contextbuilder.Builder, 
 	sources, err := loader.Load()
 	if err != nil {
 		return nil, fmt.Errorf("load context instructions: %w", err)
+	}
+	memoryStore, err := memory.NewStore(filepath.Join(stateDir, "memory"), memory.Options{})
+	if err != nil {
+		return nil, fmt.Errorf("configure memory: %w", err)
+	}
+	for _, scope := range []memory.Scope{memory.ScopeUser, memory.ScopeProject} {
+		entries, listErr := memoryStore.List(context.Background(), scope)
+		if listErr != nil {
+			return nil, fmt.Errorf("load %s memory: %w", scope, listErr)
+		}
+		for _, entry := range entries {
+			sources = append(sources, contextbuilder.Source{
+				ID: "memory:" + entry.ID, Kind: contextbuilder.SourceMemory, Priority: 200,
+				Path: filepath.Join(stateDir, "memory", "memory.json"), Content: entry.Content,
+			})
+		}
 	}
 	builder, err := contextbuilder.New(contextbuilder.Options{
 		Sources: sources, ContextWindow: defaultContextWindow, ReservedOutput: defaultReservedOutput,
