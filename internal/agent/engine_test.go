@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +12,23 @@ import (
 	"claude-code-go/internal/core"
 	"claude-code-go/internal/provider"
 )
+
+func TestEngineAddsCyberCodeSystemIdentity(t *testing.T) {
+	fake := &fakeProvider{events: []core.Event{{Type: core.EventCompleted, FinishReason: "stop"}}}
+	engine := NewEngine(fake, Options{Model: "model-test"})
+
+	collectAgentEvents(t, engine.Run(context.Background(), "hello"))
+
+	if len(fake.request.System) != 1 || fake.request.System[0].Type != core.ContentText {
+		t.Fatalf("system prompt = %#v", fake.request.System)
+	}
+	identity := strings.ToLower(fake.request.System[0].Text)
+	for _, required := range []string{"cyber-code", "independent", "coding agent", "do not claim"} {
+		if !strings.Contains(identity, required) {
+			t.Fatalf("system identity missing %q: %q", required, fake.request.System[0].Text)
+		}
+	}
+}
 
 func TestEngineStreamsTurnAndCommitsHistory(t *testing.T) {
 	fake := &fakeProvider{events: []core.Event{

@@ -56,7 +56,7 @@ func (e *Engine) run(ctx context.Context, prompt string, output chan<- core.Even
 
 	tools := e.toolDefinitions()
 	if e.options.Compactor != nil {
-		result := e.options.Compactor.Compact(ctx, core.Request{Model: e.options.Model, Messages: messages, Tools: tools}, e.provider)
+		result := e.options.Compactor.Compact(ctx, e.request(messages, tools), e.provider)
 		if result.Warning != "" {
 			if !sendEvent(ctx, output, core.Event{Type: core.EventWarning, Text: result.Warning}) {
 				return
@@ -77,7 +77,7 @@ func (e *Engine) run(ctx context.Context, prompt string, output chan<- core.Even
 		maximumTurns = 1
 	}
 	for turn := 1; turn <= maximumTurns; turn++ {
-		round, ok := e.providerRound(ctx, core.Request{Model: e.options.Model, Messages: messages, Tools: tools}, output)
+		round, ok := e.providerRound(ctx, e.request(messages, tools), output)
 		if !ok {
 			return
 		}
@@ -102,6 +102,19 @@ func (e *Engine) run(ctx context.Context, prompt string, output chan<- core.Even
 			return
 		}
 		messages = e.History()
+	}
+}
+
+func (e *Engine) request(messages []core.Message, tools []core.ToolDefinition) core.Request {
+	systemPrompt := strings.TrimSpace(e.options.SystemPrompt)
+	if systemPrompt == "" {
+		systemPrompt = DefaultSystemPrompt
+	}
+	return core.Request{
+		Model:    e.options.Model,
+		System:   []core.ContentBlock{{Type: core.ContentText, Text: systemPrompt}},
+		Messages: messages,
+		Tools:    tools,
 	}
 }
 
