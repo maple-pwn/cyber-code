@@ -201,9 +201,15 @@ func (t *MockTranscriber) Transcribe(ctx context.Context, audioData []byte) (str
 // Service represents the voice service.
 type Service struct {
 	recorder    *Recorder
+	capturer    Capturer
 	transcriber Transcriber
 	mu          sync.Mutex
 	enabled     bool
+}
+
+// Capturer is the managed platform recording contract.
+type Capturer interface {
+	Capture(context.Context) ([]byte, error)
 }
 
 // NewService creates a new voice service.
@@ -213,6 +219,12 @@ func NewService(config RecordingConfig, transcriber Transcriber) *Service {
 		transcriber: transcriber,
 		enabled:     false,
 	}
+}
+
+// NewManagedService creates a service whose recording process is owned by the
+// platform layer and guarded by its permission broker.
+func NewManagedService(capturer Capturer, transcriber Transcriber) *Service {
+	return &Service{capturer: capturer, transcriber: transcriber}
 }
 
 // Enable enables voice input.
@@ -241,11 +253,17 @@ func (s *Service) StartRecording(ctx context.Context) error {
 	if !s.IsEnabled() {
 		return fmt.Errorf("voice input is disabled")
 	}
+	if s.recorder == nil {
+		return fmt.Errorf("managed voice service uses CaptureAndTranscribe")
+	}
 	return s.recorder.Start(ctx)
 }
 
 // StopRecording stops recording and transcribes the audio.
 func (s *Service) StopRecording(ctx context.Context) (string, error) {
+	if s.recorder == nil {
+		return "", fmt.Errorf("managed voice service uses CaptureAndTranscribe")
+	}
 	audioData, err := s.recorder.Stop()
 	if err != nil {
 		return "", err
@@ -259,8 +277,32 @@ func (s *Service) StopRecording(ctx context.Context) (string, error) {
 	return s.transcriber.Transcribe(ctx, audioData)
 }
 
+// CaptureAndTranscribe performs one bounded managed capture and transcription.
+func (s *Service) CaptureAndTranscribe(ctx context.Context) (string, error) {
+	if !s.IsEnabled() {
+		return "", fmt.Errorf("voice input is disabled")
+	}
+	if s.capturer == nil {
+		return "", fmt.Errorf("managed voice capture is unavailable")
+	}
+	if s.transcriber == nil {
+		return "", fmt.Errorf("voice transcriber is unavailable")
+	}
+	audio, err := s.capturer.Capture(ctx)
+	if err != nil {
+		return "", err
+	}
+	if len(audio) == 0 {
+		return "", fmt.Errorf("no audio data recorded")
+	}
+	return s.transcriber.Transcribe(ctx, audio)
+}
+
 // IsRecording returns true if currently recording.
 func (s *Service) IsRecording() bool {
+	if s.recorder == nil {
+		return false
+	}
 	return s.recorder.IsRecording()
 }
 

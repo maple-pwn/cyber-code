@@ -1,11 +1,14 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"os"
 	"os/exec"
 	"strings"
+
+	"claude-code-go/internal/platform"
 )
 
 // NotificationOptions represents options for a notification
@@ -33,6 +36,31 @@ const defaultTitle = "Claude Code"
 
 // SendNotification sends a notification through the configured channel
 func SendNotification(notif NotificationOptions, terminal TerminalNotification, preferredChannel string) error {
+	return SendNotificationWithNative(context.Background(), notif, terminal, preferredChannel, nil)
+}
+
+type NativeNotification interface {
+	Capability() platform.Capability
+	Notify(context.Context, string, string) error
+}
+
+// SendNotificationWithNative routes desktop notifications through the managed
+// platform adapter while retaining terminal notification compatibility.
+func SendNotificationWithNative(ctx context.Context, notif NotificationOptions, terminal TerminalNotification, preferredChannel string, native NativeNotification) error {
+	if preferredChannel == "native" {
+		if native == nil || !native.Capability().Available {
+			return platform.ErrUnavailable
+		}
+		return native.Notify(ctx, notif.Title, notif.Message)
+	}
+	if preferredChannel == "auto" && native != nil && native.Capability().Available {
+		if err := native.Notify(ctx, notif.Title, notif.Message); err == nil {
+			return nil
+		}
+	}
+	if terminal == nil && preferredChannel != "notifications_disabled" {
+		return fmt.Errorf("terminal notification backend is unavailable")
+	}
 	methodUsed := sendToChannel(preferredChannel, notif, terminal)
 
 	// TODO: Log analytics event
