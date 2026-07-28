@@ -30,9 +30,35 @@ type AzureCredentials struct {
 
 // AzureAuthManager manages Azure authentication state.
 type AzureAuthManager struct {
-	mu          sync.RWMutex
-	credentials *AzureCredentials
-	lastRefresh time.Time
+	mu                  sync.RWMutex
+	credentials         *AzureCredentials
+	lastRefresh         time.Time
+	httpClient          *http.Client
+	servicePrincipalURL string
+	managedIdentityURL  string
+	now                 func() time.Time
+}
+
+// AzureAuthOptions supplies testable Azure authentication dependencies.
+type AzureAuthOptions struct {
+	HTTPClient          *http.Client
+	ServicePrincipalURL string
+	ManagedIdentityURL  string
+	Now                 func() time.Time
+}
+
+// NewAzureAuthManager creates an isolated Azure credential manager.
+func NewAzureAuthManager(options AzureAuthOptions) *AzureAuthManager {
+	if options.HTTPClient == nil {
+		options.HTTPClient = http.DefaultClient
+	}
+	if options.ManagedIdentityURL == "" {
+		options.ManagedIdentityURL = "http://169.254.169.254/metadata/identity/oauth2/token"
+	}
+	if options.Now == nil {
+		options.Now = time.Now
+	}
+	return &AzureAuthManager{httpClient: options.HTTPClient, servicePrincipalURL: options.ServicePrincipalURL, managedIdentityURL: options.ManagedIdentityURL, now: options.Now}
 }
 
 var (
@@ -43,7 +69,7 @@ var (
 // GetAzureAuthManager returns the singleton Azure auth manager.
 func GetAzureAuthManager() *AzureAuthManager {
 	azureAuthManagerOnce.Do(func() {
-		azureAuthManager = &AzureAuthManager{}
+		azureAuthManager = NewAzureAuthManager(AzureAuthOptions{})
 	})
 	return azureAuthManager
 }
@@ -60,7 +86,7 @@ func (a *AzureAuthManager) RefreshAzureCredentialsIfNeeded(ctx context.Context) 
 	defer a.mu.Unlock()
 
 	// Check if credentials are still valid
-	if a.credentials != nil && time.Now().Before(a.credentials.Expiry) {
+	if a.credentials != nil && a.now().Before(a.credentials.Expiry) {
 		return nil
 	}
 
@@ -71,7 +97,7 @@ func (a *AzureAuthManager) RefreshAzureCredentialsIfNeeded(ctx context.Context) 
 	}
 
 	a.credentials = creds
-	a.lastRefresh = time.Now()
+	a.lastRefresh = a.now()
 	return nil
 }
 
@@ -134,7 +160,10 @@ func (a *AzureAuthManager) getServicePrincipalToken(ctx context.Context) (*Azure
 	}
 
 	// OAuth2 token endpoint for Azure AD
-	tokenURL := fmt.Sprintf("https://login.microsoftonline.com/%s/oauth2/v2.0/token", tenantID)
+	tokenURL := a.servicePrincipalURL
+	if tokenURL == "" {
+		tokenURL = fmt.Sprintf("https://login.microsoftonline.com/%s/oauth2/v2.0/token", tenantID)
+	}
 
 	data := url.Values{}
 	data.Set("client_id", clientID)
@@ -148,7 +177,7 @@ func (a *AzureAuthManager) getServicePrincipalToken(ctx context.Context) (*Azure
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := a.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get service principal token: %w", err)
 	}
@@ -180,7 +209,7 @@ func (a *AzureAuthManager) getServicePrincipalToken(ctx context.Context) (*Azure
 		TokenType:   tokenResp.TokenType,
 		ExpiresIn:   tokenResp.ExpiresIn,
 		ExpiresOn:   tokenResp.ExpiresOn,
-		Expiry:      time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
+		Expiry:      a.now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
 	}, nil
 }
 
@@ -224,7 +253,7 @@ func (a *AzureAuthManager) getManagedIdentityToken(ctx context.Context) (*AzureC
 
 	// Try Azure Instance Metadata Service (IMDS)
 	// First, check if we're running on Azure
-	imdsURL := "http://169.254.169.254/metadata/identity/oauth2/token"
+	imdsURL := a.managedIdentityURL
 
 	params := url.Values{}
 	params.Set("api-version", "2018-02-01")
@@ -236,7 +265,7 @@ func (a *AzureAuthManager) getManagedIdentityToken(ctx context.Context) (*AzureC
 	}
 	req.Header.Set("Metadata", "true")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := a.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("managed identity request failed: %w", err)
 	}
@@ -269,7 +298,7 @@ func (a *AzureAuthManager) getManagedIdentityToken(ctx context.Context) (*AzureC
 		AccessToken: tokenResp.AccessToken,
 		TokenType:   tokenResp.TokenType,
 		ExpiresIn:   int(expiresIn.Seconds()),
-		Expiry:      time.Now().Add(expiresIn),
+		Expiry:      a.now().Add(expiresIn),
 		Resource:    tokenResp.Resource,
 	}, nil
 }
