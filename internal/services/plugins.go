@@ -144,7 +144,10 @@ func (s *PluginService) GetPlugin(name string) (*Plugin, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	plugin, ok := s.plugins[name]
-	return plugin, ok
+	if !ok {
+		return nil, false
+	}
+	return clonePlugin(plugin), true
 }
 
 // GetAllPlugins returns all plugins
@@ -153,7 +156,7 @@ func (s *PluginService) GetAllPlugins() map[string]*Plugin {
 	defer s.mu.RUnlock()
 	result := make(map[string]*Plugin)
 	for k, v := range s.plugins {
-		result[k] = v
+		result[k] = clonePlugin(v)
 	}
 	return result
 }
@@ -231,10 +234,27 @@ func (s *PluginService) GetTools() []PluginTool {
 	var tools []PluginTool
 	for _, plugin := range s.plugins {
 		if plugin.State == PluginStateEnabled {
-			tools = append(tools, plugin.Tools...)
+			for _, tool := range plugin.Tools {
+				tool.InputSchema = append(json.RawMessage(nil), tool.InputSchema...)
+				tools = append(tools, tool)
+			}
 		}
 	}
 	return tools
+}
+
+func clonePlugin(plugin *Plugin) *Plugin {
+	if plugin == nil {
+		return nil
+	}
+	clone := *plugin
+	clone.Config = append(json.RawMessage(nil), plugin.Config...)
+	clone.Commands = append([]PluginCommand(nil), plugin.Commands...)
+	clone.Tools = append([]PluginTool(nil), plugin.Tools...)
+	for index := range clone.Tools {
+		clone.Tools[index].InputSchema = append(json.RawMessage(nil), plugin.Tools[index].InputSchema...)
+	}
+	return &clone
 }
 
 // AddPluginDir adds a plugin directory

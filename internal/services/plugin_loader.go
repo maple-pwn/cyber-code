@@ -406,14 +406,34 @@ func createHookHandler(pluginName, command string, config map[string]interface{}
 func (l *PluginLoader) GetPluginManifest(name string) *types.PluginManifest {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return l.loadedManifests[name]
+	return cloneLegacyPluginManifest(l.loadedManifests[name])
 }
 
 // GetErrors returns all loading errors.
 func (l *PluginLoader) GetErrors() []types.PluginErrorDetail {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return l.errors
+	result := append([]types.PluginErrorDetail(nil), l.errors...)
+	for index := range result {
+		result[index].ValidationErrors = append([]string(nil), l.errors[index].ValidationErrors...)
+		result[index].AvailableMarketplaces = append([]string(nil), l.errors[index].AvailableMarketplaces...)
+	}
+	return result
+}
+
+func cloneLegacyPluginManifest(manifest *types.PluginManifest) *types.PluginManifest {
+	if manifest == nil {
+		return nil
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		return nil
+	}
+	var clone types.PluginManifest
+	if json.Unmarshal(data, &clone) != nil {
+		return nil
+	}
+	return &clone
 }
 
 // =============================================================================
