@@ -4,189 +4,294 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"claude-code-go/internal/query"
-	"claude-code-go/internal/types"
+	"claude-code-go/internal/core"
+	"claude-code-go/internal/permissions"
 	"claude-code-go/internal/ui/components"
 )
 
-// AppModel integrates QueryEngine with the Bubble Tea UI.
-type AppModel struct {
-	queryEngine  *query.QueryEngine
-	chat         *components.ChatModel
-	ctx          context.Context
-	cancel       context.CancelFunc
-	messageChan  <-chan interface{}
-	currentModel string
-	models       map[string]types.ThinkingConfig
-	mu           sync.RWMutex
-	err          error
+type Runner interface {
+	Run(context.Context, string) <-chan core.Event
 }
 
-// NewAppModel creates a new UI app model.
-func NewAppModel(engine *query.QueryEngine, width, height int) *AppModel {
+type ModelOptions struct {
+	Width         int
+	Height        int
+	InitialPrompt string
+}
+
+type Message struct {
+	Role    string
+	Content string
+}
+
+type Model struct {
+	runner Runner
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	Messages   []Message
+	Input      string
+	Processing bool
+	StatusText string
+	Err        error
+	Width      int
+	Height     int
+	Ready      bool
+	Permission *components.PermissionDialog
+
+	events          <-chan core.Event
+	turnCancel      context.CancelFunc
+	assistantIndex  int
+	permissionReply chan<- permissions.Decision
+	initialPrompt   string
+}
+
+type turnStartedMsg struct{ events <-chan core.Event }
+type runtimeEventMsg struct {
+	event core.Event
+	open  bool
+}
+type permissionRespondedMsg struct{}
+
+type PermissionRequestMsg struct {
+	Request permissions.Request
+	Respond chan<- permissions.Decision
+}
+
+func NewModel(runner Runner, options ModelOptions) *Model {
+	if options.Width <= 0 {
+		options.Width = 80
+	}
+	if options.Height <= 0 {
+		options.Height = 24
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &AppModel{
-		queryEngine:  engine,
-		chat:         components.NewChatModel(width, height),
-		ctx:          ctx,
-		cancel:       cancel,
-		currentModel: "claude-sonnet-4-20250514",
-		models:       make(map[string]types.ThinkingConfig),
+	return &Model{
+		runner: runner, ctx: ctx, cancel: cancel, Messages: []Message{}, Width: options.Width, Height: options.Height,
+		Ready: true, assistantIndex: -1, initialPrompt: options.InitialPrompt,
 	}
 }
 
-// Init initializes the app.
-func (m *AppModel) Init() tea.Cmd {
-	return tea.Batch(
-		m.chat.Init(),
-	)
+func InitialModel() Model { return *NewModel(nil, ModelOptions{}) }
+
+func (model *Model) Init() tea.Cmd {
+	if strings.TrimSpace(model.initialPrompt) == "" {
+		return nil
+	}
+	model.Input = model.initialPrompt
+	model.initialPrompt = ""
+	return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
 }
 
-// Update handles app updates.
-func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-
-	switch msg := msg.(type) {
+func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	switch message := message.(type) {
 	case tea.WindowSizeMsg:
-		m.chat.Width = msg.Width
-		m.chat.Height = msg.Height
-
+		model.Width, model.Height, model.Ready = message.Width, message.Height, true
+		if model.Permission != nil {
+			model.Permission.Width = max(24, min(60, message.Width-4))
+		}
 	case tea.KeyMsg:
-		switch msg.Type {
+		if model.Permission != nil {
+			return model.updatePermission(message)
+		}
+		switch message.Type {
 		case tea.KeyCtrlC:
-			m.cancel()
-			return m, tea.Quit
+			if model.turnCancel != nil {
+				model.turnCancel()
+			}
+			model.cancel()
+			return model, tea.Quit
 		case tea.KeyEnter:
-			if m.chat.State == components.ChatStateIdle && m.chat.Input.Value != "" {
-				prompt := m.chat.Input.Value
-				m.chat.Input.Clear()
-				m.chat.State = components.ChatStateProcessing
-
-				// Submit message to query engine
-				output, err := m.queryEngine.SubmitMessage(m.ctx, prompt)
-				if err != nil {
-					m.chat.State = components.ChatStateError
-					m.chat.Error = err
-					return m, nil
-				}
-				m.messageChan = output
-				cmds = append(cmds, m.waitForMessages())
+			if model.Processing || strings.TrimSpace(model.Input) == "" {
+				return model, nil
 			}
+			prompt := model.Input
+			model.Input = ""
+			model.Messages = append(model.Messages, Message{Role: "user", Content: prompt})
+			model.Processing, model.StatusText, model.Err = true, "Working", nil
+			turnCtx, cancel := context.WithCancel(model.ctx)
+			model.turnCancel = cancel
+			return model, startTurn(model.runner, turnCtx, prompt)
+		case tea.KeyBackspace:
+			runes := []rune(model.Input)
+			if len(runes) > 0 {
+				model.Input = string(runes[:len(runes)-1])
+			}
+		case tea.KeyRunes:
+			model.Input += string(message.Runes)
 		}
-
-	case QueryEngineMsg:
-		switch data := msg.Data.(type) {
-		case query.SDKMessage:
-			m.handleSDKMessage(data)
-		case query.ResultMessage:
-			m.handleResultMessage(data)
+	case turnStartedMsg:
+		model.events = message.events
+		if message.events == nil {
+			model.fail(fmt.Errorf("runtime returned no event stream"))
+			return model, nil
 		}
+		return model, waitForRuntimeEvent(message.events)
+	case runtimeEventMsg:
+		if !message.open {
+			model.finish()
+			return model, nil
+		}
+		terminal := model.applyEvent(message.event)
+		if terminal {
+			return model, nil
+		}
+		return model, waitForRuntimeEvent(model.events)
+	case PermissionRequestMsg:
+		model.Permission = components.NewPermissionDialog(message.Request.Tool, permissionDescription(message.Request))
+		model.permissionReply = message.Respond
+		return model, nil
+	case permissionRespondedMsg:
+		return model, nil
 	}
-
-	// Update chat component
-	newChat, cmd := m.chat.Update(msg)
-	m.chat = newChat.(*components.ChatModel)
-	cmds = append(cmds, cmd)
-
-	return m, tea.Batch(cmds...)
+	return model, nil
 }
 
-// View renders the app.
-func (m *AppModel) View() string {
-	return m.chat.View()
-}
-
-// QueryEngineMsg wraps messages from QueryEngine for Bubble Tea.
-type QueryEngineMsg struct {
-	Data interface{}
-}
-
-// waitForMessages waits for messages from the QueryEngine.
-func (m *AppModel) waitForMessages() tea.Cmd {
+func startTurn(runner Runner, ctx context.Context, prompt string) tea.Cmd {
 	return func() tea.Msg {
-		if m.messageChan == nil {
-			return nil
+		if runner == nil {
+			return runtimeEventMsg{event: core.Event{Type: core.EventError, Err: &core.Error{
+				Kind: core.ErrorKindConfiguration, Message: "runtime is not configured",
+			}}, open: true}
 		}
-
-		data, ok := <-m.messageChan
-		if !ok {
-			m.chat.State = components.ChatStateIdle
-			return nil
-		}
-
-		return QueryEngineMsg{Data: data}
+		return turnStartedMsg{events: runner.Run(ctx, prompt)}
 	}
 }
 
-// handleSDKMessage handles SDK messages from QueryEngine.
-func (m *AppModel) handleSDKMessage(msg query.SDKMessage) {
-	switch msg.Type {
-	case "assistant":
-		if content, ok := msg.Message.(map[string]interface{}); ok {
-			if contentBlocks, ok := content["content"].([]map[string]interface{}); ok {
-				var textParts []string
-				for _, block := range contentBlocks {
-					if block["type"] == "text" {
-						if text, ok := block["text"].(string); ok {
-							textParts = append(textParts, text)
-						}
-					}
-				}
-				if len(textParts) > 0 {
-					m.chat.AddAssistantMessage(strings.Join(textParts, "\n"))
-				}
+func waitForRuntimeEvent(events <-chan core.Event) tea.Cmd {
+	return func() tea.Msg {
+		event, open := <-events
+		return runtimeEventMsg{event: event, open: open}
+	}
+}
+
+func (model *Model) applyEvent(event core.Event) bool {
+	switch event.Type {
+	case core.EventTextDelta:
+		model.appendAssistantDelta(event.Text)
+	case core.EventAssistantMessage:
+		if text := coreMessageText(event.Message); text != "" && model.assistantIndex < 0 {
+			model.Messages = append(model.Messages, Message{Role: "assistant", Content: text})
+		}
+	case core.EventToolCall:
+		if event.ToolCall != nil {
+			model.Messages = append(model.Messages, Message{Role: "tool", Content: event.ToolCall.Name})
+		}
+	case core.EventToolResult:
+		if event.ToolResult != nil {
+			model.Messages = append(model.Messages, Message{Role: "tool", Content: toolResultText(event.ToolResult)})
+		}
+	case core.EventWarning:
+		model.Messages = append(model.Messages, Message{Role: "system", Content: event.Text})
+	case core.EventCompleted:
+		model.finish()
+		return true
+	case core.EventError:
+		if event.Err == nil {
+			model.fail(fmt.Errorf("runtime failed"))
+		} else {
+			model.fail(event.Err)
+		}
+		return true
+	}
+	return false
+}
+
+func (model *Model) appendAssistantDelta(text string) {
+	if model.assistantIndex < 0 {
+		model.Messages = append(model.Messages, Message{Role: "assistant"})
+		model.assistantIndex = len(model.Messages) - 1
+	}
+	model.Messages[model.assistantIndex].Content += text
+}
+
+func (model *Model) finish() {
+	model.Processing, model.StatusText, model.events, model.turnCancel = false, "", nil, nil
+	model.assistantIndex = -1
+}
+
+func (model *Model) fail(err error) {
+	model.Err = err
+	model.Messages = append(model.Messages, Message{Role: "error", Content: err.Error()})
+	model.finish()
+}
+
+func (model *Model) updatePermission(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	updated, _ := model.Permission.Update(key)
+	model.Permission = updated.(*components.PermissionDialog)
+	if !model.Permission.Closed {
+		return model, nil
+	}
+	behavior := permissions.PermissionBehaviorDeny
+	if model.Permission.Result == "Allow" || model.Permission.Result == "Allow Always" {
+		behavior = permissions.PermissionBehaviorAllow
+	}
+	reply := model.permissionReply
+	decision := permissions.Decision{Behavior: behavior, Reason: "interactive permission response"}
+	model.Permission, model.permissionReply = nil, nil
+	return model, func() tea.Msg {
+		if reply != nil {
+			select {
+			case reply <- decision:
+			case <-model.ctx.Done():
 			}
 		}
+		return permissionRespondedMsg{}
+	}
+}
 
-	case "tool_result":
-		if data, ok := msg.Message.(map[string]interface{}); ok {
-			toolName, _ := data["tool_name"].(string)
-			content, _ := data["content"].(string)
-			m.chat.AddToolResult(toolName, content)
+func NewPermissionConfirmer(send func(tea.Msg)) permissions.Confirmer {
+	return func(ctx context.Context, request permissions.Request) (permissions.Decision, error) {
+		if send == nil {
+			return permissions.Decision{Behavior: permissions.PermissionBehaviorDeny, Reason: "permission UI unavailable"}, nil
 		}
-
-	case "system":
-		if data, ok := msg.Message.(map[string]interface{}); ok {
-			if subtype, ok := data["subtype"].(string); ok {
-				switch subtype {
-				case "interrupted":
-					m.chat.State = components.ChatStateIdle
-					m.chat.AddSystemMessage("Operation interrupted")
-				case "error":
-					if errMsg, ok := data["error"].(string); ok {
-						m.chat.State = components.ChatStateError
-						m.chat.Error = fmt.Errorf("%s", errMsg)
-					}
-				}
-			}
+		reply := make(chan permissions.Decision, 1)
+		send(PermissionRequestMsg{Request: request, Respond: reply})
+		select {
+		case decision := <-reply:
+			return decision, nil
+		case <-ctx.Done():
+			return permissions.Decision{}, ctx.Err()
 		}
 	}
 }
 
-// handleResultMessage handles result messages from QueryEngine.
-func (m *AppModel) handleResultMessage(msg query.ResultMessage) {
-	m.chat.State = components.ChatStateIdle
-
-	if msg.IsError {
-		m.chat.Error = fmt.Errorf("query failed: %s", msg.Subtype)
-	} else {
-		duration := fmt.Sprintf("%.2fs", float64(msg.DurationMs)/1000.0)
-		cost := fmt.Sprintf("$%.6f", msg.TotalCostUsd)
-		m.chat.AddSystemMessage(fmt.Sprintf("Completed in %s | Cost: %s | Turns: %d", duration, cost, msg.NumTurns))
-	}
+func (model *Model) AddMessage(role, content string) {
+	model.Messages = append(model.Messages, Message{Role: role, Content: content})
 }
 
-// RunUI runs the interactive UI.
-func RunUI(engine *query.QueryEngine) error {
-	p := tea.NewProgram(
-		NewAppModel(engine, 80, 24),
-		tea.WithAltScreen(),
-	)
+func coreMessageText(message *core.Message) string {
+	if message == nil {
+		return ""
+	}
+	var text strings.Builder
+	for _, block := range message.Content {
+		if block.Type == core.ContentText {
+			text.WriteString(block.Text)
+		}
+	}
+	return text.String()
+}
 
-	_, err := p.Run()
-	return err
+func toolResultText(result *core.ToolResult) string {
+	var text strings.Builder
+	for _, block := range result.Content {
+		if block.Type == core.ContentText {
+			text.WriteString(block.Text)
+		}
+	}
+	return text.String()
+}
+
+func permissionDescription(request permissions.Request) string {
+	if request.Command != "" {
+		return request.Command
+	}
+	if len(request.Paths) > 0 {
+		return strings.Join(request.Paths, "\n")
+	}
+	return request.Action
 }

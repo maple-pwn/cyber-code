@@ -2,8 +2,9 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -12,6 +13,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"claude-code-go/internal/commands"
+	"claude-code-go/internal/core"
+	"claude-code-go/internal/frontend"
 	"claude-code-go/internal/query"
 	"claude-code-go/internal/tools"
 	"claude-code-go/internal/types"
@@ -44,10 +47,29 @@ type Config struct {
 	MaxTurns       int
 	APIKey         string
 	BaseURL        string
+	Runtime        frontend.Runner
+	PrintJSON      bool
+	Stdout         io.Writer
+	Stderr         io.Writer
+}
+
+// ExitError preserves a frontend exit status for the process entrypoint.
+type ExitError struct {
+	Code int
+}
+
+func (e *ExitError) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("application exited with status %d", e.Code)
 }
 
 // NewApp creates a new CLI application.
 func NewApp(config *Config, version string) *App {
+	if config == nil {
+		config = &Config{}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &App{
@@ -113,9 +135,17 @@ func (a *App) Run(initialPrompt string) error {
 	// Setup signal handling
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	done := make(chan struct{})
+	defer func() {
+		signal.Stop(sigChan)
+		close(done)
+	}()
 	go func() {
-		<-sigChan
-		a.cancel()
+		select {
+		case <-sigChan:
+			a.cancel()
+		case <-done:
+		}
 	}()
 
 	if a.config.PrintMode {
@@ -130,39 +160,18 @@ func (a *App) runPrintMode() error {
 		return fmt.Errorf("no prompt provided in print mode")
 	}
 
-	// Process the prompt
-	output, err := a.queryEngine.SubmitMessage(a.ctx, a.initialPrompt)
-	if err != nil {
-		return fmt.Errorf("failed to process prompt: %w", err)
+	code := frontend.Run(a.ctx, a.runner(), a.initialPrompt, frontend.PrintOptions{
+		JSON: a.config.PrintJSON, Stdout: a.config.Stdout, Stderr: a.config.Stderr,
+	})
+	if code != frontend.ExitOK {
+		return &ExitError{Code: code}
 	}
-
-	// Collect and display results
-	for msg := range output {
-		switch m := msg.(type) {
-		case query.SDKMessage:
-			a.printSDKMessage(m)
-		case query.ResultMessage:
-			a.printResultMessage(m)
-		}
-	}
-
 	return nil
 }
 
 // runInteractiveMode runs the interactive UI.
 func (a *App) runInteractiveMode() error {
-	// Initialize UI model
-	model := ui.InitialModel()
-	a.uiModel = &model
-
-	// Add welcome message
-	a.uiModel.AddMessage("assistant", "Welcome to Claude Code! How can I help you today?")
-
-	// Add initial prompt if provided
-	if a.initialPrompt != "" {
-		a.uiModel.AddMessage("user", a.initialPrompt)
-		go a.processUserInput(a.initialPrompt)
-	}
+	a.uiModel = ui.NewModel(a.runner(), ui.ModelOptions{InitialPrompt: a.initialPrompt})
 
 	// Create and run the tea program
 	p := tea.NewProgram(a.uiModel, tea.WithAltScreen())
@@ -185,130 +194,13 @@ func (a *App) runInteractiveMode() error {
 	}
 
 	// Handle final state
-	if m, ok := finalModel.(ui.Model); ok {
+	if m, ok := finalModel.(*ui.Model); ok {
 		if m.Err != nil {
 			return m.Err
 		}
 	}
 
 	return nil
-}
-
-// processUserInput handles user input.
-func (a *App) processUserInput(input string) {
-	// Check for slash commands
-	if strings.HasPrefix(input, "/") {
-		cmdName, args := commands.ParseCommand(input)
-		cmd, ok := a.registry.Get(cmdName)
-		if ok {
-			ctx := &commands.CommandContext{
-				Cwd:           a.config.Cwd,
-				Args:          args,
-				IsInteractive: !a.config.PrintMode,
-				Verbose:       a.config.Verbose,
-			}
-
-			result, err := cmd.Execute(a.ctx, args, ctx)
-			if err != nil {
-				a.uiModel.AddMessage("system", fmt.Sprintf("Error: %v", err))
-				return
-			}
-
-			if result.Type == "text" {
-				a.uiModel.AddMessage("system", result.Value)
-			}
-			return
-		}
-	}
-
-	// Process as a query
-	output, err := a.queryEngine.SubmitMessage(a.ctx, input)
-	if err != nil {
-		a.uiModel.AddMessage("system", fmt.Sprintf("Error: %v", err))
-		return
-	}
-
-	// Process results
-	for msg := range output {
-		switch m := msg.(type) {
-		case query.SDKMessage:
-			a.handleSDKMessage(m)
-		case query.ResultMessage:
-			a.handleResultMessage(m)
-		}
-	}
-}
-
-// handleSDKMessage handles SDK messages.
-func (a *App) handleSDKMessage(msg query.SDKMessage) {
-	switch msg.Type {
-	case "user":
-		// User message already displayed
-	case "assistant":
-		// Handle assistant response
-		if response, ok := msg.Message.(*types.Message); ok {
-			a.uiModel.AddMessage("assistant", string(response.Content))
-		} else if responseMap, ok := msg.Message.(map[string]interface{}); ok {
-			if content, ok := responseMap["content"]; ok {
-				if contentSlice, ok := content.([]interface{}); ok {
-					var textParts []string
-					for _, c := range contentSlice {
-						if cMap, ok := c.(map[string]interface{}); ok {
-							if text, ok := cMap["text"].(string); ok {
-								textParts = append(textParts, text)
-							}
-						}
-					}
-					a.uiModel.AddMessage("assistant", strings.Join(textParts, "\n"))
-				}
-			}
-		}
-	case "tool_result":
-		// Tool result
-		if m, ok := msg.Message.(map[string]interface{}); ok {
-			toolName, _ := m["tool_name"].(string)
-			content, _ := m["content"].(string)
-			a.uiModel.AddMessage("system", fmt.Sprintf("[Tool: %s]\n%s", toolName, content))
-		}
-	case "system":
-		// System message
-		if m, ok := msg.Message.(map[string]interface{}); ok {
-			if subtype, ok := m["subtype"].(string); ok {
-				switch subtype {
-				case "error":
-					errMsg, _ := m["error"].(string)
-					a.uiModel.AddMessage("system", fmt.Sprintf("Error: %s", errMsg))
-				case "interrupted":
-					a.uiModel.AddMessage("system", "Operation interrupted")
-				}
-			}
-		}
-	}
-}
-
-// handleResultMessage handles result messages.
-func (a *App) handleResultMessage(msg query.ResultMessage) {
-	if msg.IsError {
-		a.uiModel.AddMessage("system", fmt.Sprintf("Error: %s (subtype: %s)", msg.Result, msg.Subtype))
-	} else {
-		a.uiModel.AddMessage("system", fmt.Sprintf("Completed in %d turns, %.2fs", msg.NumTurns, float64(msg.DurationMs)/1000))
-	}
-}
-
-// printSDKMessage prints an SDK message in print mode.
-func (a *App) printSDKMessage(msg query.SDKMessage) {
-	data, _ := json.MarshalIndent(msg, "", "  ")
-	fmt.Println(string(data))
-}
-
-// printResultMessage prints a result message in print mode.
-func (a *App) printResultMessage(msg query.ResultMessage) {
-	fmt.Printf("\n--- Result ---\n")
-	fmt.Printf("Status: %s\n", msg.Subtype)
-	fmt.Printf("Duration: %.2fs\n", float64(msg.DurationMs)/1000)
-	fmt.Printf("Turns: %d\n", msg.NumTurns)
-	fmt.Printf("Cost: $%.6f\n", msg.TotalCostUsd)
-	fmt.Printf("Tokens: %d input, %d output\n", msg.Usage.InputTokens, msg.Usage.OutputTokens)
 }
 
 // registerCommands registers all built-in commands.
@@ -336,28 +228,171 @@ func (a *App) Shutdown() {
 	if a.cancel != nil {
 		a.cancel()
 	}
+	if runtime, ok := a.config.Runtime.(interface {
+		Shutdown(context.Context) error
+	}); ok {
+		_ = runtime.Shutdown(context.Background())
+	}
 }
 
 // RunWithPrompt runs the app with a specific prompt (for scripting).
 func (a *App) RunWithPrompt(prompt string) (string, error) {
-	output, err := a.queryEngine.SubmitMessage(a.ctx, prompt)
-	if err != nil {
-		return "", err
+	ctx, cancel := context.WithCancel(a.ctx)
+	defer cancel()
+	var output strings.Builder
+	for event := range a.runner().Run(ctx, prompt) {
+		switch event.Type {
+		case core.EventTextDelta:
+			output.WriteString(event.Text)
+		case core.EventAssistantMessage:
+			if event.Message != nil {
+				for _, block := range event.Message.Content {
+					if block.Type == core.ContentText {
+						output.WriteString(block.Text)
+					}
+				}
+			}
+		case core.EventError:
+			if event.Err == nil {
+				return "", errors.New("runtime failed")
+			}
+			return "", event.Err
+		}
 	}
+	return output.String(), nil
+}
 
-	var results []string
-	for msg := range output {
-		switch m := msg.(type) {
-		case query.ResultMessage:
-			results = append(results, m.Result)
-		case query.SDKMessage:
-			if m.Type == "assistant" {
-				if response, ok := m.Message.(*types.Message); ok {
-					results = append(results, string(response.Content))
+func (a *App) runner() frontend.Runner {
+	if a.config.Runtime != nil {
+		return a.config.Runtime
+	}
+	return legacyQueryRunner{engine: a.queryEngine}
+}
+
+type legacyQueryRunner struct {
+	engine *query.QueryEngine
+}
+
+func (runner legacyQueryRunner) Run(ctx context.Context, prompt string) <-chan core.Event {
+	events := make(chan core.Event, 16)
+	go func() {
+		defer close(events)
+		if runner.engine == nil {
+			emitLegacyEvent(ctx, events, core.Event{Type: core.EventError, Err: &core.Error{
+				Kind: core.ErrorKindConfiguration, Op: "cli.query", Message: "runtime is not configured",
+			}})
+			return
+		}
+		messages, err := runner.engine.SubmitMessage(ctx, prompt)
+		if err != nil {
+			emitLegacyError(events, ctx, err)
+			return
+		}
+		for message := range messages {
+			switch message := message.(type) {
+			case query.SDKMessage:
+				for _, event := range legacySDKEvents(message) {
+					if !emitLegacyEvent(ctx, events, event) || event.Type == core.EventError {
+						return
+					}
+				}
+			case query.ResultMessage:
+				if message.IsError {
+					text := strings.TrimSpace(message.Result)
+					if text == "" {
+						text = strings.TrimSpace(message.Subtype)
+					}
+					emitLegacyEvent(ctx, events, core.Event{Type: core.EventError, Err: &core.Error{
+						Kind: core.ErrorKindProvider, Op: "cli.query", Message: text,
+					}})
+					return
+				}
+				if !emitLegacyEvent(ctx, events, core.Event{Type: core.EventCompleted, FinishReason: message.StopReason}) {
+					return
 				}
 			}
 		}
-	}
+	}()
+	return events
+}
 
-	return strings.Join(results, "\n"), nil
+func legacySDKEvents(message query.SDKMessage) []core.Event {
+	switch message.Type {
+	case "assistant":
+		response, ok := message.Message.(*api.MessageResponse)
+		if !ok || response == nil {
+			return nil
+		}
+		events := make([]core.Event, 0, len(response.Content))
+		for _, block := range response.Content {
+			switch block.Type {
+			case "text":
+				events = append(events, core.Event{Type: core.EventTextDelta, Text: block.Text})
+			case "tool_use":
+				events = append(events, core.Event{Type: core.EventToolCall, ToolCall: &core.ToolCall{
+					ID: block.ID, Name: block.Name, Arguments: block.Input,
+				}})
+			}
+		}
+		return events
+	case "tool_result":
+		result, ok := message.Message.(map[string]interface{})
+		if !ok {
+			return nil
+		}
+		return []core.Event{{Type: core.EventToolResult, ToolResult: &core.ToolResult{
+			ToolCallID: stringValue(result["tool_use_id"]),
+			Content:    []core.ContentBlock{{Type: core.ContentText, Text: stringValue(result["content"])}},
+		}}}
+	case "system":
+		if text := legacySystemError(message.Message); text != "" {
+			return []core.Event{{Type: core.EventError, Err: &core.Error{
+				Kind: core.ErrorKindProvider, Op: "cli.query", Message: text,
+			}}}
+		}
+	}
+	return nil
+}
+
+func legacySystemError(message interface{}) string {
+	switch value := message.(type) {
+	case map[string]string:
+		if value["subtype"] == "error" {
+			return value["error"]
+		}
+	case map[string]interface{}:
+		if stringValue(value["subtype"]) == "error" {
+			return stringValue(value["error"])
+		}
+	}
+	return ""
+}
+
+func stringValue(value interface{}) string {
+	if value == nil {
+		return ""
+	}
+	if text, ok := value.(string); ok {
+		return text
+	}
+	return fmt.Sprint(value)
+}
+
+func emitLegacyError(events chan<- core.Event, ctx context.Context, err error) {
+	kind := core.ErrorKindProvider
+	if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+		kind = core.ErrorKindCanceled
+	}
+	emitLegacyEvent(ctx, events, core.Event{Type: core.EventError, Err: &core.Error{
+		Kind: kind, Op: "cli.query", Message: err.Error(), Cause: err,
+	}})
+}
+
+func emitLegacyEvent(ctx context.Context, events chan<- core.Event, event core.Event) bool {
+	select {
+	case events <- event:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }

@@ -194,6 +194,13 @@ type PermissionDialog struct {
 	Input    string
 }
 
+// Update embeds the permission dialog without forwarding its internal Quit
+// command to the parent application.
+func (d *PermissionDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	_, _ = d.DialogModel.Update(msg)
+	return d, nil
+}
+
 // NewPermissionDialog creates a new permission dialog.
 func NewPermissionDialog(toolName, input string) *PermissionDialog {
 	message := fmt.Sprintf("Tool '%s' wants to run:\n\n%s", toolName, input)

@@ -90,16 +90,6 @@ func (m *ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case tea.KeyCtrlH:
 			m.HelpVisible = !m.HelpVisible
-		case tea.KeyEnter:
-			if m.State == ChatStateIdle && m.Input.Value != "" {
-				// Add user message
-				m.Messages.AddMessage(MessageModel{
-					Role:    "user",
-					Content: []ContentBlock{{Type: "text", Text: m.Input.Value}},
-				})
-				m.Input.Clear()
-				m.State = ChatStateProcessing
-			}
 		default:
 			if m.State == ChatStateIdle {
 				m.Input.Update(msg)
