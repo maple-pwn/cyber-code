@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 	"cyber-code/internal/controlplane"
 	"cyber-code/internal/core"
 	"cyber-code/internal/hooks"
+	"cyber-code/internal/memory"
 	"cyber-code/internal/permissions"
 	runtimepkg "cyber-code/internal/runtime"
 	"cyber-code/internal/skill"
@@ -17,6 +19,10 @@ import (
 
 func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model string, mode permissions.PermissionMode, hooksRunner *hooks.Runner, skills []skill.Skill, contextBuilder *contextbuilder.Builder) (*controlplane.Registry, error) {
 	registry := controlplane.NewRegistry()
+	memoryStore, err := memory.NewStore(filepath.Join(stateDir, "memory"), memory.Options{})
+	if err != nil {
+		return nil, err
+	}
 	register := func(spec controlplane.Spec) error { return registry.Register(spec) }
 	if err := register(controlplane.Spec{Name: "help", Aliases: []string{"h"}, Usage: "/help", Description: "list available commands", Handler: registry.Help}); err != nil {
 		return nil, err
@@ -78,6 +84,48 @@ func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model
 			lines = append(lines, fmt.Sprintf("%s (%s)", source.ID, source.Kind))
 		}
 		return controlplane.TextEvents(strings.Join(lines, "\n")), nil
+	}}); err != nil {
+		return nil, err
+	}
+	if err := register(controlplane.Spec{Name: "memory", Usage: "/memory list|add|remove", Description: "manage scoped agent memory", Handler: func(ctx context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
+		if len(invocation.Args) == 0 || invocation.Args[0] == "list" {
+			scope := memory.Scope("")
+			if len(invocation.Args) > 1 {
+				scope = memory.Scope(invocation.Args[1])
+			}
+			entries, err := memoryStore.List(ctx, scope)
+			if err != nil {
+				return nil, err
+			}
+			if len(entries) == 0 {
+				return controlplane.TextEvents("memory: empty"), nil
+			}
+			lines := make([]string, len(entries))
+			for i, entry := range entries {
+				lines[i] = fmt.Sprintf("%s [%s] %s", entry.ID, entry.Scope, entry.Content)
+			}
+			return controlplane.TextEvents(strings.Join(lines, "\n")), nil
+		}
+		switch invocation.Args[0] {
+		case "add":
+			if len(invocation.Args) < 3 {
+				return nil, fmt.Errorf("/memory add requires scope and content")
+			}
+			if err := memoryStore.Add(ctx, memory.Entry{Scope: memory.Scope(invocation.Args[1]), Content: strings.Join(invocation.Args[2:], " "), Source: "user"}); err != nil {
+				return nil, err
+			}
+			return controlplane.TextEvents("memory: added"), nil
+		case "remove":
+			if len(invocation.Args) != 2 {
+				return nil, fmt.Errorf("/memory remove requires an ID")
+			}
+			if err := memoryStore.Remove(ctx, invocation.Args[1]); err != nil {
+				return nil, err
+			}
+			return controlplane.TextEvents("memory: removed"), nil
+		default:
+			return nil, fmt.Errorf("unknown memory operation %q", invocation.Args[0])
+		}
 	}}); err != nil {
 		return nil, err
 	}
