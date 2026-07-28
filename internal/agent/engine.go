@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 
 	"claude-code-go/internal/core"
@@ -53,41 +54,208 @@ func (e *Engine) run(ctx context.Context, prompt string, output chan<- core.Even
 		return
 	}
 
-	stream, err := e.provider.Stream(ctx, core.Request{Model: e.options.Model, Messages: messages})
+	maximumTurns := e.options.MaxTurns
+	if maximumTurns <= 0 {
+		maximumTurns = 1
+	}
+	tools := e.toolDefinitions()
+	for turn := 1; turn <= maximumTurns; turn++ {
+		round, ok := e.providerRound(ctx, core.Request{Model: e.options.Model, Messages: messages, Tools: tools}, output)
+		if !ok {
+			return
+		}
+		e.appendHistory(core.Message{Role: core.RoleAssistant, Content: round.content})
+		if len(round.calls) == 0 {
+			sendEvent(ctx, output, round.completed)
+			return
+		}
+
+		results := e.executeToolCalls(ctx, round.calls)
+		toolContent := make([]core.ContentBlock, len(results))
+		for index := range results {
+			result := results[index]
+			toolContent[index] = core.ContentBlock{Type: core.ContentToolResult, ToolResult: &result}
+			if !sendEvent(ctx, output, core.Event{Type: core.EventToolResult, ToolCallID: result.ToolCallID, ToolResult: &result}) {
+				return
+			}
+		}
+		e.appendHistory(core.Message{Role: core.RoleTool, Content: toolContent})
+		if turn == maximumTurns {
+			sendEvent(ctx, output, core.Event{Type: core.EventCompleted, FinishReason: "max_turns"})
+			return
+		}
+		messages = e.History()
+	}
+}
+
+type providerRound struct {
+	content   []core.ContentBlock
+	calls     []*toolCallState
+	completed core.Event
+}
+
+type toolCallState struct {
+	call        core.ToolCall
+	initial     json.RawMessage
+	arguments   strings.Builder
+	hasArgument bool
+}
+
+func (e *Engine) providerRound(ctx context.Context, request core.Request, output chan<- core.Event) (providerRound, bool) {
+	stream, err := e.provider.Stream(ctx, request)
 	if err != nil {
 		if ctx.Err() == nil {
 			sendEvent(ctx, output, providerError("agent.stream", "provider stream could not be started", err))
 		}
-		return
+		return providerRound{}, false
 	}
 	if stream == nil {
 		sendEvent(ctx, output, providerError("agent.stream", "provider returned a nil stream", nil))
-		return
+		return providerRound{}, false
 	}
 
-	var assistant []core.ContentBlock
+	round := providerRound{}
+	byID := make(map[string]*toolCallState)
 	terminal := false
+	failed := false
 	for event := range stream {
 		if terminal {
 			continue
 		}
-
 		switch event.Type {
 		case core.EventTextDelta:
-			assistant = appendDelta(assistant, core.ContentText, event.Text)
+			round.content = appendDelta(round.content, core.ContentText, event.Text)
 		case core.EventThinkingDelta:
-			assistant = appendDelta(assistant, core.ContentThinking, event.Text)
+			round.content = appendDelta(round.content, core.ContentThinking, event.Text)
+		case core.EventToolCall:
+			if event.ToolCall == nil || event.ToolCall.ID == "" || event.ToolCall.Name == "" || byID[event.ToolCall.ID] != nil {
+				sendEvent(ctx, output, toolStreamError("invalid or duplicate tool call"))
+				terminal = true
+				failed = true
+				continue
+			}
+			state := &toolCallState{call: core.ToolCall{ID: event.ToolCall.ID, Name: event.ToolCall.Name}, initial: cloneRawMessage(event.ToolCall.Arguments)}
+			byID[state.call.ID] = state
+			round.calls = append(round.calls, state)
+			round.content = append(round.content, core.ContentBlock{Type: core.ContentToolCall, ToolCall: &state.call})
+		case core.EventToolArgumentsDelta:
+			state := byID[event.ToolCallID]
+			if state == nil {
+				sendEvent(ctx, output, toolStreamError("tool arguments referenced an unknown call"))
+				terminal = true
+				failed = true
+				continue
+			}
+			state.hasArgument = true
+			state.arguments.WriteString(event.ArgumentsDelta)
 		case core.EventCompleted:
-			e.appendHistory(core.Message{Role: core.RoleAssistant, Content: assistant})
+			round.completed = event
 			terminal = true
 		case core.EventError:
+			sendEvent(ctx, output, event)
 			terminal = true
+			failed = true
+			continue
 		}
-
-		if !sendEvent(ctx, output, event) {
+		if event.Type != core.EventCompleted && !sendEvent(ctx, output, event) {
 			terminal = true
 		}
 	}
+	if ctx.Err() != nil || failed || round.completed.Type != core.EventCompleted {
+		if ctx.Err() == nil && round.completed.Type == "" {
+			if failed {
+				return providerRound{}, false
+			}
+			sendEvent(ctx, output, providerError("agent.stream", "provider stream ended without completion", nil))
+		}
+		return providerRound{}, false
+	}
+	for _, state := range round.calls {
+		arguments := state.initial
+		if state.hasArgument {
+			arguments = json.RawMessage(state.arguments.String())
+		}
+		if len(arguments) == 0 {
+			arguments = json.RawMessage(`{}`)
+		}
+		if !json.Valid(arguments) {
+			sendEvent(ctx, output, toolStreamError("tool call arguments were invalid JSON"))
+			return providerRound{}, false
+		}
+		state.call.Arguments = cloneRawMessage(arguments)
+	}
+	return round, true
+}
+
+func toolStreamError(message string) core.Event {
+	return core.Event{Type: core.EventError, Err: &core.Error{Kind: core.ErrorKindTool, Op: "agent.tool_stream", Message: message}}
+}
+
+func (e *Engine) toolDefinitions() []core.ToolDefinition {
+	if e.options.Tools == nil {
+		return nil
+	}
+	specs := e.options.Tools.Specs()
+	definitions := make([]core.ToolDefinition, len(specs))
+	for index, spec := range specs {
+		definitions[index] = core.ToolDefinition{Name: spec.Name, Description: spec.Description, InputSchema: cloneRawMessage(spec.Schema)}
+	}
+	return definitions
+}
+
+func (e *Engine) executeToolCalls(ctx context.Context, calls []*toolCallState) []core.ToolResult {
+	results := make([]core.ToolResult, len(calls))
+	for start := 0; start < len(calls); {
+		end := start
+		for end < len(calls) && e.concurrentTool(calls[end].call.Name) {
+			end++
+		}
+		if end > start {
+			var wait sync.WaitGroup
+			for index := start; index < end; index++ {
+				wait.Add(1)
+				go func(index int) {
+					defer wait.Done()
+					results[index] = e.executeTool(ctx, calls[index].call)
+				}(index)
+			}
+			wait.Wait()
+			start = end
+			continue
+		}
+		results[start] = e.executeTool(ctx, calls[start].call)
+		start++
+	}
+	return results
+}
+
+func (e *Engine) concurrentTool(name string) bool {
+	if e.options.Tools == nil {
+		return false
+	}
+	registered, ok := e.options.Tools.Get(name)
+	if !ok {
+		return false
+	}
+	spec := registered.Spec()
+	return spec.ReadOnly && spec.ConcurrencySafe
+}
+
+func (e *Engine) executeTool(ctx context.Context, call core.ToolCall) core.ToolResult {
+	result := core.ToolResult{ToolCallID: call.ID}
+	if e.options.ToolRunner == nil {
+		result.IsError = true
+		result.Content = []core.ContentBlock{{Type: core.ContentText, Text: "tool runner is unavailable"}}
+		return result
+	}
+	executed, err := e.options.ToolRunner.Run(ctx, call.Name, call.Arguments)
+	if err != nil {
+		result.IsError = true
+		result.Content = []core.ContentBlock{{Type: core.ContentText, Text: err.Error()}}
+		return result
+	}
+	executed.ToolCallID = call.ID
+	return executed
 }
 
 func sendEvent(ctx context.Context, output chan<- core.Event, event core.Event) bool {
