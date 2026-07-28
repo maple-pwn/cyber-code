@@ -34,5 +34,6 @@ type Event struct {
 	ArgumentsDelta string      `json:"arguments_delta,omitempty"`
 	ToolResult     *ToolResult `json:"tool_result,omitempty"`
 	Usage          *Usage      `json:"usage,omitempty"`
+	FinishReason   string      `json:"finish_reason,omitempty"`
 	Err            *Error      `json:"error,omitempty"`
 }
