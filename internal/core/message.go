@@ -17,6 +17,7 @@ type ContentType string
 
 const (
 	ContentText       ContentType = "text"
+	ContentImage      ContentType = "image"
 	ContentThinking   ContentType = "thinking"
 	ContentToolCall   ContentType = "tool_call"
 	ContentToolResult ContentType = "tool_result"
@@ -34,6 +35,8 @@ type ContentBlock struct {
 	Type       ContentType `json:"type"`
 	Text       string      `json:"text,omitempty"`
 	Thinking   string      `json:"thinking,omitempty"`
+	MediaType  string      `json:"media_type,omitempty"`
+	Data       string      `json:"data,omitempty"`
 	ToolCall   *ToolCall   `json:"tool_call,omitempty"`
 	ToolResult *ToolResult `json:"tool_result,omitempty"`
 }

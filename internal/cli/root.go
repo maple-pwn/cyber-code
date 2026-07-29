@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"cyber-code/internal/attachment"
 	"cyber-code/internal/core"
 	"cyber-code/internal/frontend"
 	"cyber-code/internal/permissions"
@@ -102,6 +103,7 @@ func errorExitCode(err error) int {
 func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	var printMode, jsonMode, verbose bool
 	var profile, permissionMode, model, cwd, resumeSession string
+	var imagePaths []string
 	var maxTurns int
 	command := &cobra.Command{
 		Use:           product.Command + " [prompt]",
@@ -135,6 +137,13 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 			if shutdown != nil {
 				defer shutdown(context.Background())
 			}
+			if len(imagePaths) > 0 {
+				images, err := loadInitialImages(cwd, imagePaths)
+				if err != nil {
+					return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.image", Message: "image attachment could not be loaded", Cause: err}
+				}
+				runner = &initialImageRunner{delegate: runner, images: images}
+			}
 			prompt := strings.Join(args, " ")
 			if printMode {
 				code := frontend.Run(environment.ctx, runner, prompt, frontend.PrintOptions{
@@ -157,6 +166,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	command.Flags().StringVar(&permissionMode, "permission-mode", "", "permission mode")
 	command.Flags().StringVarP(&model, "model", "m", "", "model override")
 	command.Flags().StringVar(&cwd, "cwd", "", "workspace directory")
+	command.Flags().StringArrayVar(&imagePaths, "image", nil, "attach an image from the workspace to the first turn")
 	command.Flags().StringVar(&resumeSession, "resume", "", "resume a persisted session")
 	command.Flags().IntVar(&maxTurns, "max-turns", 100, "maximum agent turns")
 	command.AddCommand(newConfigCommand(environment))
@@ -166,6 +176,60 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	command.AddCommand(newSessionsCommand(environment))
 	command.AddCommand(newServeCommand(environment))
 	return command
+}
+
+type contentRunner interface {
+	RunContent(context.Context, []core.ContentBlock) <-chan core.Event
+}
+
+type initialImageRunner struct {
+	mu       sync.Mutex
+	delegate frontend.Runner
+	images   []core.ContentBlock
+}
+
+func (runner *initialImageRunner) Run(ctx context.Context, prompt string) <-chan core.Event {
+	runner.mu.Lock()
+	images := runner.images
+	runner.images = nil
+	runner.mu.Unlock()
+	if len(images) == 0 {
+		return runner.delegate.Run(ctx, prompt)
+	}
+	multimodal, ok := runner.delegate.(contentRunner)
+	if !ok {
+		return singleErrorEvent(&core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.image", Message: "runtime does not support image input"})
+	}
+	content := make([]core.ContentBlock, 1, len(images)+1)
+	content[0] = core.ContentBlock{Type: core.ContentText, Text: prompt}
+	content = append(content, images...)
+	return multimodal.RunContent(ctx, content)
+}
+
+func loadInitialImages(workspace string, paths []string) ([]core.ContentBlock, error) {
+	if strings.TrimSpace(workspace) == "" {
+		var err error
+		workspace, err = os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+	}
+	images := make([]core.ContentBlock, len(paths))
+	for index, path := range paths {
+		image, err := attachment.LoadImage(workspace, path)
+		if err != nil {
+			return nil, fmt.Errorf("load image %d: %w", index+1, err)
+		}
+		images[index] = image
+	}
+	return images, nil
+}
+
+func singleErrorEvent(err *core.Error) <-chan core.Event {
+	events := make(chan core.Event, 1)
+	events <- core.Event{Type: core.EventError, Err: err}
+	close(events)
+	return events
 }
 
 func newServeCommand(environment *commandEnvironment) *cobra.Command {

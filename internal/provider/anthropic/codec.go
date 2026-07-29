@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -34,6 +35,13 @@ type contentPayload struct {
 	ToolUseID string           `json:"tool_use_id,omitempty"`
 	Content   []contentPayload `json:"content,omitempty"`
 	IsError   bool             `json:"is_error,omitempty"`
+	Source    *imageSource     `json:"source,omitempty"`
+}
+
+type imageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
 
 type toolPayload struct {
@@ -128,6 +136,11 @@ func encodeContent(block core.ContentBlock) (contentPayload, error) {
 		return contentPayload{Type: "text", Text: block.Text}, nil
 	case core.ContentThinking:
 		return contentPayload{Type: "thinking", Thinking: block.Thinking}, nil
+	case core.ContentImage:
+		if err := validateImageBlock(block); err != nil {
+			return contentPayload{}, err
+		}
+		return contentPayload{Type: "image", Source: &imageSource{Type: "base64", MediaType: block.MediaType, Data: block.Data}}, nil
 	case core.ContentToolCall:
 		if block.ToolCall == nil {
 			return contentPayload{}, &core.Error{Kind: core.ErrorKindTool, Op: "anthropic.encode", Message: "tool call block has no tool call"}
@@ -157,4 +170,16 @@ func encodeContent(block core.ContentBlock) (contentPayload, error) {
 	default:
 		return contentPayload{}, &core.Error{Kind: core.ErrorKindProvider, Op: "anthropic.encode", Message: fmt.Sprintf("unsupported content type %q", block.Type)}
 	}
+}
+
+func validateImageBlock(block core.ContentBlock) error {
+	switch block.MediaType {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+	default:
+		return &core.Error{Kind: core.ErrorKindProvider, Op: "anthropic.encode", Message: "unsupported image media type"}
+	}
+	if decoded, err := base64.StdEncoding.DecodeString(block.Data); err != nil || len(decoded) == 0 {
+		return &core.Error{Kind: core.ErrorKindProvider, Op: "anthropic.encode", Message: "image data is not valid base64"}
+	}
+	return nil
 }

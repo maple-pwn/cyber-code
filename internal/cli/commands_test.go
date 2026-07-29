@@ -441,6 +441,46 @@ func TestExecutePrintComposesOpenAICompatibleRuntime(t *testing.T) {
 	}
 }
 
+func TestExecutePrintImageReachesOpenAICompatibleProvider(t *testing.T) {
+	t.Setenv("TEST_VISION_API_KEY", "test-secret")
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		var payload struct {
+			Messages []struct {
+				Content json.RawMessage `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		foundImage := false
+		for _, message := range payload.Messages {
+			foundImage = foundImage || (bytes.Contains(message.Content, []byte(`"type":"image_url"`)) && bytes.Contains(message.Content, []byte(`data:image/png;base64,`)))
+		}
+		if !foundImage {
+			t.Errorf("image payload = %#v", payload.Messages)
+		}
+		response.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(response, "data: {\"choices\":[{\"delta\":{\"content\":\"image ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	configText := fmt.Sprintf("active_profile: vision\nprofiles:\n  vision:\n    provider: openai-compatible\n    base_url: %s\n    model: vision-test\n    api_key_env: TEST_VISION_API_KEY\n", server.URL)
+	if err := os.WriteFile(configFile, []byte(configText), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "image.png"), append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 16)...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &stdout, &stderr,
+		[]string{"--print", "--cwd", workspace, "--image", "image.png", "inspect"},
+		ExecuteOptions{ConfigFile: configFile, StateDir: t.TempDir()})
+	if code != 0 || stdout.String() != "image ok\n" || stderr.Len() != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestExecutePrintDiscoversCyberCodeProjectConfig(t *testing.T) {
 	t.Setenv("PROJECT_CONFIG_API_KEY", "test-secret")
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {

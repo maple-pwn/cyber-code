@@ -37,12 +37,17 @@ func NewEngine(modelProvider provider.Provider, options Options) *Engine {
 // Run starts one provider turn. The returned channel closes only after the
 // provider stream has stopped, including on cancellation.
 func (e *Engine) Run(ctx context.Context, prompt string) <-chan core.Event {
+	return e.RunContent(ctx, []core.ContentBlock{{Type: core.ContentText, Text: prompt}})
+}
+
+// RunContent starts one provider turn with canonical user content.
+func (e *Engine) RunContent(ctx context.Context, content []core.ContentBlock) <-chan core.Event {
 	output := make(chan core.Event)
-	go e.run(ctx, prompt, output)
+	go e.run(ctx, cloneContentBlocks(content), output)
 	return output
 }
 
-func (e *Engine) run(ctx context.Context, prompt string, output chan<- core.Event) {
+func (e *Engine) run(ctx context.Context, content []core.ContentBlock, output chan<- core.Event) {
 	defer close(output)
 	select {
 	case <-ctx.Done():
@@ -51,7 +56,7 @@ func (e *Engine) run(ctx context.Context, prompt string, output chan<- core.Even
 	}
 	defer func() { e.turn <- struct{}{} }()
 
-	user := core.Message{Role: core.RoleUser, Content: []core.ContentBlock{{Type: core.ContentText, Text: prompt}}}
+	user := core.Message{Role: core.RoleUser, Content: content}
 	messages := e.appendAndSnapshot(user)
 	if !sendEvent(ctx, output, core.Event{Type: core.EventUserMessage, Message: messagePointer(user)}) {
 		return
@@ -453,7 +458,7 @@ func cloneMessage(message core.Message) core.Message {
 }
 
 func cloneContentBlock(block core.ContentBlock) core.ContentBlock {
-	cloned := core.ContentBlock{Type: block.Type, Text: block.Text, Thinking: block.Thinking}
+	cloned := core.ContentBlock{Type: block.Type, Text: block.Text, Thinking: block.Thinking, MediaType: block.MediaType, Data: block.Data}
 	if block.ToolCall != nil {
 		cloned.ToolCall = &core.ToolCall{
 			ID:        block.ToolCall.ID,
@@ -472,6 +477,17 @@ func cloneContentBlock(block core.ContentBlock) core.ContentBlock {
 				cloned.ToolResult.Content[index] = cloneContentBlock(block.ToolResult.Content[index])
 			}
 		}
+	}
+	return cloned
+}
+
+func cloneContentBlocks(blocks []core.ContentBlock) []core.ContentBlock {
+	if blocks == nil {
+		return nil
+	}
+	cloned := make([]core.ContentBlock, len(blocks))
+	for index := range blocks {
+		cloned[index] = cloneContentBlock(blocks[index])
 	}
 	return cloned
 }

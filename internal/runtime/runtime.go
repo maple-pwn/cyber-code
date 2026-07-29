@@ -138,6 +138,16 @@ func (r *Runtime) SessionID() string {
 
 // Run starts one agent turn governed by both ctx and the runtime lifetime.
 func (r *Runtime) Run(ctx context.Context, prompt string) <-chan core.Event {
+	return r.run(ctx, prompt, []core.ContentBlock{{Type: core.ContentText, Text: prompt}}, true)
+}
+
+// RunContent starts a turn with canonical multimodal user content.
+func (r *Runtime) RunContent(ctx context.Context, content []core.ContentBlock) <-chan core.Event {
+	prompt := contentText(content)
+	return r.run(ctx, prompt, cloneRuntimeContent(content), false)
+}
+
+func (r *Runtime) run(ctx context.Context, prompt string, content []core.ContentBlock, allowCommand bool) <-chan core.Event {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -148,7 +158,7 @@ func (r *Runtime) Run(ctx context.Context, prompt string) <-chan core.Event {
 		return closedRuntimeEvents()
 	}
 	commands := r.commands
-	if commands != nil {
+	if commands != nil && allowCommand {
 		_, parseErr := controlplane.Parse(prompt)
 		if parseErr == nil {
 			r.runs.Add(1)
@@ -219,7 +229,8 @@ func (r *Runtime) Run(ctx context.Context, prompt string) <-chan core.Event {
 			}
 		}
 
-		source := r.engine.Run(runCtx, prompt)
+		content = replaceRuntimePrompt(content, prompt)
+		source := r.engine.RunContent(runCtx, content)
 		for event := range source {
 			if runCtx.Err() != nil {
 				continue
@@ -259,6 +270,37 @@ func (r *Runtime) Run(ctx context.Context, prompt string) <-chan core.Event {
 		}
 	}()
 	return output
+}
+
+func contentText(content []core.ContentBlock) string {
+	var text strings.Builder
+	for _, block := range content {
+		if block.Type != core.ContentText {
+			continue
+		}
+		if text.Len() > 0 {
+			text.WriteByte('\n')
+		}
+		text.WriteString(block.Text)
+	}
+	return text.String()
+}
+
+func replaceRuntimePrompt(content []core.ContentBlock, prompt string) []core.ContentBlock {
+	content = cloneRuntimeContent(content)
+	for index := range content {
+		if content[index].Type == core.ContentText {
+			content[index].Text = prompt
+			return content
+		}
+	}
+	return append([]core.ContentBlock{{Type: core.ContentText, Text: prompt}}, content...)
+}
+
+func cloneRuntimeContent(content []core.ContentBlock) []core.ContentBlock {
+	cloned := make([]core.ContentBlock, len(content))
+	copy(cloned, content)
+	return cloned
 }
 
 func eventChannel(ctx context.Context, events []core.Event) <-chan core.Event {

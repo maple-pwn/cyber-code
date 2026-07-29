@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -22,6 +23,14 @@ type messagePayload struct {
 	Content    any               `json:"content,omitempty"`
 	ToolCalls  []toolCallPayload `json:"tool_calls,omitempty"`
 	ToolCallID string            `json:"tool_call_id,omitempty"`
+}
+type contentPart struct {
+	Type     string           `json:"type"`
+	Text     string           `json:"text,omitempty"`
+	ImageURL *imageURLPayload `json:"image_url,omitempty"`
+}
+type imageURLPayload struct {
+	URL string `json:"url"`
 }
 type toolPayload struct {
 	Type     string          `json:"type"`
@@ -77,7 +86,7 @@ func encodeRequest(profile config.Profile, request core.Request) ([]byte, error)
 
 func encodeMessage(message core.Message) (messagePayload, error) {
 	switch message.Role {
-	case core.RoleSystem, core.RoleUser:
+	case core.RoleSystem:
 		texts := make([]string, 0, len(message.Content))
 		for _, block := range message.Content {
 			text, err := textBlock(block)
@@ -85,6 +94,31 @@ func encodeMessage(message core.Message) (messagePayload, error) {
 				return messagePayload{}, err
 			}
 			texts = append(texts, text)
+		}
+		return messagePayload{Role: string(message.Role), Content: strings.Join(texts, "\n")}, nil
+	case core.RoleUser:
+		parts := make([]contentPart, 0, len(message.Content))
+		hasImage := false
+		for _, block := range message.Content {
+			switch block.Type {
+			case core.ContentText:
+				parts = append(parts, contentPart{Type: "text", Text: block.Text})
+			case core.ContentImage:
+				if err := validateImageBlock(block); err != nil {
+					return messagePayload{}, err
+				}
+				hasImage = true
+				parts = append(parts, contentPart{Type: "image_url", ImageURL: &imageURLPayload{URL: "data:" + block.MediaType + ";base64," + block.Data}})
+			default:
+				return messagePayload{}, &core.Error{Kind: core.ErrorKindProvider, Op: "openai.encode", Message: fmt.Sprintf("unsupported user content type %q", block.Type)}
+			}
+		}
+		if hasImage {
+			return messagePayload{Role: string(message.Role), Content: parts}, nil
+		}
+		texts := make([]string, 0, len(parts))
+		for _, part := range parts {
+			texts = append(texts, part.Text)
 		}
 		return messagePayload{Role: string(message.Role), Content: strings.Join(texts, "\n")}, nil
 	case core.RoleAssistant:
@@ -117,6 +151,18 @@ func encodeMessage(message core.Message) (messagePayload, error) {
 	default:
 		return messagePayload{}, &core.Error{Kind: core.ErrorKindProvider, Op: "openai.encode", Message: fmt.Sprintf("unsupported message role %q", message.Role)}
 	}
+}
+
+func validateImageBlock(block core.ContentBlock) error {
+	switch block.MediaType {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+	default:
+		return &core.Error{Kind: core.ErrorKindProvider, Op: "openai.encode", Message: "unsupported image media type"}
+	}
+	if decoded, err := base64.StdEncoding.DecodeString(block.Data); err != nil || len(decoded) == 0 {
+		return &core.Error{Kind: core.ErrorKindProvider, Op: "openai.encode", Message: "image data is not valid base64"}
+	}
+	return nil
 }
 func textBlock(block core.ContentBlock) (string, error) {
 	if block.Type != core.ContentText {

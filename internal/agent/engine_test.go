@@ -31,6 +31,27 @@ func TestEngineAddsCyberCodeSystemIdentity(t *testing.T) {
 	}
 }
 
+func TestEngineRunContentPreservesCanonicalImageBlocks(t *testing.T) {
+	fake := &fakeProvider{events: []core.Event{{Type: core.EventCompleted, FinishReason: "stop"}}}
+	engine := NewEngine(fake, Options{Model: "vision-test"})
+	content := []core.ContentBlock{
+		{Type: core.ContentText, Text: "inspect"},
+		{Type: core.ContentImage, MediaType: "image/png", Data: "AA=="},
+	}
+	collectAgentEvents(t, engine.RunContent(context.Background(), content))
+	if len(fake.request.Messages) != 1 || len(fake.request.Messages[0].Content) != 2 {
+		t.Fatalf("provider request = %#v", fake.request)
+	}
+	image := fake.request.Messages[0].Content[1]
+	if image.Type != core.ContentImage || image.MediaType != "image/png" || image.Data != "AA==" {
+		t.Fatalf("provider image = %#v", image)
+	}
+	content[1].Data = "mutated"
+	if engine.History()[0].Content[1].Data != "AA==" {
+		t.Fatal("engine retained mutable image input")
+	}
+}
+
 func TestEngineUsesLayeredContextBuilder(t *testing.T) {
 	builder, err := contextbuilder.New(contextbuilder.Options{ReservedOutput: 321, Sources: []contextbuilder.Source{{
 		ID: "project", Kind: contextbuilder.SourceProject, Content: "project instructions",
