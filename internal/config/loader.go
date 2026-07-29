@@ -98,6 +98,12 @@ func merge(target *Config, overlay Config) {
 	if overlay.SandboxMode != "" {
 		target.SandboxMode = overlay.SandboxMode
 	}
+	if overlay.ContextWarningThreshold != 0 {
+		target.ContextWarningThreshold = overlay.ContextWarningThreshold
+	}
+	if overlay.ContextCompactThreshold != 0 {
+		target.ContextCompactThreshold = overlay.ContextCompactThreshold
+	}
 	if target.Profiles == nil {
 		target.Profiles = make(map[string]Profile)
 	}

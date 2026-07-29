@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -164,6 +165,10 @@ func configValue(config *configpkg.Config, key string) (string, error) {
 		return config.ActiveProfile, nil
 	case "permission_mode":
 		return config.PermissionMode, nil
+	case "context_warning_threshold":
+		return strconv.FormatFloat(config.ContextWarningThreshold, 'f', -1, 64), nil
+	case "context_compact_threshold":
+		return strconv.FormatFloat(config.ContextCompactThreshold, 'f', -1, 64), nil
 	}
 	parts := strings.Split(key, ".")
 	if len(parts) != 3 || parts[0] != "profiles" {
@@ -194,6 +199,17 @@ func setConfigValue(config *configpkg.Config, key, value string) error {
 		return nil
 	case "permission_mode":
 		config.PermissionMode = value
+		return nil
+	case "context_warning_threshold", "context_compact_threshold":
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return fmt.Errorf("%s must be a number: %w", key, err)
+		}
+		if key == "context_warning_threshold" {
+			config.ContextWarningThreshold = parsed
+		} else {
+			config.ContextCompactThreshold = parsed
+		}
 		return nil
 	}
 	parts := strings.Split(key, ".")

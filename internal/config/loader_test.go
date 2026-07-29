@@ -299,6 +299,31 @@ profiles:
 	}
 }
 
+func TestLoadContextGovernanceThresholdsAndRejectsInvalidOrder(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	writeConfigFile(t, path, `
+active_profile: anthropic
+context_warning_threshold: 0.70
+context_compact_threshold: 0.85
+profiles:
+  anthropic:
+    provider: anthropic
+    model: model
+`)
+	loaded, err := Load(LoadOptions{UserFile: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ContextWarningThreshold != 0.70 || loaded.ContextCompactThreshold != 0.85 {
+		t.Fatalf("context thresholds = %f/%f", loaded.ContextWarningThreshold, loaded.ContextCompactThreshold)
+	}
+	loaded.ContextWarningThreshold = 0.90
+	loaded.ContextCompactThreshold = 0.80
+	if err := Validate(loaded); err == nil || !strings.Contains(err.Error(), "context") {
+		t.Fatalf("invalid threshold error = %v", err)
+	}
+}
+
 func writeConfigFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {

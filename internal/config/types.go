@@ -22,10 +22,12 @@ type ModelPricing struct {
 
 // Config is the merged, validated application configuration.
 type Config struct {
-	ActiveProfile  string             `json:"active_profile" yaml:"active_profile"`
-	Profiles       map[string]Profile `json:"profiles" yaml:"profiles"`
-	PermissionMode string             `json:"permission_mode,omitempty" yaml:"permission_mode,omitempty"`
-	SandboxMode    string             `json:"sandbox_mode,omitempty" yaml:"sandbox_mode,omitempty"`
+	ActiveProfile           string             `json:"active_profile" yaml:"active_profile"`
+	Profiles                map[string]Profile `json:"profiles" yaml:"profiles"`
+	PermissionMode          string             `json:"permission_mode,omitempty" yaml:"permission_mode,omitempty"`
+	SandboxMode             string             `json:"sandbox_mode,omitempty" yaml:"sandbox_mode,omitempty"`
+	ContextWarningThreshold float64            `json:"context_warning_threshold,omitempty" yaml:"context_warning_threshold,omitempty"`
+	ContextCompactThreshold float64            `json:"context_compact_threshold,omitempty" yaml:"context_compact_threshold,omitempty"`
 }
 
 // Overrides contains command-line values. Empty fields do not override lower
@@ -53,7 +55,9 @@ func Default() Config {
 				APIKeyEnv: "ANTHROPIC_API_KEY",
 			},
 		},
-		PermissionMode: "default",
-		SandboxMode:    "best-effort",
+		PermissionMode:          "default",
+		SandboxMode:             "best-effort",
+		ContextWarningThreshold: 0.80,
+		ContextCompactThreshold: 0.90,
 	}
 }

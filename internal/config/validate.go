@@ -25,6 +25,15 @@ func Validate(config *Config) error {
 	if config == nil {
 		return fmt.Errorf("config is nil")
 	}
+	if config.ContextWarningThreshold == 0 {
+		config.ContextWarningThreshold = 0.80
+	}
+	if config.ContextCompactThreshold == 0 {
+		config.ContextCompactThreshold = 0.90
+	}
+	if config.ContextWarningThreshold <= 0 || config.ContextWarningThreshold >= config.ContextCompactThreshold || config.ContextCompactThreshold > 1 {
+		return fmt.Errorf("context thresholds must satisfy 0 < warning < compact <= 1")
+	}
 
 	activeProfile := strings.TrimSpace(config.ActiveProfile)
 	if activeProfile == "" {

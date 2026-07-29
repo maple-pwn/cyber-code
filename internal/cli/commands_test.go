@@ -31,6 +31,10 @@ func TestExecuteConfigSetGetListAndValidate(t *testing.T) {
 	}{
 		{[]string{"config", "set", "permission_mode", "plan"}, "plan"},
 		{[]string{"config", "get", "permission_mode"}, "plan"},
+		{[]string{"config", "set", "context_warning_threshold", "0.70"}, "0.70"},
+		{[]string{"config", "set", "context_compact_threshold", "0.85"}, "0.85"},
+		{[]string{"config", "get", "context_warning_threshold"}, "0.7"},
+		{[]string{"config", "get", "context_compact_threshold"}, "0.85"},
 		{[]string{"config", "list"}, "anthropic"},
 		{[]string{"config", "validate"}, "valid"},
 	} {

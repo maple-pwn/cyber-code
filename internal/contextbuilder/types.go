@@ -11,8 +11,10 @@ import (
 const IdentitySourceID = "cyber-code:identity"
 
 const (
-	DefaultMaxFileBytes  int64 = 256 << 10
-	DefaultMaxTotalBytes int64 = 1 << 20
+	DefaultMaxFileBytes     int64 = 256 << 10
+	DefaultMaxTotalBytes    int64 = 1 << 20
+	DefaultWarningThreshold       = 0.80
+	DefaultCompactThreshold       = 0.90
 )
 
 var (
@@ -83,11 +85,26 @@ type Plan struct {
 	Diagnostics     []Diagnostic
 	EstimatedTokens int
 	MaxOutputTokens int
+	Budget          BudgetMetadata
+}
+
+// BudgetMetadata describes immutable context utilization for one plan.
+type BudgetMetadata struct {
+	ContextWindow    int
+	ReservedOutput   int
+	InputLimit       int
+	UtilizationRatio float64
+	WarningThreshold float64
+	CompactThreshold float64
+	WarningExceeded  bool
+	CompactExceeded  bool
 }
 
 type Options struct {
-	Sources        []Source
-	ContextWindow  int
-	ReservedOutput int
-	EstimateText   func(string) int
+	Sources          []Source
+	ContextWindow    int
+	ReservedOutput   int
+	EstimateText     func(string) int
+	WarningThreshold float64
+	CompactThreshold float64
 }

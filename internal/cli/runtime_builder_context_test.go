@@ -53,6 +53,21 @@ func TestBuildContextBuilderDoesNotInjectSkillInstructions(t *testing.T) {
 	}
 }
 
+func TestBuildContextBuilderUsesConfiguredGovernanceThresholds(t *testing.T) {
+	root := t.TempDir()
+	builder, err := buildContextBuilderWithThresholds(root, filepath.Join(root, "state"), 0.65, 0.85)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := builder.Build(context.Background(), contextbuilder.BuildInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Budget.WarningThreshold != 0.65 || plan.Budget.CompactThreshold != 0.85 {
+		t.Fatalf("governance thresholds = %#v", plan.Budget)
+	}
+}
+
 func systemText(plan contextbuilder.Plan) string {
 	parts := make([]string, len(plan.System))
 	for index := range plan.System {

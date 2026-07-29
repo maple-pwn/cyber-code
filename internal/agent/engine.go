@@ -19,9 +19,11 @@ type Engine struct {
 	options  Options
 	context  ContextBuilder
 
-	mu      sync.RWMutex
-	history []core.Message
-	turn    chan struct{}
+	mu           sync.RWMutex
+	history      []core.Message
+	turn         chan struct{}
+	warningAbove bool
+	compactAbove bool
 }
 
 func NewEngine(modelProvider provider.Provider, options Options) *Engine {
@@ -68,26 +70,61 @@ func (e *Engine) run(ctx context.Context, content []core.ContentBlock, output ch
 	}
 
 	tools := e.toolDefinitions()
+	allowOverBudget := e.options.Compactor != nil
+	preparedRequest, plan, err := e.requestPlan(ctx, messages, tools, allowOverBudget)
+	hasPreparedRequest := !allowOverBudget
+	if err != nil {
+		sendEvent(ctx, output, contextBuildError(err))
+		return
+	}
+	if plan.Budget.ContextWindow > 0 {
+		warningCrossing := plan.Budget.WarningExceeded && !e.warningAbove
+		e.warningAbove = plan.Budget.WarningExceeded
+		if warningCrossing {
+			warning := fmt.Sprintf("context usage is %.0f%% (warning threshold %.0f%%)", plan.Budget.UtilizationRatio*100, plan.Budget.WarningThreshold*100)
+			if !sendEvent(ctx, output, core.Event{Type: core.EventWarning, Text: warning}) {
+				return
+			}
+		}
+		if !plan.Budget.CompactExceeded {
+			e.compactAbove = false
+		}
+	}
 	if e.options.Compactor != nil {
-		request, err := e.request(ctx, messages, tools, true)
-		if err != nil {
-			sendEvent(ctx, output, contextBuildError(err))
-			return
+		managedThreshold := plan.Budget.ContextWindow > 0
+		shouldCompact := !managedThreshold || plan.Budget.CompactExceeded
+		attemptCompact := shouldCompact && (!managedThreshold || !e.compactAbove)
+		if managedThreshold && attemptCompact {
+			e.compactAbove = true
 		}
-		result := e.options.Compactor.Compact(ctx, request, e.provider)
-		if result.Warning != "" {
-			if !sendEvent(ctx, output, core.Event{Type: core.EventWarning, Text: result.Warning}) {
-				return
-			}
-		} else if result.Applied {
-			e.replaceHistory(result.Messages)
-			messages = e.History()
-			if !sendEvent(ctx, output, core.Event{
-				Type: core.EventCompacted, Message: messagePointer(*result.Summary), CoveredMessages: result.CoveredMessages,
-			}) {
-				return
+		if attemptCompact {
+			request := preparedRequest
+			result := e.options.Compactor.Compact(ctx, request, e.provider)
+			if result.Warning != "" {
+				if !sendEvent(ctx, output, core.Event{Type: core.EventWarning, Text: result.Warning}) {
+					return
+				}
+			} else if result.Applied {
+				e.replaceHistory(result.Messages)
+				messages = e.History()
+				if !sendEvent(ctx, output, core.Event{
+					Type: core.EventCompacted, Message: messagePointer(*result.Summary), CoveredMessages: result.CoveredMessages,
+				}) {
+					return
+				}
+				if managedThreshold {
+					_, compactedPlan, planErr := e.requestPlan(ctx, messages, tools, true)
+					if planErr != nil {
+						sendEvent(ctx, output, contextBuildError(planErr))
+						return
+					}
+					e.compactAbove = compactedPlan.Budget.CompactExceeded
+					e.warningAbove = compactedPlan.Budget.WarningExceeded
+				}
 			}
 		}
+		preparedRequest = core.Request{}
+		hasPreparedRequest = false
 	}
 
 	maximumTurns := e.options.MaxTurns
@@ -95,10 +132,17 @@ func (e *Engine) run(ctx context.Context, content []core.ContentBlock, output ch
 		maximumTurns = 1
 	}
 	for turn := 1; turn <= maximumTurns; turn++ {
-		request, err := e.request(ctx, messages, tools, false)
-		if err != nil {
-			sendEvent(ctx, output, contextBuildError(err))
-			return
+		request := core.Request{}
+		if turn == 1 && hasPreparedRequest {
+			request = preparedRequest
+			hasPreparedRequest = false
+		} else {
+			var err error
+			request, err = e.request(ctx, messages, tools, false)
+			if err != nil {
+				sendEvent(ctx, output, contextBuildError(err))
+				return
+			}
 		}
 		round, ok := e.providerRound(ctx, request, output)
 		if !ok {
@@ -129,16 +173,21 @@ func (e *Engine) run(ctx context.Context, content []core.ContentBlock, output ch
 }
 
 func (e *Engine) request(ctx context.Context, messages []core.Message, tools []core.ToolDefinition, allowOverBudget bool) (core.Request, error) {
+	request, _, err := e.requestPlan(ctx, messages, tools, allowOverBudget)
+	return request, err
+}
+
+func (e *Engine) requestPlan(ctx context.Context, messages []core.Message, tools []core.ToolDefinition, allowOverBudget bool) (core.Request, contextbuilder.Plan, error) {
 	plan, err := e.context.Build(ctx, contextbuilder.BuildInput{
 		Model: e.options.Model, Messages: messages, Tools: tools, AllowOverBudget: allowOverBudget,
 	})
 	if err != nil {
-		return core.Request{}, err
+		return core.Request{}, contextbuilder.Plan{}, err
 	}
 	return core.Request{
 		Model: e.options.Model, System: plan.System, Messages: plan.Messages,
 		Tools: plan.Tools, MaxTokens: plan.MaxOutputTokens,
-	}, nil
+	}, plan, nil
 }
 
 func contextBuildError(cause error) core.Event {
@@ -374,6 +423,8 @@ func (e *Engine) replaceHistory(messages []core.Message) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.history = cloneMessages(messages)
+	e.warningAbove = false
+	e.compactAbove = false
 }
 
 // History returns a deep copy that callers may mutate freely.

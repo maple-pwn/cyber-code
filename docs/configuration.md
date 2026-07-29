@@ -6,6 +6,8 @@
 active_profile: deepseek
 permission_mode: default
 sandbox_mode: best-effort
+context_warning_threshold: 0.80
+context_compact_threshold: 0.90
 profiles:
   deepseek:
     provider: openai-compatible
@@ -22,6 +24,8 @@ profiles:
 优先级从高到低为 CLI、环境变量、项目配置、用户配置、默认值。支持的权限模式为 `default`、`plan`、`accept-edits` 和 `bypass`；`bypass` 只能通过显式 CLI 参数启用。
 
 `sandbox_mode` 支持 `off`、`best-effort` 和 `required`。Linux 的 `best-effort/required` 优先使用 bubblewrap，并隔离网络、进程和文件系统；缺少 bubblewrap 时 `best-effort` 明确降级为进程组，`required` 启动失败。Windows 当前使用 Job Object 回收进程树；由于尚未形成完整文件系统/网络边界，`required` 会拒绝启动，避免把弱隔离误报为强沙箱。macOS 仅支持进程组降级。
+
+`context_warning_threshold` 和 `context_compact_threshold` 是相对于可用输入预算（context window 减去预留输出）的比例，必须满足 `0 < warning < compact <= 1`。默认分别为 `0.80` 和 `0.90`。达到 warning 时 Runtime 事件流会发出一次预警；达到 compact 后会在该次阈值跨越中至多尝试一次自动压缩。历史降回阈值下后才会重新启用下一次尝试，取消当前 turn 也会取消摘要请求。
 
 管理命令：
 
@@ -64,7 +68,7 @@ Skill 正文不会自动进入每次请求。可用 Skill 由只读 `load_skill`
 - `skills/<name>/SKILL.md`：用户技能；项目技能位于 `<workspace>/.cyber-code/skills/<name>/SKILL.md`。项目同名技能优先。
 - `lsp.json`：语言到 LSP 启动配置的映射；进程在首次工具调用时惰性启动。
 - `hooks.json`：Hook event 到命令数组的映射。
-- `compact.json`：压缩阈值和保留消息数。缺省使用 100000 tokens 与 8 条近期消息，并使用本地 token 估算避免额外计数请求。
+- `compact.json`：绝对压缩阈值和保留消息数。缺省使用 100000 tokens 与 8 条近期消息，并使用本地 token 估算避免额外计数请求。自动压缩要求同时达到配置中的 context 比例阈值和这里的绝对 token 阈值；手动 `/compact` 只检查绝对阈值。压缩边界不会拆开 assistant tool call 与对应 tool result。
 - `audit.json`：最多 1000 条权限决策记录，由程序维护。
 - 会话目录中的 `graph.json` 与 `checkpoint-*.json`：checkpoint 元数据和独立历史快照，由 `/checkpoint`、`/rewind`、`/branch` 管理。
 

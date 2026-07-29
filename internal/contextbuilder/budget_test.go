@@ -133,3 +133,49 @@ func TestBudgetKeepsHigherPrioritySourcesButEmitsLowToHigh(t *testing.T) {
 		t.Fatalf("emission order is not low-to-high: %+v", plan.Sources)
 	}
 }
+
+func TestBudgetPlanReportsUtilizationAndGovernanceThresholds(t *testing.T) {
+	estimate := func(text string) int { return len(text) }
+	baseline, err := New(Options{EstimateText: estimate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	basePlan, err := baseline.Build(context.Background(), BuildInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputLimit := basePlan.EstimatedTokens * 4 / 3
+	builder, err := New(Options{
+		ContextWindow: inputLimit + 100, ReservedOutput: 100, EstimateText: estimate,
+		WarningThreshold: 0.70, CompactThreshold: 0.90,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := builder.Build(context.Background(), BuildInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRatio := float64(plan.EstimatedTokens) / float64(inputLimit)
+	if plan.Budget.ContextWindow != inputLimit+100 || plan.Budget.InputLimit != inputLimit || plan.Budget.ReservedOutput != 100 {
+		t.Fatalf("budget limits = %#v", plan.Budget)
+	}
+	if plan.Budget.UtilizationRatio != wantRatio {
+		t.Fatalf("utilization = %f, want %f", plan.Budget.UtilizationRatio, wantRatio)
+	}
+	if !plan.Budget.WarningExceeded || plan.Budget.CompactExceeded {
+		t.Fatalf("threshold state = %#v", plan.Budget)
+	}
+}
+
+func TestBudgetRejectsInvalidGovernanceThresholds(t *testing.T) {
+	for _, options := range []Options{
+		{WarningThreshold: -0.1, CompactThreshold: 0.9},
+		{WarningThreshold: 0.9, CompactThreshold: 0.8},
+		{WarningThreshold: 0.8, CompactThreshold: 1.1},
+	} {
+		if _, err := New(options); err == nil {
+			t.Fatalf("accepted invalid thresholds: %#v", options)
+		}
+	}
+}

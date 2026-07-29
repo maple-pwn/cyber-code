@@ -373,8 +373,9 @@ func controlUsage(actions ControlActions) core.Usage {
 
 func formatEffectiveConfig(config configpkg.Config) string {
 	profile := config.Profiles[config.ActiveProfile]
-	return fmt.Sprintf("active profile: %s\nprovider: %s\nbase URL: %s\nmodel: %s\ncredential env: %s\npermission mode: %s\nsandbox mode: %s\n\nPersistent changes: cyber-code config",
-		config.ActiveProfile, profile.Provider, profile.BaseURL, profile.Model, profile.APIKeyEnv, config.PermissionMode, config.SandboxMode)
+	return fmt.Sprintf("active profile: %s\nprovider: %s\nbase URL: %s\nmodel: %s\ncredential env: %s\npermission mode: %s\nsandbox mode: %s\ncontext warning threshold: %.2f\ncontext compact threshold: %.2f\n\nPersistent changes: cyber-code config",
+		config.ActiveProfile, profile.Provider, profile.BaseURL, profile.Model, profile.APIKeyEnv, config.PermissionMode, config.SandboxMode,
+		config.ContextWarningThreshold, config.ContextCompactThreshold)
 }
 
 const cyberInstructionsTemplate = `# cyber-code project instructions

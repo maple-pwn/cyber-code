@@ -199,7 +199,7 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 	if maxTurns <= 0 {
 		maxTurns = 100
 	}
-	contextBuilder, err := buildContextBuilder(workspace, options.StateDir)
+	contextBuilder, err := buildContextBuilderWithThresholds(workspace, options.StateDir, loaded.ContextWarningThreshold, loaded.ContextCompactThreshold)
 	if err != nil {
 		return nil, err
 	}
@@ -378,6 +378,10 @@ func discoverConfiguredSkills(workspace, stateDir string) ([]skill.Skill, error)
 }
 
 func buildContextBuilder(currentDir, stateDir string) (*contextbuilder.Builder, error) {
+	return buildContextBuilderWithThresholds(currentDir, stateDir, contextbuilder.DefaultWarningThreshold, contextbuilder.DefaultCompactThreshold)
+}
+
+func buildContextBuilderWithThresholds(currentDir, stateDir string, warningThreshold, compactThreshold float64) (*contextbuilder.Builder, error) {
 	projectRoot := currentDir
 	if root, err := utils.FindGitRoot(currentDir); err == nil {
 		projectRoot = root
@@ -410,6 +414,7 @@ func buildContextBuilder(currentDir, stateDir string) (*contextbuilder.Builder, 
 	}
 	builder, err := contextbuilder.New(contextbuilder.Options{
 		Sources: sources, ContextWindow: defaultContextWindow, ReservedOutput: defaultReservedOutput,
+		WarningThreshold: warningThreshold, CompactThreshold: compactThreshold,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("configure context builder: %w", err)

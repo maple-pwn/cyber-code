@@ -15,15 +15,26 @@ import (
 )
 
 type Builder struct {
-	sources        []Source
-	contextWindow  int
-	reservedOutput int
-	estimateText   func(string) int
+	sources          []Source
+	contextWindow    int
+	reservedOutput   int
+	estimateText     func(string) int
+	warningThreshold float64
+	compactThreshold float64
 }
 
 func New(options Options) (*Builder, error) {
 	if options.ContextWindow < 0 || options.ReservedOutput < 0 {
 		return nil, fmt.Errorf("%w: token limits must not be negative", ErrInvalidSource)
+	}
+	if options.WarningThreshold == 0 {
+		options.WarningThreshold = DefaultWarningThreshold
+	}
+	if options.CompactThreshold == 0 {
+		options.CompactThreshold = DefaultCompactThreshold
+	}
+	if options.WarningThreshold <= 0 || options.WarningThreshold >= options.CompactThreshold || options.CompactThreshold > 1 {
+		return nil, fmt.Errorf("%w: context thresholds must satisfy 0 < warning < compact <= 1", ErrInvalidSource)
 	}
 	estimate := options.EstimateText
 	if estimate == nil {
@@ -37,6 +48,7 @@ func New(options Options) (*Builder, error) {
 	return &Builder{
 		sources: sources, contextWindow: options.ContextWindow,
 		reservedOutput: options.ReservedOutput, estimateText: estimate,
+		warningThreshold: options.WarningThreshold, compactThreshold: options.CompactThreshold,
 	}, nil
 }
 
@@ -100,7 +112,26 @@ func (builder *Builder) Build(ctx context.Context, input BuildInput) (Plan, erro
 		plan.Sources = append(plan.Sources, metadata(source, allocated.rendered, allocated.tokens, allocated.truncated))
 		plan.EstimatedTokens += allocated.tokens
 	}
+	plan.Budget = builder.budgetMetadata(plan.EstimatedTokens)
 	return plan, nil
+}
+
+func (builder *Builder) budgetMetadata(estimatedTokens int) BudgetMetadata {
+	metadata := BudgetMetadata{
+		ContextWindow: builder.contextWindow, ReservedOutput: builder.reservedOutput,
+		WarningThreshold: builder.warningThreshold, CompactThreshold: builder.compactThreshold,
+	}
+	if builder.contextWindow <= 0 {
+		return metadata
+	}
+	metadata.InputLimit = max(0, builder.contextWindow-builder.reservedOutput)
+	if metadata.InputLimit == 0 {
+		return metadata
+	}
+	metadata.UtilizationRatio = float64(estimatedTokens) / float64(metadata.InputLimit)
+	metadata.WarningExceeded = metadata.UtilizationRatio >= metadata.WarningThreshold
+	metadata.CompactExceeded = metadata.UtilizationRatio >= metadata.CompactThreshold
+	return metadata
 }
 
 type sourceAllocation struct {

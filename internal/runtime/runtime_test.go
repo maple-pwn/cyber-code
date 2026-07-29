@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"cyber-code/internal/agent"
+	"cyber-code/internal/contextbuilder"
 	"cyber-code/internal/core"
 	"cyber-code/internal/hooks"
 	"cyber-code/internal/permissions"
@@ -356,6 +357,74 @@ func TestPersistentRuntimeForwardsCompactionCoverageFromStore(t *testing.T) {
 	if err := persistent.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestRuntimeAutoCompactPersistsWarningBoundaryAndSnapshot(t *testing.T) {
+	store, err := session.NewStore(t.TempDir(), session.StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	compactor, err := session.NewCompactor(session.CompactOptions{
+		ThresholdTokens: 1, KeepRecentMessages: 1,
+		Summarize: func(context.Context, []core.Message) (string, error) { return "automatic summary", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder := &runtimeGovernanceBuilder{}
+	model := &completedProvider{count: 100, events: []core.Event{{Type: core.EventCompleted, FinishReason: "stop"}}}
+	persistent, err := NewPersistent(model, agent.Options{
+		Model: "test", ContextBuilder: builder, Compactor: compactor,
+		InitialHistory: []core.Message{
+			{Role: core.RoleUser, Content: []core.ContentBlock{{Type: core.ContentText, Text: "old question"}}},
+			{Role: core.RoleAssistant, Content: []core.ContentBlock{{Type: core.ContentText, Text: "old answer"}}},
+		},
+	}, store, "auto-compact-runtime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer persistent.Shutdown(context.Background())
+	events := collectRuntimeEvents(t, persistent.Run(context.Background(), "new question"))
+	want := []core.EventType{core.EventUserMessage, core.EventWarning, core.EventCompacted, core.EventCompleted}
+	if len(events) != len(want) {
+		t.Fatalf("runtime events = %#v", events)
+	}
+	for index := range want {
+		if events[index].Type != want[index] {
+			t.Fatalf("event %d = %q, want %q", index, events[index].Type, want[index])
+		}
+	}
+	records, err := store.Events(context.Background(), "auto-compact-runtime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 4 || records[1].Event.Type != core.EventWarning || records[2].Event.CoveredSequence != 2 {
+		t.Fatalf("persisted governance records = %#v", records)
+	}
+	snapshot, err := store.Resume(context.Background(), "auto-compact-runtime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.History) != 3 || snapshot.History[0].Content[0].Text != "automatic summary" {
+		t.Fatalf("auto-compact snapshot = %#v", snapshot)
+	}
+}
+
+type runtimeGovernanceBuilder struct{}
+
+func (*runtimeGovernanceBuilder) Build(_ context.Context, input contextbuilder.BuildInput) (contextbuilder.Plan, error) {
+	ratio := 0.20
+	if len(input.Messages) >= 3 {
+		ratio = 0.95
+	}
+	return contextbuilder.Plan{
+		Messages: input.Messages, Tools: input.Tools, MaxOutputTokens: 128,
+		Budget: contextbuilder.BudgetMetadata{
+			ContextWindow: 1100, ReservedOutput: 100, InputLimit: 1000,
+			UtilizationRatio: ratio, WarningThreshold: 0.70, CompactThreshold: 0.90,
+			WarningExceeded: ratio >= 0.70, CompactExceeded: ratio >= 0.90,
+		},
+	}, nil
 }
 
 func TestRuntimeRunsLifecycleAndToolHooksInOrder(t *testing.T) {

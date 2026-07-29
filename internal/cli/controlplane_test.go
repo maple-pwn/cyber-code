@@ -131,9 +131,8 @@ func TestControlPlaneUsageCostStatsClearAndVimActions(t *testing.T) {
 func TestControlPlaneConfigReportsEffectiveSettingsWithoutSecrets(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "never-print-this-secret")
 	effective := configpkg.Config{
-		ActiveProfile:  "deepseek",
-		PermissionMode: "default",
-		SandboxMode:    "best-effort",
+		ActiveProfile: "deepseek", PermissionMode: "default", SandboxMode: "best-effort",
+		ContextWarningThreshold: 0.80, ContextCompactThreshold: 0.90,
 		Profiles: map[string]configpkg.Profile{"deepseek": {
 			Provider: "openai", BaseURL: "https://api.deepseek.com", Model: "deepseek-v4-pro", APIKeyEnv: "DEEPSEEK_API_KEY",
 		}},
@@ -141,7 +140,7 @@ func TestControlPlaneConfigReportsEffectiveSettingsWithoutSecrets(t *testing.T) 
 	registry := testControlPlane(t, ControlActions{EffectiveConfig: func() configpkg.Config { return effective }})
 	events, err := registry.Dispatch(context.Background(), "/config")
 	text := controlEventText(events)
-	for _, want := range []string{"active profile: deepseek", "provider: openai", "model: deepseek-v4-pro", "credential env: DEEPSEEK_API_KEY", "cyber-code config"} {
+	for _, want := range []string{"active profile: deepseek", "provider: openai", "model: deepseek-v4-pro", "credential env: DEEPSEEK_API_KEY", "context warning threshold: 0.80", "context compact threshold: 0.90", "cyber-code config"} {
 		if err != nil || !strings.Contains(text, want) {
 			t.Fatalf("config missing %q: text=%q error=%v", want, text, err)
 		}

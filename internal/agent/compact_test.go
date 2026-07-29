@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"cyber-code/internal/contextbuilder"
 	"cyber-code/internal/core"
@@ -71,7 +72,7 @@ func TestEngineAllowsOversizedContextToReachCompactor(t *testing.T) {
 			t.Fatalf("oversized history failed before compact: %#v", events)
 		}
 	}
-	if len(events) < 2 || events[1].Type != core.EventCompacted {
+	if len(events) < 3 || events[1].Type != core.EventWarning || events[2].Type != core.EventCompacted {
 		t.Fatalf("events = %#v", events)
 	}
 }
@@ -101,6 +102,110 @@ func TestEngineCompactFailureWarnsAndKeepsHistory(t *testing.T) {
 	if len(request.Messages) != 3 || request.Messages[0].Content[0].Text != "old user" {
 		t.Fatalf("provider request lost original history: %#v", request)
 	}
+}
+
+func TestEngineEmitsContextWarningBeforeCompactThreshold(t *testing.T) {
+	builder := &governanceContextBuilder{ratio: func(int) float64 { return 0.75 }}
+	model := &compactProvider{events: []core.Event{{Type: core.EventCompleted, FinishReason: "stop"}}}
+	engine := NewEngine(model, Options{ContextBuilder: builder})
+	events := collectAgentEvents(t, engine.Run(context.Background(), "near limit"))
+	if len(events) != 3 || events[0].Type != core.EventUserMessage || events[1].Type != core.EventWarning || events[2].Type != core.EventCompleted {
+		t.Fatalf("warning events = %#v", events)
+	}
+	if !strings.Contains(events[1].Text, "context") || !strings.Contains(events[1].Text, "75") {
+		t.Fatalf("warning text = %q", events[1].Text)
+	}
+}
+
+func TestEngineAutoCompactAttemptsOncePerThresholdCrossing(t *testing.T) {
+	attempts := 0
+	compactor, err := session.NewCompactor(session.CompactOptions{
+		ThresholdTokens: 1, KeepRecentMessages: 1,
+		Summarize: func(context.Context, []core.Message) (string, error) {
+			attempts++
+			return "", errors.New("summary unavailable")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder := &governanceContextBuilder{ratio: func(messages int) float64 {
+		if messages >= 3 {
+			return 0.95
+		}
+		return 0.20
+	}}
+	model := &compactProvider{count: 100, events: []core.Event{{Type: core.EventCompleted, FinishReason: "stop"}}}
+	engine := NewEngine(model, Options{InitialHistory: textHistory("old user", "old assistant"), ContextBuilder: builder, Compactor: compactor})
+	collectAgentEvents(t, engine.Run(context.Background(), "first crossing"))
+	collectAgentEvents(t, engine.Run(context.Background(), "still above"))
+	if attempts != 1 {
+		t.Fatalf("compact attempts while continuously above threshold = %d", attempts)
+	}
+	if err := engine.ReplaceHistory(context.Background(), textHistory("replacement user", "replacement assistant")); err != nil {
+		t.Fatal(err)
+	}
+	collectAgentEvents(t, engine.Run(context.Background(), "second crossing"))
+	if attempts != 2 {
+		t.Fatalf("compact attempts after a second crossing = %d", attempts)
+	}
+}
+
+func TestEngineAutoCompactIsCanceledWithTurn(t *testing.T) {
+	started := make(chan struct{})
+	compactor, err := session.NewCompactor(session.CompactOptions{
+		ThresholdTokens: 1, KeepRecentMessages: 1,
+		Summarize: func(ctx context.Context, _ []core.Message) (string, error) {
+			close(started)
+			<-ctx.Done()
+			return "", ctx.Err()
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder := &governanceContextBuilder{ratio: func(int) float64 { return 0.95 }}
+	engine := NewEngine(&compactProvider{count: 100}, Options{
+		InitialHistory: textHistory("old user", "old assistant"), ContextBuilder: builder, Compactor: compactor,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	output := engine.Run(ctx, "cancel compact")
+	if event := <-output; event.Type != core.EventUserMessage {
+		t.Fatalf("first event = %#v", event)
+	}
+	if event := <-output; event.Type != core.EventWarning {
+		t.Fatalf("second event = %#v", event)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("automatic compaction did not start")
+	}
+	cancel()
+	for range output {
+	}
+	if !errors.Is(ctx.Err(), context.Canceled) {
+		t.Fatalf("turn context error = %v", ctx.Err())
+	}
+}
+
+type governanceContextBuilder struct {
+	ratio func(int) float64
+}
+
+func (builder *governanceContextBuilder) Build(_ context.Context, input contextbuilder.BuildInput) (contextbuilder.Plan, error) {
+	ratio := builder.ratio(len(input.Messages))
+	return contextbuilder.Plan{
+		Messages:        input.Messages,
+		Tools:           input.Tools,
+		MaxOutputTokens: 128,
+		EstimatedTokens: int(ratio * 1000),
+		Budget: contextbuilder.BudgetMetadata{
+			ContextWindow: 1100, ReservedOutput: 100, InputLimit: 1000,
+			UtilizationRatio: ratio, WarningThreshold: 0.70, CompactThreshold: 0.90,
+			WarningExceeded: ratio >= 0.70, CompactExceeded: ratio >= 0.90,
+		},
+	}, nil
 }
 
 func textHistory(texts ...string) []core.Message {
