@@ -47,6 +47,25 @@ func TestModelEnterSubmitsPromptThroughCommandAndConsumesRuntimeEvents(t *testin
 	}
 }
 
+func TestModelExitCommandsQuitWithoutCallingRuntime(t *testing.T) {
+	for _, input := range []string{"/exit", "/quit", "  /exit  "} {
+		runner := &uiTestRunner{}
+		model := NewModel(runner, ModelOptions{})
+		model.Input.SetValue(input)
+		updated, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		model = updated.(*Model)
+		if command == nil {
+			t.Fatalf("%q returned no quit command", input)
+		}
+		if _, ok := command().(tea.QuitMsg); !ok {
+			t.Fatalf("%q command did not return tea.QuitMsg", input)
+		}
+		if runner.prompt != "" || model.Processing || len(model.Messages) != 0 {
+			t.Fatalf("%q reached runtime: prompt=%q processing=%v messages=%#v", input, runner.prompt, model.Processing, model.Messages)
+		}
+	}
+}
+
 func TestModelViewCorrelatesToolStateAndAccumulatesUsage(t *testing.T) {
 	model := NewModel(&uiTestRunner{}, ModelOptions{Width: 80, Height: 24})
 	model.applyEvent(core.Event{Type: core.EventToolCall, ToolCall: &core.ToolCall{ID: "call-1", Name: "read_file"}})

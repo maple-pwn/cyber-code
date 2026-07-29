@@ -33,3 +33,15 @@ func TestDefaultCommandCompletionIncludesGitWorkflows(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultCommandCompletionIncludesExitAliases(t *testing.T) {
+	for _, command := range []string{"exit", "quit"} {
+		found := false
+		for _, candidate := range defaultCommandNames {
+			found = found || candidate == command
+		}
+		if !found {
+			t.Fatalf("default completions missing %q", command)
+		}
+	}
+}

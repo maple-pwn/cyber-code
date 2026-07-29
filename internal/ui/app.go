@@ -304,6 +304,10 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				model.closeCompletions()
 			}
+			if isExitCommand(model.Input.Value) {
+				model.cancel()
+				return model, tea.Quit
+			}
 			if model.Processing || strings.TrimSpace(model.Input.Value) == "" {
 				return model, nil
 			}
@@ -397,6 +401,15 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return model, nil
 	}
 	return model, nil
+}
+
+func isExitCommand(input string) bool {
+	switch strings.TrimSpace(input) {
+	case "/exit", "/quit":
+		return true
+	default:
+		return false
+	}
 }
 
 func (model *Model) applyCompletion() {
