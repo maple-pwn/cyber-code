@@ -15,6 +15,7 @@ func TestLoadPrecedence(t *testing.T) {
 	writeConfigFile(t, userFile, `
 active_profile: user-profile
 permission_mode: default
+sandbox_mode: best-effort
 profiles:
   user-profile:
     provider: anthropic
@@ -30,6 +31,7 @@ profiles:
 	writeConfigFile(t, projectFile, `
 active_profile: project-profile
 permission_mode: plan
+sandbox_mode: required
 profiles:
   project-profile:
     provider: anthropic
@@ -54,6 +56,9 @@ profiles:
 	}
 	if got.PermissionMode != "accept-edits" {
 		t.Fatalf("permission mode = %q, want CLI override", got.PermissionMode)
+	}
+	if got.SandboxMode != "required" {
+		t.Fatalf("sandbox mode = %q, want project override", got.SandboxMode)
 	}
 	if got.Profiles["project-profile"].Model != "project-model" {
 		t.Fatalf("project profile was not merged: %#v", got.Profiles)
@@ -166,6 +171,11 @@ func TestLoadValidatesProfileReferenceBaseURLAndPermissionMode(t *testing.T) {
 			name: "invalid permission mode",
 			yaml: "active_profile: anthropic\npermission_mode: unrestricted\nprofiles:\n  anthropic:\n    provider: anthropic\n    model: model\n",
 			want: "permission_mode",
+		},
+		{
+			name: "invalid sandbox mode",
+			yaml: "active_profile: anthropic\nsandbox_mode: imaginary\nprofiles:\n  anthropic:\n    provider: anthropic\n    model: model\n",
+			want: "sandbox_mode",
 		},
 	}
 

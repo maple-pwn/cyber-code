@@ -5,6 +5,7 @@
 ```yaml
 active_profile: deepseek
 permission_mode: default
+sandbox_mode: best-effort
 profiles:
   deepseek:
     provider: openai-compatible
@@ -14,6 +15,8 @@ profiles:
 ```
 
 优先级从高到低为 CLI、环境变量、项目配置、用户配置、默认值。支持的权限模式为 `default`、`plan`、`accept-edits` 和 `bypass`；`bypass` 只能通过显式 CLI 参数启用。
+
+`sandbox_mode` 支持 `off`、`best-effort` 和 `required`。Linux 的 `best-effort/required` 优先使用 bubblewrap，并隔离网络、进程和文件系统；缺少 bubblewrap 时 `best-effort` 明确降级为进程组，`required` 启动失败。Windows 当前使用 Job Object 回收进程树；由于尚未形成完整文件系统/网络边界，`required` 会拒绝启动，避免把弱隔离误报为强沙箱。macOS 仅支持进程组降级。
 
 管理命令：
 

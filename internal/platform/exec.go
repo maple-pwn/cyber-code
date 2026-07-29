@@ -42,16 +42,20 @@ type Executor interface {
 }
 
 type Options struct {
-	LookPath func(string) (string, error)
+	LookPath    func(string) (string, error)
+	SandboxMode SandboxMode
 }
 
-type Runner struct{ lookPath func(string) (string, error) }
+type Runner struct {
+	lookPath    func(string) (string, error)
+	sandboxMode SandboxMode
+}
 
 func NewRunner(options Options) *Runner {
 	if options.LookPath == nil {
 		options.LookPath = exec.LookPath
 	}
-	return &Runner{lookPath: options.LookPath}
+	return &Runner{lookPath: options.LookPath, sandboxMode: normalizeSandboxMode(options.SandboxMode)}
 }
 
 func (runner *Runner) Run(ctx context.Context, request ExecRequest) (ExecResult, error) {
@@ -79,6 +83,19 @@ func (runner *Runner) Run(ctx context.Context, request ExecRequest) (ExecResult,
 		defer cancel()
 	}
 	environment := FilterEnvironment(os.Environ(), request.Environment)
+	switch runner.sandboxMode {
+	case SandboxOff:
+		request.Sandbox = false
+	case SandboxBestEffort:
+		request.Sandbox = true
+	case SandboxRequired:
+		request.Sandbox = true
+		if capability := detectSandboxCapability(runner.sandboxMode, runner.lookPath); !capability.Strong {
+			return ExecResult{}, fmt.Errorf("%w: %s", ErrSandboxUnavailable, capability.DegradedReason)
+		}
+	default:
+		return ExecResult{}, fmt.Errorf("invalid sandbox mode %q", runner.sandboxMode)
+	}
 	command, isolation, err := buildCommand(request, workspace, environment, runner.lookPath)
 	if err != nil {
 		return ExecResult{}, err

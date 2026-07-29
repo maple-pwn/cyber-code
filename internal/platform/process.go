@@ -62,7 +62,10 @@ func (runner *Runner) Start(ctx context.Context, request ProcessRequest) (*Proce
 	if !info.IsDir() {
 		return nil, fmt.Errorf("workspace is not a directory")
 	}
-	command, _ := configureDirectCommand(request.Command, request.Args)
+	command, _, err := configureDirectCommand(request.Command, request.Args, workspace, runner.sandboxMode, runner.lookPath)
+	if err != nil {
+		return nil, err
+	}
 	command.Dir = workspace
 	command.Env = managedEnvironment(os.Environ(), request.Environment)
 	stdin, err := command.StdinPipe()

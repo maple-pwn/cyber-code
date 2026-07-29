@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"cyber-code/internal/platform"
 )
 
 const defaultMaxResponseBytes int64 = 4 << 20
@@ -232,13 +234,14 @@ type DefaultTransportOptions struct {
 	MaxResponseBytes int64
 	StdioStarter     StdioStarter
 	MaxMessageBytes  int
+	Runner           *platform.Runner
 }
 
 type DefaultTransportFactory struct{ options DefaultTransportOptions }
 
 func NewDefaultTransportFactory(options DefaultTransportOptions) *DefaultTransportFactory {
 	if options.StdioStarter == nil {
-		options.StdioStarter = newPlatformStdioStarter()
+		options.StdioStarter = newPlatformStdioStarter(options.Runner)
 	}
 	return &DefaultTransportFactory{options: options}
 }

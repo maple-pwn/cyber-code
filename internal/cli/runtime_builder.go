@@ -117,9 +117,13 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 		return nil, err
 	}
 	registry := tool.NewRegistry()
+	processRunner := platform.NewRunner(platform.Options{SandboxMode: platform.SandboxMode(loaded.SandboxMode)})
+	if capability := processRunner.SandboxCapability(); capability.Mode == platform.SandboxRequired && !capability.Strong {
+		return nil, fmt.Errorf("configure process sandbox: %w: %s", platform.ErrSandboxUnavailable, capability.DegradedReason)
+	}
 	for _, registered := range []tool.Tool{
 		builtin.NewReadFile(workspace), builtin.NewWriteFile(workspace), builtin.NewEditFile(workspace),
-		builtin.NewSearchFiles(workspace), builtin.NewShell(workspace, platform.NewRunner(platform.Options{})),
+		builtin.NewSearchFiles(workspace), builtin.NewShell(workspace, processRunner),
 		builtin.NewAskUser(options.Questioner), builtin.NewWebFetch(nil),
 		builtin.NewWebSearch(builtin.NewDuckDuckGoSearch(nil)), builtin.NewNotebookEdit(workspace),
 	} {
@@ -144,7 +148,7 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 	if err != nil {
 		return nil, fmt.Errorf("load agent definitions: %w", err)
 	}
-	hookRunner, err := configureHooks(options.StateDir, workspace, broker)
+	hookRunner, err := configureHooks(options.StateDir, workspace, broker, processRunner)
 	if err != nil {
 		return nil, err
 	}
@@ -154,14 +158,14 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 			closeServices(services)
 		}
 	}()
-	lspManager, err := configureLSP(options.StateDir, registry, broker)
+	lspManager, err := configureLSP(options.StateDir, registry, broker, processRunner)
 	if err != nil {
 		return nil, err
 	}
 	if lspManager != nil {
 		services = append(services, lspManager)
 	}
-	mcpManager, err := connectConfiguredMCP(ctx, options.StateDir, workspace, registry, broker)
+	mcpManager, err := connectConfiguredMCP(ctx, options.StateDir, workspace, registry, broker, processRunner)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +260,7 @@ func todoStatePath(stateDir, sessionID string) string {
 	return filepath.Join(stateDir, "todos", hex.EncodeToString(digest[:])+".json")
 }
 
-func configureHooks(stateDir, workspace string, broker *permissions.Broker) (*hooks.Runner, error) {
+func configureHooks(stateDir, workspace string, broker *permissions.Broker, executor platform.Executor) (*hooks.Runner, error) {
 	commands, err := loadHookCommands(filepath.Join(stateDir, "hooks.json"))
 	if err != nil {
 		return nil, fmt.Errorf("load hook configuration: %w", err)
@@ -266,7 +270,7 @@ func configureHooks(stateDir, workspace string, broker *permissions.Broker) (*ho
 	}
 	runner, err := hooks.NewRunner(hooks.RunnerOptions{
 		Registry: hooks.NewRegistry(), Executor: &authorizedExecutor{
-			tool: "hook", broker: broker, delegate: platform.NewRunner(platform.Options{}),
+			tool: "hook", broker: broker, delegate: executor,
 		}, Workspace: workspace,
 	})
 	if err != nil {
@@ -282,7 +286,7 @@ func configureHooks(stateDir, workspace string, broker *permissions.Broker) (*ho
 	return runner, nil
 }
 
-func configureLSP(stateDir string, registry *tool.Registry, broker *permissions.Broker) (*lsp.Manager, error) {
+func configureLSP(stateDir string, registry *tool.Registry, broker *permissions.Broker, processRunner *platform.Runner) (*lsp.Manager, error) {
 	configs, err := loadLSPConfigs(filepath.Join(stateDir, "lsp.json"))
 	if err != nil {
 		return nil, fmt.Errorf("load LSP configuration: %w", err)
@@ -290,7 +294,7 @@ func configureLSP(stateDir string, registry *tool.Registry, broker *permissions.
 	if len(configs) == 0 {
 		return nil, nil
 	}
-	manager, err := lsp.NewManager(lsp.ManagerOptions{Configs: configs, Authorizer: broker})
+	manager, err := lsp.NewManager(lsp.ManagerOptions{Configs: configs, Authorizer: broker, Runner: processRunner})
 	if err != nil {
 		return nil, err
 	}
@@ -370,7 +374,7 @@ func buildContextBuilder(currentDir, stateDir string) (*contextbuilder.Builder, 
 	return builder, nil
 }
 
-func connectConfiguredMCP(ctx context.Context, stateDir, workspace string, registry *tool.Registry, broker *permissions.Broker) (*mcp.Manager, error) {
+func connectConfiguredMCP(ctx context.Context, stateDir, workspace string, registry *tool.Registry, broker *permissions.Broker, processRunner *platform.Runner) (*mcp.Manager, error) {
 	entries, err := loadMCPEntries(filepath.Join(stateDir, "mcp.json"))
 	if err != nil {
 		return nil, fmt.Errorf("load MCP configuration: %w", err)
@@ -379,7 +383,7 @@ func connectConfiguredMCP(ctx context.Context, stateDir, workspace string, regis
 		return nil, nil
 	}
 	manager, err := mcp.NewManager(mcp.ManagerOptions{
-		Registry: registry, Authorizer: broker, TransportFactory: mcp.NewDefaultTransportFactory(mcp.DefaultTransportOptions{}),
+		Registry: registry, Authorizer: broker, TransportFactory: mcp.NewDefaultTransportFactory(mcp.DefaultTransportOptions{Runner: processRunner}),
 	})
 	if err != nil {
 		return nil, err

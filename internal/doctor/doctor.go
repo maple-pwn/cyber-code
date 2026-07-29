@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"cyber-code/internal/config"
+	"cyber-code/internal/platform"
 )
 
 type Status string
@@ -65,9 +66,11 @@ func Run(ctx context.Context, options Options) Report {
 	}
 
 	loaded, err := config.Load(config.LoadOptions{UserFile: options.ConfigFile})
+	sandboxMode := platform.SandboxBestEffort
 	if err != nil {
 		add(Check{Name: "configuration", Status: StatusFail, Required: true, Message: err.Error()})
 	} else {
+		sandboxMode = platform.SandboxMode(loaded.SandboxMode)
 		add(Check{Name: "configuration", Status: StatusPass, Required: true, Message: "configuration is valid"})
 		profile := loaded.Profiles[loaded.ActiveProfile]
 		if profile.APIKeyEnv == "" {
@@ -84,13 +87,19 @@ func Run(ctx context.Context, options Options) Report {
 	} else {
 		add(Check{Name: "state_directory", Status: StatusPass, Required: true, Message: "state directory is writable"})
 	}
-	if options.GOOS == "windows" {
-		add(Check{Name: "sandbox", Status: StatusPass, Message: "Windows Job Object isolation is available"})
-	} else if _, err := options.LookPath("bwrap"); err == nil {
-		add(Check{Name: "sandbox", Status: StatusPass, Message: "bubblewrap is available"})
-	} else {
-		add(Check{Name: "sandbox", Status: StatusWarn, Message: "bubblewrap is unavailable; policy-only isolation will be used"})
+	capability := platform.NewRunner(platform.Options{SandboxMode: sandboxMode, LookPath: options.LookPath}).SandboxCapability()
+	sandboxCheck := Check{Name: "sandbox", Status: StatusWarn, Message: fmt.Sprintf("backend=%s filesystem=%t network=%t process_tree=%t", capability.Backend, capability.Filesystem, capability.Network, capability.ProcessTree)}
+	if capability.Strong || sandboxMode == platform.SandboxOff {
+		sandboxCheck.Status = StatusPass
 	}
+	if sandboxMode == platform.SandboxRequired {
+		sandboxCheck.Required = true
+		if !capability.Strong {
+			sandboxCheck.Status = StatusFail
+			sandboxCheck.Message += "; " + capability.DegradedReason
+		}
+	}
+	add(sandboxCheck)
 	addOptionalCommand(&report, options.LookPath, "notifications", notificationCandidates(options.GOOS))
 	addOptionalCommand(&report, options.LookPath, "voice", voiceCandidates(options.GOOS))
 	add(Check{Name: "mcp", Status: StatusWarn, Message: "no MCP health probe was configured"})

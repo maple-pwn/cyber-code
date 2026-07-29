@@ -17,6 +17,8 @@ var allowedPermissionModes = map[string]struct{}{
 	"bypass":       {},
 }
 
+var allowedSandboxModes = map[string]struct{}{"off": {}, "best-effort": {}, "required": {}}
+
 // Validate checks profile references and values without resolving secrets.
 func Validate(config *Config) error {
 	if config == nil {
@@ -55,6 +57,9 @@ func Validate(config *Config) error {
 
 	if _, ok := allowedPermissionModes[config.PermissionMode]; !ok {
 		return fmt.Errorf("permission_mode %q is not supported", config.PermissionMode)
+	}
+	if _, ok := allowedSandboxModes[config.SandboxMode]; !ok {
+		return fmt.Errorf("sandbox_mode %q is not supported", config.SandboxMode)
 	}
 	return nil
 }

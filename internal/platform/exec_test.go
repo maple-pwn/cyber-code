@@ -61,3 +61,30 @@ func TestProcessRejectsInvalidWorkspace(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestRequiredSandboxFailsClosedWhenStrongIsolationUnavailable(t *testing.T) {
+	runner := NewRunner(Options{SandboxMode: SandboxRequired, LookPath: func(string) (string, error) { return "", exec.ErrNotFound }})
+	_, err := runner.Run(context.Background(), ExecRequest{Command: "pwd", Workspace: t.TempDir(), Sandbox: true})
+	if !errors.Is(err, ErrSandboxUnavailable) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestSandboxOffDoesNotClaimPolicyIsolation(t *testing.T) {
+	runner := NewRunner(Options{SandboxMode: SandboxOff})
+	result, err := runner.Run(context.Background(), ExecRequest{Command: "pwd", Workspace: t.TempDir(), Sandbox: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Isolation == IsolationBubblewrap || result.Isolation == IsolationPolicyOnly {
+		t.Fatalf("isolation = %q", result.Isolation)
+	}
+}
+
+func TestManagedProcessRequiredSandboxFailsClosed(t *testing.T) {
+	runner := NewRunner(Options{SandboxMode: SandboxRequired, LookPath: func(string) (string, error) { return "", exec.ErrNotFound }})
+	_, err := runner.Start(context.Background(), ProcessRequest{Command: "sh", Args: []string{"-c", "true"}, Workspace: t.TempDir()})
+	if !errors.Is(err, ErrSandboxUnavailable) {
+		t.Fatalf("error = %v", err)
+	}
+}

@@ -95,6 +95,9 @@ func merge(target *Config, overlay Config) {
 	if overlay.PermissionMode != "" {
 		target.PermissionMode = overlay.PermissionMode
 	}
+	if overlay.SandboxMode != "" {
+		target.SandboxMode = overlay.SandboxMode
+	}
 	if target.Profiles == nil {
 		target.Profiles = make(map[string]Profile)
 	}

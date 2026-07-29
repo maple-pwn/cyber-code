@@ -10,10 +10,13 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func configureDirectCommand(program string, arguments []string) (*exec.Cmd, Isolation) {
+func configureDirectCommand(program string, arguments []string, _ string, mode SandboxMode, _ func(string) (string, error)) (*exec.Cmd, Isolation, error) {
+	if mode == SandboxRequired {
+		return nil, "", ErrSandboxUnavailable
+	}
 	command := exec.Command(program, arguments...)
 	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
-	return command, IsolationJobObject
+	return command, IsolationJobObject, nil
 }
 
 type windowsGuard struct{ job windows.Handle }

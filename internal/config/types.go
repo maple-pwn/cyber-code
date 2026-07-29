@@ -16,6 +16,7 @@ type Config struct {
 	ActiveProfile  string             `json:"active_profile" yaml:"active_profile"`
 	Profiles       map[string]Profile `json:"profiles" yaml:"profiles"`
 	PermissionMode string             `json:"permission_mode,omitempty" yaml:"permission_mode,omitempty"`
+	SandboxMode    string             `json:"sandbox_mode,omitempty" yaml:"sandbox_mode,omitempty"`
 }
 
 // Overrides contains command-line values. Empty fields do not override lower
@@ -44,5 +45,6 @@ func Default() Config {
 			},
 		},
 		PermissionMode: "default",
+		SandboxMode:    "best-effort",
 	}
 }

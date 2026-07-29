@@ -36,8 +36,11 @@ type StdioStarter interface {
 
 type platformStdioStarter struct{ runner *platform.Runner }
 
-func newPlatformStdioStarter() StdioStarter {
-	return &platformStdioStarter{runner: platform.NewRunner(platform.Options{})}
+func newPlatformStdioStarter(runner *platform.Runner) StdioStarter {
+	if runner == nil {
+		runner = platform.NewRunner(platform.Options{})
+	}
+	return &platformStdioStarter{runner: runner}
 }
 
 func (starter *platformStdioStarter) Start(ctx context.Context, config StdioProcessConfig) (StdioProcess, error) {

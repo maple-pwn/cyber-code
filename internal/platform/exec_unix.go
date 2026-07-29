@@ -3,15 +3,27 @@
 package platform
 
 import (
+	"fmt"
 	"os/exec"
 	"runtime"
 	"syscall"
 )
 
-func configureDirectCommand(program string, arguments []string) (*exec.Cmd, Isolation) {
+func configureDirectCommand(program string, arguments []string, workspace string, mode SandboxMode, lookPath func(string) (string, error)) (*exec.Cmd, Isolation, error) {
+	isolation := IsolationProcessGroup
+	if mode != SandboxOff && runtime.GOOS == "linux" {
+		if bwrap, err := lookPath("bwrap"); err == nil {
+			arguments = append([]string{"--die-with-parent", "--new-session", "--unshare-all", "--ro-bind", "/", "/", "--bind", workspace, workspace, "--chdir", workspace, program}, arguments...)
+			program, isolation = bwrap, IsolationBubblewrap
+		} else if mode == SandboxRequired {
+			return nil, "", fmt.Errorf("%w: bubblewrap is unavailable", ErrSandboxUnavailable)
+		}
+	} else if mode == SandboxRequired {
+		return nil, "", fmt.Errorf("%w: strong sandbox is unsupported on this platform", ErrSandboxUnavailable)
+	}
 	command := exec.Command(program, arguments...)
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	return command, IsolationProcessGroup
+	return command, isolation, nil
 }
 
 type unixGuard struct{}
@@ -25,7 +37,7 @@ func buildCommand(request ExecRequest, workspace string, environment []string, l
 		if runtime.GOOS == "linux" {
 			if bwrap, err := lookPath("bwrap"); err == nil {
 				program = bwrap
-				arguments = []string{"--die-with-parent", "--new-session", "--ro-bind", "/", "/", "--bind", workspace, workspace, "--chdir", workspace, "/bin/sh", "-c", request.Command}
+				arguments = []string{"--die-with-parent", "--new-session", "--unshare-all", "--ro-bind", "/", "/", "--bind", workspace, workspace, "--chdir", workspace, "/bin/sh", "-c", request.Command}
 				isolation = IsolationBubblewrap
 			}
 		}

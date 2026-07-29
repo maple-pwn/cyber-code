@@ -62,6 +62,7 @@ type ManagerOptions struct {
 	MaxRestarts     int
 	BaseBackoff     time.Duration
 	MaxMessageBytes int
+	Runner          *platform.Runner
 }
 
 type Query struct {
@@ -118,7 +119,11 @@ func NewManager(options ManagerOptions) (*Manager, error) {
 		configs[language] = config
 	}
 	if options.Starter == nil {
-		options.Starter = &platformStarter{runner: platform.NewRunner(platform.Options{})}
+		runner := options.Runner
+		if runner == nil {
+			runner = platform.NewRunner(platform.Options{})
+		}
+		options.Starter = &platformStarter{runner: runner}
 	}
 	if options.CallTimeout <= 0 {
 		options.CallTimeout = 10 * time.Second
