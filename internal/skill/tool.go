@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"cyber-code/internal/core"
 	"cyber-code/internal/permissions"
+	"cyber-code/internal/security"
 	toolpkg "cyber-code/internal/tool"
 )
 
@@ -106,26 +106,17 @@ func readSkillInstructions(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil || !insideRoot(root, resolved) {
-		return "", fmt.Errorf("skill instructions path escapes its root")
-	}
-	info, err := os.Stat(resolved)
-	if err != nil || !info.Mode().IsRegular() || info.Size() > maxInstructionsBytes {
-		return "", fmt.Errorf("skill instructions are invalid")
-	}
-	file, err := os.Open(resolved)
+	file, info, err := security.OpenVerified(root, path)
 	if err != nil {
-		return "", fmt.Errorf("read skill instructions: %w", err)
+		return "", fmt.Errorf("skill instructions path is invalid: %w", err)
 	}
 	defer file.Close()
+	if info.Size() > maxInstructionsBytes {
+		return "", fmt.Errorf("skill instructions are invalid")
+	}
 	content, err := io.ReadAll(io.LimitReader(file, maxInstructionsBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("read skill instructions: %w", err)
-	}
-	after, err := filepath.EvalSymlinks(path)
-	if err != nil || filepath.Clean(after) != filepath.Clean(resolved) {
-		return "", fmt.Errorf("skill instructions path changed while reading")
 	}
 	if int64(len(content)) > maxInstructionsBytes {
 		return "", fmt.Errorf("skill instructions are too large")

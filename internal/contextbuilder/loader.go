@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"cyber-code/internal/security"
 )
 
 type LoaderOptions struct {
@@ -132,46 +134,23 @@ func (loader *Loader) read(root, path string) (string, int64, bool, error) {
 	if err != nil {
 		return "", 0, false, fmt.Errorf("inspect instruction %q: %w", path, err)
 	}
-	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return "", 0, false, fmt.Errorf("resolve instruction %q: %w", path, err)
-	}
-	resolved, err = filepath.Abs(resolved)
-	if err != nil {
-		return "", 0, false, err
-	}
-	if !withinRoot(root, resolved) {
+	file, info, err := security.OpenVerified(root, path)
+	if errors.Is(err, security.ErrOutsideRoot) || errors.Is(err, security.ErrPathChanged) {
 		return "", 0, false, fmt.Errorf("%w: %q", ErrPathOutsideRoot, path)
 	}
-	info, err = os.Stat(resolved)
 	if err != nil {
-		return "", 0, false, fmt.Errorf("stat instruction %q: %w", path, err)
+		return "", 0, false, fmt.Errorf("open instruction %q: %w", path, err)
 	}
-	if !info.Mode().IsRegular() {
-		return "", 0, false, fmt.Errorf("instruction %q is not a regular file", path)
-	}
+	defer file.Close()
 	if info.Size() > loader.maxFileBytes {
 		return "", 0, false, fmt.Errorf("%w: %q exceeds %d bytes", ErrInstructionTooLarge, path, loader.maxFileBytes)
 	}
-	file, err := os.Open(filepath.Clean(resolved))
-	if err != nil {
-		return "", 0, false, fmt.Errorf("read instruction %q: %w", path, err)
-	}
-	defer file.Close()
 	encoded, err := readBounded(file, loader.maxFileBytes)
 	if err != nil {
 		return "", 0, false, fmt.Errorf("read instruction %q: %w", path, err)
 	}
 	if int64(len(encoded)) > loader.maxFileBytes {
 		return "", 0, false, fmt.Errorf("%w: %q changed while reading", ErrInstructionTooLarge, path)
-	}
-	after, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return "", 0, false, fmt.Errorf("recheck instruction %q: %w", path, err)
-	}
-	after, err = filepath.Abs(after)
-	if err != nil || filepath.Clean(after) != filepath.Clean(resolved) {
-		return "", 0, false, fmt.Errorf("%w: instruction path changed while reading", ErrPathOutsideRoot)
 	}
 	return string(encoded), int64(len(encoded)), true, nil
 }
