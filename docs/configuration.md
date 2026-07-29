@@ -106,6 +106,20 @@ Compact 示例：
 
 LSP、Hooks 和插件配置中的命令会执行本地程序，应仅配置受信内容。插件 manifest 的能力声明用于 Broker 授权和工具注册，不限制子进程在操作系统层面的文件或网络访问。
 
+## Claude-compatible Marketplace
+
+公开的 Claude Code marketplace 可作为兼容内容源添加。支持本地目录和 HTTPS Git URL；URL 可用 `#branch-or-tag` 固定引用，实际 Git commit 和内容 SHA-256 会写入状态锁文件。
+
+```bash
+cyber-code plugins marketplace add community https://github.com/example/marketplace.git#v1.0.0
+cyber-code plugins marketplace list
+cyber-code plugins marketplace search review
+cyber-code plugins marketplace install review-kit@community
+cyber-code plugins marketplace remove review-kit
+```
+
+兼容安装会把公开格式中的 `skills/`、`commands/` 和 `agents/` 转换为带插件命名空间的 cyber-code Skills。市场快照拒绝符号链接、目录穿越、未知 manifest 字段和超限内容。Claude 专属 Hooks、MCP 配置、账号服务和未公开运行时字段不会自动启用；需要通过 cyber-code 自己的 Hooks/MCP 配置和 Permission Broker 显式授权。
+
 MCP 生命周期与 OAuth：
 
 ```bash

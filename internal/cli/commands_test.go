@@ -185,6 +185,43 @@ func TestExecuteMCPAddStoresHeaderEnvironmentReferenceWithoutSecret(t *testing.T
 	}
 }
 
+func TestExecuteClaudeCompatibleMarketplaceWorkflow(t *testing.T) {
+	stateDir := t.TempDir()
+	source := t.TempDir()
+	writeMarketplaceFixture(t, filepath.Join(source, ".claude-plugin", "marketplace.json"), `{"name":"fixture-market","plugins":[{"name":"review-kit","version":"1.0.0","description":"review code","source":"./plugins/review-kit"}]}`)
+	plugin := filepath.Join(source, "plugins", "review-kit")
+	writeMarketplaceFixture(t, filepath.Join(plugin, ".claude-plugin", "plugin.json"), `{"name":"review-kit","version":"1.0.0"}`)
+	writeMarketplaceFixture(t, filepath.Join(plugin, "skills", "review", "SKILL.md"), "# review\nReview code safely.")
+
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"plugins", "marketplace", "add", "fixture", source}, "fixture-market"},
+		{[]string{"plugins", "marketplace", "list"}, "fixture"},
+		{[]string{"plugins", "marketplace", "search", "review"}, "review-kit"},
+		{[]string{"plugins", "marketplace", "install", "review-kit@fixture"}, "review-kit"},
+		{[]string{"plugins", "marketplace", "remove", "review-kit"}, "removed"},
+	}
+	for _, test := range tests {
+		var stdout, stderr bytes.Buffer
+		code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &stdout, &stderr, test.args, ExecuteOptions{StateDir: stateDir})
+		if code != 0 || !strings.Contains(stdout.String(), test.want) || stderr.Len() != 0 {
+			t.Fatalf("args=%v code=%d stdout=%q stderr=%q", test.args, code, stdout.String(), stderr.String())
+		}
+	}
+}
+
+func writeMarketplaceFixture(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestExecuteSessionManagement(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv("CYBER_CODE_CONFIG", filepath.Join(t.TempDir(), "config.yaml"))

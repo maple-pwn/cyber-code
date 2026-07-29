@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
+
+	"cyber-code/internal/marketplace"
 )
 
 type pluginState struct {
@@ -51,6 +54,72 @@ func newPluginsCommand(environment *commandEnvironment) *cobra.Command {
 			})
 		}})
 	}
+	command.AddCommand(newMarketplaceCommand(environment))
+	return command
+}
+
+func newMarketplaceCommand(environment *commandEnvironment) *cobra.Command {
+	command := &cobra.Command{Use: "marketplace", Short: "manage Claude-compatible plugin marketplaces"}
+	manager, err := marketplace.NewManager(environment.stateDir)
+	if err != nil {
+		command.RunE = func(*cobra.Command, []string) error { return err }
+		return command
+	}
+	command.AddCommand(&cobra.Command{Use: "add <alias> <path-or-https-git-url>", Args: cobra.ExactArgs(2), RunE: func(_ *cobra.Command, args []string) error {
+		added, err := manager.Add(environment.ctx, args[0], args[1])
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(environment.stdout, "%s\t%s\t%s\n", added.Alias, added.Name, added.Digest)
+		return err
+	}})
+	command.AddCommand(&cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
+		sources, err := manager.List()
+		if err != nil {
+			return err
+		}
+		for _, source := range sources {
+			if _, err := fmt.Fprintf(environment.stdout, "%s\t%s\t%s\t%s\n", source.Alias, source.Name, source.Revision, source.Digest); err != nil {
+				return err
+			}
+		}
+		return nil
+	}})
+	command.AddCommand(&cobra.Command{Use: "search [query]", Args: cobra.MaximumNArgs(1), RunE: func(_ *cobra.Command, args []string) error {
+		query := ""
+		if len(args) == 1 {
+			query = args[0]
+		}
+		results, err := manager.Search(query)
+		if err != nil {
+			return err
+		}
+		for _, result := range results {
+			if _, err := fmt.Fprintf(environment.stdout, "%s@%s\t%s\t%s\n", result.Plugin.Name, result.Marketplace.Alias, result.Plugin.Version, result.Plugin.Description); err != nil {
+				return err
+			}
+		}
+		return nil
+	}})
+	command.AddCommand(&cobra.Command{Use: "install <plugin@marketplace>", Args: cobra.ExactArgs(1), RunE: func(_ *cobra.Command, args []string) error {
+		name, alias, found := strings.Cut(args[0], "@")
+		if !found || name == "" || alias == "" || strings.Contains(alias, "@") {
+			return fmt.Errorf("install requires plugin@marketplace")
+		}
+		installed, err := manager.Install(environment.ctx, alias, name)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(environment.stdout, "%s\t%s\t%s\n", installed.Name, installed.Version, installed.Digest)
+		return err
+	}})
+	command.AddCommand(&cobra.Command{Use: "remove <plugin>", Args: cobra.ExactArgs(1), RunE: func(_ *cobra.Command, args []string) error {
+		if err := manager.Remove(args[0]); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(environment.stdout, "%s removed\n", args[0])
+		return err
+	}})
 	return command
 }
 
