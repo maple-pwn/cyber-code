@@ -468,7 +468,7 @@ func (model *Model) View() string {
 	}
 	width, height := max(20, model.Width), max(6, model.Height)
 	header := []string{product.Name, strings.Repeat("-", width)}
-	middle := renderMessages(model.Messages)
+	middle := renderMessages(model.Messages, width)
 	for _, state := range model.Tools {
 		middle = append(middle, fmt.Sprintf("Tool: %s: %s", state.Name, state.Status))
 	}
