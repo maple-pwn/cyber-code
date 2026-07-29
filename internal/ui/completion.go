@@ -10,8 +10,8 @@ import (
 const maxCompletions = 50
 
 var defaultCommandNames = []string{
-	"branch", "checkpoint", "compact", "context", "help", "hooks", "mcp",
-	"memory", "model", "permissions", "rewind", "skills", "status", "tasks",
+	"branch", "checkpoint", "commit", "compact", "context", "diff", "help", "hooks",
+	"mcp", "memory", "model", "permissions", "review", "rewind", "skills", "status", "tasks",
 }
 
 func completeInput(value string, cursor int, commands []string, workspace string) []string {

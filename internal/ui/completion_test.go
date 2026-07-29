@@ -21,3 +21,15 @@ func TestCompleteInputReturnsBoundedSortedDataOnlySuggestions(t *testing.T) {
 		t.Fatalf("path suggestions = %#v", got)
 	}
 }
+
+func TestDefaultCommandCompletionIncludesGitWorkflows(t *testing.T) {
+	for _, command := range []string{"commit", "diff", "review"} {
+		found := false
+		for _, candidate := range defaultCommandNames {
+			found = found || candidate == command
+		}
+		if !found {
+			t.Fatalf("default completion is missing %q", command)
+		}
+	}
+}

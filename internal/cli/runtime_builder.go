@@ -17,6 +17,7 @@ import (
 	"cyber-code/internal/collaboration"
 	configpkg "cyber-code/internal/config"
 	"cyber-code/internal/contextbuilder"
+	"cyber-code/internal/gitworkflow"
 	"cyber-code/internal/hooks"
 	"cyber-code/internal/lsp"
 	"cyber-code/internal/mcp"
@@ -121,6 +122,10 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 	processRunner := platform.NewRunner(platform.Options{SandboxMode: platform.SandboxMode(loaded.SandboxMode)})
 	if capability := processRunner.SandboxCapability(); capability.Mode == platform.SandboxRequired && !capability.Strong {
 		return nil, fmt.Errorf("configure process sandbox: %w: %s", platform.ErrSandboxUnavailable, capability.DegradedReason)
+	}
+	gitService, err := gitworkflow.NewService(workspace, &authorizedExecutor{tool: "git", broker: broker, delegate: processRunner})
+	if err != nil {
+		return nil, fmt.Errorf("configure Git workflows: %w", err)
 	}
 	for _, registered := range []tool.Tool{
 		builtin.NewReadFile(workspace), builtin.NewWriteFile(workspace), builtin.NewEditFile(workspace),
@@ -240,7 +245,7 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 		return nil, err
 	}
 	services = nil // Runtime owns the service lifetime after successful construction.
-	commands, err := buildControlPlane(built, options.StateDir, loaded.ActiveProfile, profile.Model, mode, hookRunner, discoveredSkills, contextBuilder, mcpManager)
+	commands, err := buildControlPlane(built, options.StateDir, loaded.ActiveProfile, profile.Model, mode, hookRunner, discoveredSkills, contextBuilder, mcpManager, gitService)
 	if err != nil {
 		_ = built.Shutdown(context.Background())
 		return nil, fmt.Errorf("configure command control plane: %w", err)

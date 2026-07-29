@@ -219,6 +219,51 @@ func TestExecuteSessionManagement(t *testing.T) {
 	}
 }
 
+func TestExecuteSessionListIncludesSnapshotMetadataInTextAndJSON(t *testing.T) {
+	stateDir := t.TempDir()
+	store, err := session.NewStore(filepath.Join(stateDir, "sessions"), session.StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveSnapshot(context.Background(), session.Snapshot{
+		SessionID: "rich-session", LastSequence: 7,
+		History: []core.Message{{Role: core.RoleUser}, {Role: core.RoleAssistant}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordSession(stateDir, sessionMetadata{ID: "rich-session", Profile: "deepseek", Model: "deepseek-v4-pro"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		args []string
+		json bool
+	}{
+		{args: []string{"sessions", "list"}},
+		{args: []string{"sessions", "list", "--json"}, json: true},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &stdout, &stderr, test.args, ExecuteOptions{StateDir: stateDir})
+		if code != 0 || stderr.Len() != 0 {
+			t.Fatalf("args=%v code=%d stderr=%q", test.args, code, stderr.String())
+		}
+		if !test.json {
+			for _, want := range []string{"rich-session", "deepseek-v4-pro", "messages=2", "sequence=7"} {
+				if !strings.Contains(stdout.String(), want) {
+					t.Fatalf("text list missing %q: %q", want, stdout.String())
+				}
+			}
+			continue
+		}
+		var entry map[string]any
+		if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &entry); err != nil {
+			t.Fatalf("JSON list = %q: %v", stdout.String(), err)
+		}
+		if entry["id"] != "rich-session" || entry["message_count"] != float64(2) || entry["last_sequence"] != float64(7) {
+			t.Fatalf("JSON entry = %#v", entry)
+		}
+	}
+}
+
 func TestExecuteSessionExportRedactsConfiguredProviderCredential(t *testing.T) {
 	stateDir := t.TempDir()
 	configFile := filepath.Join(t.TempDir(), "config.yaml")

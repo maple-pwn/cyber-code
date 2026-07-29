@@ -10,6 +10,7 @@ import (
 	"cyber-code/internal/contextbuilder"
 	"cyber-code/internal/controlplane"
 	"cyber-code/internal/core"
+	"cyber-code/internal/gitworkflow"
 	"cyber-code/internal/hooks"
 	"cyber-code/internal/mcp"
 	"cyber-code/internal/memory"
@@ -18,13 +19,22 @@ import (
 	"cyber-code/internal/skill"
 )
 
-func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model string, mode permissions.PermissionMode, hooksRunner *hooks.Runner, skills []skill.Skill, contextBuilder *contextbuilder.Builder, mcpManager *mcp.Manager) (*controlplane.Registry, error) {
+type gitWorkflow interface {
+	Diff(context.Context) (string, error)
+	Review(context.Context) (string, error)
+	Commit(context.Context, string) (string, error)
+}
+
+func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model string, mode permissions.PermissionMode, hooksRunner *hooks.Runner, skills []skill.Skill, contextBuilder *contextbuilder.Builder, mcpManager *mcp.Manager, git *gitworkflow.Service) (*controlplane.Registry, error) {
 	registry := controlplane.NewRegistry()
 	memoryStore, err := memory.NewStore(filepath.Join(stateDir, "memory"), memory.Options{})
 	if err != nil {
 		return nil, err
 	}
 	register := func(spec controlplane.Spec) error { return registry.Register(spec) }
+	if err := registerGitCommands(registry, git); err != nil {
+		return nil, err
+	}
 	if err := register(controlplane.Spec{Name: "help", Aliases: []string{"h"}, Usage: "/help", Description: "list available commands", Handler: registry.Help}); err != nil {
 		return nil, err
 	}
@@ -232,6 +242,41 @@ func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model
 		return nil, err
 	}
 	return registry, nil
+}
+
+func registerGitCommands(registry *controlplane.Registry, git gitWorkflow) error {
+	if git == nil {
+		return nil
+	}
+	commands := []controlplane.Spec{
+		{Name: "diff", Usage: "/diff", Description: "show unstaged repository changes", Handler: func(ctx context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
+			if len(invocation.Args) != 0 {
+				return nil, fmt.Errorf("/diff does not accept arguments")
+			}
+			output, err := git.Diff(ctx)
+			return controlplane.TextEvents(output), err
+		}},
+		{Name: "review", Usage: "/review", Description: "collect bounded repository review context", Handler: func(ctx context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
+			if len(invocation.Args) != 0 {
+				return nil, fmt.Errorf("/review does not accept arguments")
+			}
+			output, err := git.Review(ctx)
+			return controlplane.TextEvents(output), err
+		}},
+		{Name: "commit", Usage: "/commit MESSAGE", Description: "commit already staged changes", Handler: func(ctx context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
+			if len(invocation.Args) == 0 {
+				return nil, fmt.Errorf("/commit requires a message")
+			}
+			output, err := git.Commit(ctx, strings.Join(invocation.Args, " "))
+			return controlplane.TextEvents(output), err
+		}},
+	}
+	for _, command := range commands {
+		if err := registry.Register(command); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func runtimeSessionID(runtime *runtimepkg.Runtime) string {

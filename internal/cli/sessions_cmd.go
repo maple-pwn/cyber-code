@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -23,9 +24,19 @@ type sessionMetadata struct {
 	Updated time.Time `json:"updated"`
 }
 
+type sessionListEntry struct {
+	ID           string    `json:"id"`
+	Profile      string    `json:"profile,omitempty"`
+	Model        string    `json:"model,omitempty"`
+	Updated      time.Time `json:"updated"`
+	LastSequence uint64    `json:"last_sequence"`
+	MessageCount int       `json:"message_count"`
+}
+
 func newSessionsCommand(environment *commandEnvironment) *cobra.Command {
 	command := &cobra.Command{Use: "sessions", Short: "manage saved sessions"}
-	command.AddCommand(&cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
+	var jsonOutput bool
+	list := &cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
 		entries, err := loadSessionIndex(environment.stateDir)
 		if err != nil {
 			return err
@@ -35,11 +46,34 @@ func newSessionsCommand(environment *commandEnvironment) *cobra.Command {
 			ids = append(ids, id)
 		}
 		sort.Strings(ids)
+		store, err := session.NewStore(filepath.Join(environment.stateDir, "sessions"), session.StoreOptions{})
+		if err != nil {
+			return err
+		}
+		encoder := json.NewEncoder(environment.stdout)
 		for _, id := range ids {
-			_, _ = fmt.Fprintln(environment.stdout, id)
+			metadata := entries[id]
+			item := sessionListEntry{ID: id, Profile: metadata.Profile, Model: metadata.Model, Updated: metadata.Updated}
+			if snapshot, resumeErr := store.Resume(environment.ctx, id); resumeErr == nil {
+				item.LastSequence = snapshot.LastSequence
+				item.MessageCount = len(snapshot.History)
+				if !snapshot.UpdatedAt.IsZero() {
+					item.Updated = snapshot.UpdatedAt
+				}
+			}
+			if jsonOutput {
+				if err := encoder.Encode(item); err != nil {
+					return err
+				}
+				continue
+			}
+			_, _ = fmt.Fprintf(environment.stdout, "%s\t%s\t%s\tmessages=%d\tsequence=%d\t%s\n",
+				item.ID, item.Profile, item.Model, item.MessageCount, item.LastSequence, item.Updated.Format(time.RFC3339))
 		}
 		return nil
-	}})
+	}}
+	list.Flags().BoolVar(&jsonOutput, "json", false, "emit one JSON object per session")
+	command.AddCommand(list)
 	command.AddCommand(&cobra.Command{Use: "resume <id>", Args: cobra.ExactArgs(1), RunE: func(_ *cobra.Command, args []string) error {
 		store, err := session.NewStore(filepath.Join(environment.stateDir, "sessions"), session.StoreOptions{})
 		if err != nil {
