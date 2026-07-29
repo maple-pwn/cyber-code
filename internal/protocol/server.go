@@ -41,14 +41,20 @@ func NewServerWithOptions(runtime Runtime, options ServerOptions) (*Server, erro
 
 // Serve handles newline-delimited JSON requests until the peer disconnects.
 // Active turns are canceled on disconnect or server shutdown.
+// A cancelable context requires input to implement io.Closer so blocked reads
+// can be terminated without leaking a goroutine.
 func (server *Server) Serve(ctx context.Context, input io.Reader, output io.Writer) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	closer, canCloseInput := input.(io.Closer)
+	if ctx.Done() != nil && !canCloseInput {
+		return errors.New("cancelable protocol input must implement io.Closer")
+	}
 	reader := bufio.NewReader(input)
 	responses := newConnectionOutput(output, server.codec, 64)
 	connectionCtx, disconnect := context.WithCancel(ctx)
-	if closer, ok := input.(io.Closer); ok {
+	if canCloseInput {
 		go func() {
 			<-connectionCtx.Done()
 			_ = closer.Close()
@@ -70,33 +76,44 @@ func (server *Server) Serve(ctx context.Context, input io.Reader, output io.Writ
 		request Request
 		err     error
 	}
-	decoded := make(chan decodeResult)
-	go func() {
-		defer close(decoded)
-		for {
+	var nextRequest func() decodeResult
+	if canCloseInput {
+		decoded := make(chan decodeResult)
+		go func() {
+			defer close(decoded)
+			for {
+				var request Request
+				err := server.codec.Decode(reader, &request)
+				select {
+				case decoded <- decodeResult{request: request, err: err}:
+				case <-connectionCtx.Done():
+					return
+				}
+				if err != nil {
+					return
+				}
+			}
+		}()
+		nextRequest = func() decodeResult {
+			select {
+			case <-ctx.Done():
+				return decodeResult{err: ctx.Err()}
+			case next, ok := <-decoded:
+				if !ok {
+					return decodeResult{err: io.EOF}
+				}
+				return next
+			}
+		}
+	} else {
+		nextRequest = func() decodeResult {
 			var request Request
 			err := server.codec.Decode(reader, &request)
-			select {
-			case decoded <- decodeResult{request: request, err: err}:
-			case <-connectionCtx.Done():
-				return
-			}
-			if err != nil {
-				return
-			}
+			return decodeResult{request: request, err: err}
 		}
-	}()
+	}
 	for {
-		var result decodeResult
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case next, ok := <-decoded:
-			if !ok {
-				return nil
-			}
-			result = next
-		}
+		result := nextRequest()
 		request := result.request
 		if err := result.err; err != nil {
 			if errors.Is(err, io.EOF) {

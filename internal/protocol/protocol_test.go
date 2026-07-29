@@ -29,33 +29,46 @@ func (runtime *fakeRuntime) Run(ctx context.Context, prompt string) <-chan core.
 func (runtime *fakeRuntime) SessionID() string       { return "session-1" }
 func (runtime *fakeRuntime) History() []core.Message { return []core.Message{{Role: core.RoleUser}} }
 
-type blockingReader struct{ release <-chan struct{} }
+type blockingReader struct {
+	release <-chan struct{}
+	started chan<- struct{}
+}
 
 func (reader blockingReader) Read([]byte) (int, error) {
+	if reader.started != nil {
+		reader.started <- struct{}{}
+	}
 	<-reader.release
 	return 0, io.EOF
 }
 
-func TestServerContextCancellationUnblocksNonCloserInput(t *testing.T) {
+func TestServerRejectsNonCloserInputWithCancelableContext(t *testing.T) {
 	release := make(chan struct{})
+	started := make(chan struct{}, 1)
 	server, err := NewServer(&fakeRuntime{}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- server.Serve(ctx, blockingReader{release: release}, io.Discard) }()
-	cancel()
+	go func() { done <- server.Serve(ctx, blockingReader{release: release, started: started}, io.Discard) }()
 	select {
-	case err := <-done:
-		close(release)
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("serve error = %v", err)
-		}
+	case err = <-done:
 	case <-time.After(100 * time.Millisecond):
+		cancel()
 		close(release)
 		<-done
-		t.Fatal("non-closer input prevented context cancellation")
+		t.Fatal("server did not reject non-closer input")
+	}
+	cancel()
+	close(release)
+	if err == nil || !strings.Contains(err.Error(), "io.Closer") {
+		t.Fatalf("serve error = %v", err)
+	}
+	select {
+	case <-started:
+		t.Fatal("server started a read it could not cancel")
+	default:
 	}
 }
 
@@ -178,7 +191,7 @@ func TestServerStartsTurnAndReportsStatus(t *testing.T) {
 	var output bytes.Buffer
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := server.Serve(ctx, input, &output); err != nil {
+	if err := server.Serve(ctx, io.NopCloser(input), &output); err != nil {
 		t.Fatal(err)
 	}
 	if runtime.prompt != "hello" {

@@ -148,15 +148,52 @@ export class ProtocolClient extends EventEmitter {
   }
 }
 
-export function permissionDetail(request: PermissionPrompt["request"]): string {
-  const command = request.command?.trim();
-  const paths = request.paths?.filter(Boolean);
-  const network = request.network?.filter(Boolean);
-  return [
-    request.tool,
-    request.action,
-    command ? `command: ${command}` : undefined,
-    paths?.length ? `paths: ${paths.join(", ")}` : undefined,
-    network?.length ? `network: ${network.join(", ")}` : undefined
-  ].filter(Boolean).join(" · ");
+export interface PermissionDetail {
+  text: string;
+  reviewable: boolean;
+}
+
+const maxPermissionFieldCharacters = 1024;
+const maxPermissionDetailCharacters = 2048;
+
+export function permissionDetail(request: PermissionPrompt["request"]): PermissionDetail {
+  const fields: string[] = [];
+  let reviewable = true;
+  const add = (label: string | undefined, value: string | undefined): void => {
+    if (!value) return;
+    const safe = safePermissionText(value, maxPermissionFieldCharacters);
+    reviewable = reviewable && safe.complete;
+    fields.push(label ? `${label}: ${safe.text}` : safe.text);
+  };
+  add(undefined, request.tool);
+  add(undefined, request.action);
+  add("command", request.command?.trim());
+  add("paths", permissionList(request.paths));
+  add("network", permissionList(request.network));
+  const text = fields.join(" · ");
+  if (reviewable && text.length <= maxPermissionDetailCharacters) return { text, reviewable: true };
+
+  const tool = safePermissionText(request.tool ?? "unknown tool", 64).text;
+  const action = safePermissionText(request.action ?? "unknown action", 64).text;
+  return { text: `${tool} · ${action} · [permission details exceed display limit]`, reviewable: false };
+}
+
+function permissionList(values?: string[]): string | undefined {
+  const filtered = values?.filter(Boolean);
+  return filtered?.length ? filtered.join(", ") : undefined;
+}
+
+function safePermissionText(value: string, limit: number): { text: string; complete: boolean } {
+  let text = "";
+  for (const character of value) {
+    const codePoint = character.codePointAt(0)!;
+    const rendered = isUnsafeDisplayCodePoint(codePoint) ? `\\u{${codePoint.toString(16)}}` : character;
+    if (text.length + rendered.length > limit) return { text, complete: false };
+    text += rendered;
+  }
+  return { text, complete: true };
+}
+
+function isUnsafeDisplayCodePoint(codePoint: number): boolean {
+	return /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(String.fromCodePoint(codePoint));
 }

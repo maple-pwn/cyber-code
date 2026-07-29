@@ -103,14 +103,12 @@ function renderEvent(response: Response): void {
 }
 
 async function handlePermission(permission?: PermissionPrompt): Promise<void> {
-  if (!permission || !client) return;
-  const detail = permissionDetail(permission.request);
-  const choice = await vscode.window.showWarningMessage(
-    `cyber-code requests permission${detail ? `: ${detail}` : ""}`,
-    { modal: true },
-    "Allow",
-    "Deny"
-  );
+	if (!permission || !client) return;
+	const detail = permissionDetail(permission.request);
+	const message = `cyber-code requests permission${detail.text ? `: ${detail.text}` : ""}`;
+	const choice = detail.reviewable
+		? await vscode.window.showWarningMessage(message, { modal: true }, "Allow", "Deny")
+		: await vscode.window.showWarningMessage(message, { modal: true }, "Deny");
   const decision = choice === "Allow" ? "allow" : "deny";
   client.respondToPermission(permission.id, decision, choice === "Allow" ? "approved in VS Code" : "denied in VS Code");
 }

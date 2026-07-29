@@ -128,11 +128,25 @@ test("rejects a pending turn when stdin reports an asynchronous write error", as
 });
 
 test("formats stable permission target fields", () => {
-  assert.equal(permissionDetail({ tool: "shell", action: "execute", command: "go test ./..." }), "shell · execute · command: go test ./...");
-  assert.equal(permissionDetail({ tool: "read_file", action: "read", paths: ["main.go", "go.mod"] }), "read_file · read · paths: main.go, go.mod");
-  assert.equal(permissionDetail({ tool: "web", action: "network", network: ["example.test", "cdn.example.test"] }), "web · network · network: example.test, cdn.example.test");
-  assert.equal(
+  assert.deepEqual(permissionDetail({ tool: "shell", action: "execute", command: "go test ./..." }), { text: "shell · execute · command: go test ./...", reviewable: true });
+  assert.deepEqual(permissionDetail({ tool: "read_file", action: "read", paths: ["main.go", "go.mod"] }), { text: "read_file · read · paths: main.go, go.mod", reviewable: true });
+  assert.deepEqual(permissionDetail({ tool: "web", action: "network", network: ["example.test", "cdn.example.test"] }), { text: "web · network · network: example.test, cdn.example.test", reviewable: true });
+  assert.deepEqual(
     permissionDetail({ tool: "shell", action: "execute", command: "dangerous-command > build.log", paths: ["build.log"] }),
-    "shell · execute · command: dangerous-command > build.log · paths: build.log"
+    { text: "shell · execute · command: dangerous-command > build.log · paths: build.log", reviewable: true }
   );
+});
+
+test("escapes control and bidi characters in permission details", () => {
+  assert.deepEqual(permissionDetail({ tool: "shell\nspoof", action: "execute", command: "safe\u061Ctxt\u202E.exe\u2028next" }), {
+    text: "shell\\u{a}spoof · execute · command: safe\\u{61c}txt\\u{202e}.exe\\u{2028}next",
+    reviewable: true
+  });
+});
+
+test("marks oversized permission details as unreviewable", () => {
+  const detail = permissionDetail({ tool: "shell", action: "execute", command: `run ${"x".repeat(4096)}` });
+  assert.equal(detail.reviewable, false);
+  assert.match(detail.text, /exceed display limit/);
+  assert.ok(detail.text.length < 256);
 });

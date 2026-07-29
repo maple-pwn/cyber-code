@@ -37,7 +37,7 @@
 
 服务端确认 `accepted` 已写出后才启动 Runtime，随后以相同 `id` 返回 `event` 消息；文件及 notebook 工具成功修改后还会发送 `diff`，其中包含工作区相对路径及完整的 `old_text`/`new_text`。diff 是 Runtime 已授权并执行修改后的只读通知，不授予客户端写权限；超过协议单帧上限时省略 diff，但 turn 继续完成。turn 结束时返回 `turn_finished`，取消完成时包含 `canceled: true`。权限请求通过 `permission` 消息发送，`request` 使用稳定的小写字段 `tool`、`action`、`workspace`、`command`、`paths`、`network`；响应必须匹配当前连接中的待处理 ID，断线会默认拒绝。
 
-输出使用有界队列。客户端持续不读取时，服务端返回 slow-consumer 错误并取消当前 turn，避免无界内存增长。断开连接后，同一 Server 可以接受新连接。
+输出使用有界队列。客户端持续不读取时，服务端返回 slow-consumer 错误并取消当前 turn，避免无界内存增长。断开连接后，同一 Server 可以接受新连接。嵌入式宿主使用可取消 context 时，传给 `Serve` 的 input 必须实现 `io.Closer`；socket、pipe 或 stdio 被 `bufio.Reader` 等类型包装时，宿主仍需传入一个能关闭底层连接的 Reader/Closer。
 
 `internal/bridge` 提供两个适配器：
 
