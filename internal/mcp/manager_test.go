@@ -224,6 +224,33 @@ func TestManagerReconnectsAfterInitialHandshakeFailure(t *testing.T) {
 	}
 }
 
+func TestManagerRetriesIdempotentCallAfterTransportFailure(t *testing.T) {
+	first := newScriptedTransport()
+	first.failMethod = "resources/read"
+	first.failOnce = true
+	second := newScriptedTransport()
+	second.toolText = "recovered"
+	opens := 0
+	manager := newTestManager(t, toolpkg.NewRegistry(), allowAllAuthorizer(), func(context.Context, ServerConfig) (Transport, error) {
+		opens++
+		if opens == 1 {
+			return first, nil
+		}
+		return second, nil
+	})
+	t.Cleanup(func() { _ = manager.Close() })
+	if err := manager.Connect(context.Background(), ServerConfig{Name: "retry", Transport: TransportHTTP, URL: "https://example.test"}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := manager.ReadResource(context.Background(), "retry", "docs://guide")
+	if err != nil || len(result.Contents) != 1 || result.Contents[0].Text != "guide body" {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if opens != 2 {
+		t.Fatalf("transport opens=%d", opens)
+	}
+}
+
 func TestManagerToolConflictRollsBackConnection(t *testing.T) {
 	registry := toolpkg.NewRegistry()
 	conflict := &testTool{name: "mcp__conflict__lookup"}
@@ -320,6 +347,9 @@ type scriptedTransport struct {
 	closed       bool
 	toolText     string
 	callOverride func(context.Context, string, any, any) error
+	failMethod   string
+	failOnce     bool
+	failed       bool
 	clientInfo   Implementation
 }
 
@@ -329,7 +359,14 @@ func (transport *scriptedTransport) Call(ctx context.Context, method string, par
 	transport.mu.Lock()
 	transport.calls = append(transport.calls, method)
 	override := transport.callOverride
+	fail := transport.failMethod == method && (!transport.failOnce || !transport.failed)
+	if fail {
+		transport.failed = true
+	}
 	transport.mu.Unlock()
+	if fail {
+		return errors.New("transport EOF")
+	}
 	if override != nil {
 		return override(ctx, method, params, result)
 	}

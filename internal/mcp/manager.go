@@ -46,6 +46,8 @@ type ManagerOptions struct {
 	Authorizer       Authorizer
 	TransportFactory TransportFactory
 	CallTimeout      time.Duration
+	RetryAttempts    int
+	RetryBackoff     time.Duration
 }
 
 type HealthState string
@@ -63,10 +65,12 @@ type Health struct {
 }
 
 type Manager struct {
-	registry   *toolpkg.Registry
-	authorizer Authorizer
-	factory    TransportFactory
-	timeout    time.Duration
+	registry      *toolpkg.Registry
+	authorizer    Authorizer
+	factory       TransportFactory
+	timeout       time.Duration
+	retryAttempts int
+	retryBackoff  time.Duration
 
 	rootCtx context.Context
 	cancel  context.CancelFunc
@@ -101,10 +105,16 @@ func NewManager(options ManagerOptions) (*Manager, error) {
 	if options.CallTimeout <= 0 {
 		options.CallTimeout = 30 * time.Second
 	}
+	if options.RetryAttempts <= 0 {
+		options.RetryAttempts = 1
+	}
+	if options.RetryBackoff <= 0 {
+		options.RetryBackoff = 50 * time.Millisecond
+	}
 	rootCtx, cancel := context.WithCancel(context.Background())
 	return &Manager{
 		registry: options.Registry, authorizer: options.Authorizer, factory: options.TransportFactory,
-		timeout: options.CallTimeout, rootCtx: rootCtx, cancel: cancel, connections: make(map[string]*connection),
+		timeout: options.CallTimeout, retryAttempts: options.RetryAttempts, retryBackoff: options.RetryBackoff, rootCtx: rootCtx, cancel: cancel, connections: make(map[string]*connection),
 	}, nil
 }
 
@@ -306,26 +316,50 @@ func (manager *Manager) call(ctx context.Context, server, method string, params,
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	manager.mu.RLock()
-	conn, ok := manager.connections[server]
-	manager.mu.RUnlock()
-	if !ok {
-		return fmt.Errorf("MCP server %q is not connected", server)
-	}
-	callCtx, cancel := context.WithCancel(conn.ctx)
-	stop := context.AfterFunc(ctx, cancel)
-	defer stop()
-	defer cancel()
-	err := manager.callTransport(callCtx, conn.transport, method, params, result)
-	if err != nil {
+	for attempt := 0; ; attempt++ {
+		manager.mu.RLock()
+		conn, ok := manager.connections[server]
+		manager.mu.RUnlock()
+		if !ok {
+			return fmt.Errorf("MCP server %q is not connected", server)
+		}
+		callCtx, cancel := context.WithCancel(conn.ctx)
+		stop := context.AfterFunc(ctx, cancel)
+		err := manager.callTransport(callCtx, conn.transport, method, params, result)
+		stop()
+		cancel()
+		if err == nil {
+			return nil
+		}
 		manager.mu.Lock()
 		if current := manager.connections[server]; current == conn {
 			current.health.State = HealthUnhealthy
 			current.health.LastError = err.Error()
 		}
 		manager.mu.Unlock()
+		if attempt >= manager.retryAttempts || !idempotentMCPMethod(method) {
+			return err
+		}
+		timer := time.NewTimer(manager.retryBackoff * time.Duration(attempt+1))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+		if reconnectErr := manager.Reconnect(ctx, server); reconnectErr != nil {
+			return err
+		}
 	}
-	return err
+}
+
+func idempotentMCPMethod(method string) bool {
+	switch method {
+	case "initialize", "ping", "tools/list", "resources/list", "resources/read":
+		return true
+	default:
+		return false
+	}
 }
 
 func (manager *Manager) recordFailed(config ServerConfig, cause error) {

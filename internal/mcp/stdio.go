@@ -146,31 +146,42 @@ func (transport *StdioTransport) Call(ctx context.Context, method string, params
 
 	select {
 	case received := <-reply:
-		if received.err != nil {
-			return received.err
-		}
-		if received.response.Error != nil {
-			return &RPCError{Code: received.response.Error.Code, Message: received.response.Error.Message}
-		}
-		if len(received.response.Result) == 0 {
-			return fmt.Errorf("%w: response omitted result", ErrProtocol)
-		}
-		if result == nil {
-			return nil
-		}
-		if err := json.Unmarshal(received.response.Result, result); err != nil {
-			return fmt.Errorf("%w: malformed result", ErrProtocol)
-		}
-		return nil
+		return decodeRPCReply(received, result)
 	case <-ctx.Done():
 		transport.removePending(id, true)
 		return ctx.Err()
 	case <-transport.done:
+		// A response can arrive immediately before the reader observes EOF.
+		// Prefer that response over the transport-wide failure notification.
+		select {
+		case received := <-reply:
+			return decodeRPCReply(received, result)
+		default:
+		}
 		transport.mu.Lock()
 		err := transport.failure
 		transport.mu.Unlock()
 		return err
 	}
+}
+
+func decodeRPCReply(received rpcReply, result any) error {
+	if received.err != nil {
+		return received.err
+	}
+	if received.response.Error != nil {
+		return &RPCError{Code: received.response.Error.Code, Message: received.response.Error.Message}
+	}
+	if len(received.response.Result) == 0 {
+		return fmt.Errorf("%w: response omitted result", ErrProtocol)
+	}
+	if result == nil {
+		return nil
+	}
+	if err := json.Unmarshal(received.response.Result, result); err != nil {
+		return fmt.Errorf("%w: malformed result", ErrProtocol)
+	}
+	return nil
 }
 
 func (transport *StdioTransport) readResponses() {
