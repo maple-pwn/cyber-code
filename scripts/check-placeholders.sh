@@ -4,7 +4,7 @@ set -eu
 
 # Keep this list limited to paths that have completed migration. Callers may
 # provide explicit paths to check a different, similarly reviewed scope.
-MIGRATED_PATHS="internal/state internal/core internal/provider internal/agent internal/runtime internal/tool internal/permissions internal/session internal/hooks internal/mcp internal/plugin internal/skill internal/tasks internal/lsp internal/platform internal/frontend internal/ui internal/cli internal/doctor internal/security tests"
+MIGRATED_PATHS="internal/state internal/core internal/provider internal/agent internal/runtime internal/tool internal/permissions internal/session internal/hooks internal/mcp internal/plugin internal/skill internal/tasks internal/lsp internal/platform internal/frontend internal/ui internal/cli internal/doctor internal/security tests cmd editors"
 
 usage() {
 	printf 'usage: %s [--self-test] [PATH ...]\n' "$0"
@@ -21,7 +21,7 @@ scan() {
 	done
 
 	status=0
-	matches=$(grep -RInE -i "$pattern" -- "$@") || status=$?
+	matches=$(grep -RInE -i --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist "$pattern" -- "$@") || status=$?
 	case "$status" in
 		0)
 			printf 'placeholder markers found:\n%s\n' "$matches" >&2

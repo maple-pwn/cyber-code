@@ -4,6 +4,7 @@
 
 | 能力 | 状态 | 入口/验证 |
 | --- | --- | --- |
+| 唯一产品入口 | implemented | `cmd/cli`；`scripts/check-entrypoint-reachability.sh` 拒绝旧 CLI、工具、语音和 ChatModel 产品路径 |
 | Anthropic Messages API | implemented | `internal/provider/anthropic`，provider 契约测试 |
 | OpenAI-compatible API | implemented | `internal/provider/openai`，DeepSeek 配置示例 |
 | 流式文本、思考、工具调用、usage | implemented | provider 与 agent 测试 |
@@ -18,7 +19,7 @@
 | Windows sandbox | partial | Job Object 进程树回收；`required` 对完整边界 fail-closed |
 | 本机结构化 SDK 协议 | implemented | `cyber-code serve`、`internal/protocol` |
 | MCP Server 有限会话工具 | implemented | `internal/bridge.MCPServer` 集成测试 |
-| IDE 文件焦点/选择/诊断/diff 消息模型 | partial | 稳定数据模型已提供，未绑定具体 IDE 插件 |
+| IDE 文件焦点/选择/诊断/diff 消息模型 | implemented | `cyber-code serve` 协议和 `editors/vscode` 客户端测试 |
 | Claude Code 私有服务、账号和内部提示词 | out-of-scope | 不复制私有实现 |
 
 ## 发布门禁

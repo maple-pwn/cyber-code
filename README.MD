@@ -12,6 +12,7 @@
 - MCP HTTP/stdio、独立进程插件、LSP、Hooks、Tasks/子 Agent、Compact
 - 会话事件日志、原子快照、恢复、导出和删除
 - Bubble Tea TUI、纯文本/JSON Lines Print 模式、Vim 输入模式
+- VS Code 扩展、Claude-compatible 插件市场和 PNG/JPEG/GIF/WebP 图片输入
 - Linux 与 Windows 进程树管理、通知和语音能力检测
 
 macOS 可用于开发和本地构建；正式平台门禁覆盖 Linux 与 Windows。
@@ -73,6 +74,8 @@ $env:DEEPSEEK_API_KEY = "your-key"
 
 MCP 配置通过 `mcp add` 持久化；启用插件从状态目录的 `plugins/<name>/plugin.json` 加载。Skills、LSP、Hooks、Compact 和审计也从统一状态目录接入，格式见 [docs/configuration.md](docs/configuration.md)。模型可调用 `task_run`、`task_status` 和 `task_cancel` 执行受父级 turn budget 与权限约束的子 Agent。
 
+`cmd/cli` 是唯一产品入口。旧的占位 CLI、工具集合、语音控制器和重复 ChatModel 已移除，并由 `scripts/check-entrypoint-reachability.sh` 阻止回归。VS Code 扩展位于 `editors/vscode`，构建与协议说明见 [docs/sdk.md](docs/sdk.md)。
+
 外部进程或网络在 headless 默认权限模式下会被拒绝，自动化场景必须显式选择经过审查的规则或 `--permission-mode bypass`。安全模型见 [docs/security.md](docs/security.md)。
 
 ## 验证
@@ -82,6 +85,7 @@ go test ./...
 go test -race ./...
 go vet ./...
 scripts/check-placeholders.sh
+scripts/check-entrypoint-reachability.sh
 scripts/check-coverage.sh
 ```
 
