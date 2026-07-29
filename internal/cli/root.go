@@ -17,6 +17,7 @@ import (
 	"cyber-code/internal/frontend"
 	"cyber-code/internal/permissions"
 	"cyber-code/internal/product"
+	"cyber-code/internal/protocol"
 	"cyber-code/internal/tool/builtin"
 	"cyber-code/internal/ui"
 )
@@ -162,6 +163,23 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	command.AddCommand(newMCPCommand(environment))
 	command.AddCommand(newPluginsCommand(environment))
 	command.AddCommand(newSessionsCommand(environment))
+	command.AddCommand(newServeCommand(environment))
+	return command
+}
+
+func newServeCommand(environment *commandEnvironment) *cobra.Command {
+	command := &cobra.Command{Use: "serve", Short: "serve the local integration protocol", Args: cobra.NoArgs, RunE: func(_ *cobra.Command, _ []string) error {
+		built, err := composeRuntime(environment.ctx, compositionOptions{ConfigFile: environment.configFile, StateDir: environment.stateDir, Headless: true, Confirmer: newBootstrapConfirmer(environment.stdin, environment.stderr)})
+		if err != nil {
+			return err
+		}
+		defer built.Shutdown(context.Background())
+		server, err := protocol.NewServer(built, 0)
+		if err != nil {
+			return err
+		}
+		return server.Serve(environment.ctx, environment.stdin, environment.stdout)
+	}}
 	return command
 }
 
