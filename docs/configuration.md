@@ -68,7 +68,7 @@ Skill 正文不会自动进入每次请求。可用 Skill 由只读 `load_skill`
 - `skills/<name>/SKILL.md`：用户技能；项目技能位于 `<workspace>/.cyber-code/skills/<name>/SKILL.md`。项目同名技能优先。
 - `lsp.json`：语言到 LSP 启动配置的映射；进程在首次工具调用时惰性启动。
 - `hooks.json`：Hook event 到命令数组的映射。
-- `compact.json`：绝对压缩阈值和保留消息数。缺省使用 100000 tokens 与 8 条近期消息，并使用本地 token 估算避免额外计数请求。自动压缩要求同时达到配置中的 context 比例阈值和这里的绝对 token 阈值；手动 `/compact` 只检查绝对阈值。压缩边界不会拆开 assistant tool call 与对应 tool result。
+- `compact.json`：绝对压缩阈值和保留消息数。缺省使用 100000 tokens 与 8 条近期消息，并使用本地 token 估算避免额外计数请求。自动压缩采用独立触发器：达到配置中的 context 比例阈值或这里的绝对 token 阈值任一条件，就会在本次阈值跨越中至多尝试一次；两个条件都回落后才重新武装。手动 `/compact` 只检查绝对 token 阈值。压缩边界不会拆开 assistant tool call 与对应 tool result。
 - `audit.json`：最多 1000 条权限决策记录，由程序维护。
 - 会话目录中的 `graph.json` 与 `checkpoint-*.json`：checkpoint 元数据和独立历史快照，由 `/checkpoint`、`/rewind`、`/branch` 管理。
 

@@ -167,6 +167,8 @@ Anthropic、Bedrock、Vertex、Azure 与更多 OpenAI-compatible 配置见 [Prov
 
 cyber-code 会持久化 canonical 事件日志和原子快照。使用 `sessions list` 浏览按更新时间倒序排列的脱敏摘要，使用 `--resume` 继续工作。单个会话采用单写者 lease，避免多个进程同时覆盖状态。
 
+自动上下文压缩在 context 使用比例或绝对 Token 阈值任一越界时触发；两个阈值都回落后才允许下一次自动尝试。手动 `/compact` 只遵循绝对 Token 阈值。
+
 项目指令按以下顺序组合：
 
 1. cyber-code 内置身份与安全边界；

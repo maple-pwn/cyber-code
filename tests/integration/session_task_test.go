@@ -321,7 +321,18 @@ func TestRuntimeHooksCompactSessionAndTaskLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for range runtime.Run(context.Background(), "new question") {
+	var compactEvents []core.Event
+	for event := range runtime.Run(context.Background(), "new question") {
+		compactEvents = append(compactEvents, event)
+	}
+	wantCompactEvents := []core.EventType{core.EventUserMessage, core.EventCompacted, core.EventTextDelta, core.EventCompleted}
+	if len(compactEvents) != len(wantCompactEvents) {
+		t.Fatalf("compact events=%#v", compactEvents)
+	}
+	for index, want := range wantCompactEvents {
+		if compactEvents[index].Type != want {
+			t.Fatalf("compact event %d=%q want=%q", index, compactEvents[index].Type, want)
+		}
 	}
 	if err := runtime.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
@@ -329,8 +340,12 @@ func TestRuntimeHooksCompactSessionAndTaskLifecycle(t *testing.T) {
 	if !strings.Contains(model.lastRequestText(), "summary context") || !strings.Contains(model.lastRequestText(), "new question transformed") {
 		t.Fatalf("provider request=%s", model.lastRequestText())
 	}
-	if _, err := store.Resume(context.Background(), "integration-session"); err != nil {
+	snapshot, err := store.Resume(context.Background(), "integration-session")
+	if err != nil {
 		t.Fatalf("resume snapshot: %v", err)
+	}
+	if len(snapshot.History) < 3 || snapshot.History[0].Content[0].Text != "summary context" {
+		t.Fatalf("compact snapshot=%#v", snapshot)
 	}
 
 	registry := tasks.NewRegistry()

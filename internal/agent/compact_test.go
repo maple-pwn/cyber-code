@@ -172,6 +172,46 @@ func TestEngineContextThresholdForcesCompactionBelowLegacyTokenThreshold(t *test
 	}
 }
 
+func TestEngineAbsoluteTokenThresholdCompactsAndRearmsOnlyAfterBothTriggersClear(t *testing.T) {
+	attempts := 0
+	compactor, err := session.NewCompactor(session.CompactOptions{
+		ThresholdTokens: 50, KeepRecentMessages: 1,
+		Summarize: func(context.Context, []core.Message) (string, error) {
+			attempts++
+			return "", errors.New("summary unavailable")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder := &governanceContextBuilder{ratio: func(int) float64 { return 0.20 }}
+	model := &compactProvider{
+		events: []core.Event{{Type: core.EventCompleted, FinishReason: "stop"}},
+		countRequest: func(request core.Request) int {
+			if lastUserText(request) == "below both thresholds" {
+				return 10
+			}
+			return 100
+		},
+	}
+	engine := NewEngine(model, Options{
+		InitialHistory: textHistory("old user", "old assistant"), ContextBuilder: builder, Compactor: compactor,
+	})
+	collectAgentEvents(t, engine.Run(context.Background(), "absolute crossing"))
+	collectAgentEvents(t, engine.Run(context.Background(), "still above absolute threshold"))
+	if attempts != 1 {
+		t.Fatalf("compact attempts while absolute threshold stayed crossed = %d", attempts)
+	}
+	collectAgentEvents(t, engine.Run(context.Background(), "below both thresholds"))
+	if attempts != 1 {
+		t.Fatalf("compact attempted below both thresholds = %d", attempts)
+	}
+	collectAgentEvents(t, engine.Run(context.Background(), "absolute crossing again"))
+	if attempts != 2 {
+		t.Fatalf("compact attempts after both thresholds cleared = %d", attempts)
+	}
+}
+
 func TestEngineAutoCompactIsCanceledWithTurn(t *testing.T) {
 	started := make(chan struct{})
 	compactor, err := session.NewCompactor(session.CompactOptions{
@@ -242,17 +282,22 @@ func textHistory(texts ...string) []core.Message {
 }
 
 type compactProvider struct {
-	mu      sync.Mutex
-	count   int
-	events  []core.Event
-	request core.Request
+	mu           sync.Mutex
+	count        int
+	countRequest func(core.Request) int
+	events       []core.Event
+	request      core.Request
 }
 
 func (model *compactProvider) Name() string { return "compact" }
 func (model *compactProvider) Capabilities(context.Context) (provider.Capabilities, error) {
 	return provider.Capabilities{Streaming: true, TokenCounting: true}, nil
 }
-func (model *compactProvider) CountTokens(context.Context, core.Request) (int, error) {
+
+func (model *compactProvider) CountTokens(_ context.Context, request core.Request) (int, error) {
+	if model.countRequest != nil {
+		return model.countRequest(request), nil
+	}
 	return model.count, nil
 }
 func (model *compactProvider) Stream(ctx context.Context, request core.Request) (<-chan core.Event, error) {
@@ -272,4 +317,18 @@ func (model *compactProvider) Stream(ctx context.Context, request core.Request) 
 		}
 	}()
 	return stream, nil
+}
+
+func lastUserText(request core.Request) string {
+	for index := len(request.Messages) - 1; index >= 0; index-- {
+		if request.Messages[index].Role != core.RoleUser {
+			continue
+		}
+		var output strings.Builder
+		for _, block := range request.Messages[index].Content {
+			output.WriteString(block.Text)
+		}
+		return output.String()
+	}
+	return ""
 }

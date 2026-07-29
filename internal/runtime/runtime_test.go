@@ -365,7 +365,7 @@ func TestRuntimeAutoCompactPersistsWarningBoundaryAndSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	compactor, err := session.NewCompactor(session.CompactOptions{
-		ThresholdTokens: 1, KeepRecentMessages: 1,
+		ThresholdTokens: 1_000_000, KeepRecentMessages: 1,
 		Summarize: func(context.Context, []core.Message) (string, error) { return "automatic summary", nil },
 	})
 	if err != nil {
