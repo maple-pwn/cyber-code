@@ -2,8 +2,10 @@ package builtin
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -142,6 +144,94 @@ func TestEditFileRejectsUnexpectedContentVersion(t *testing.T) {
 	args := json.RawMessage(`{"path":"file.txt","old_text":"before","new_text":"after","expected_sha256":"deadbeef"}`)
 	if _, err := edit.Run(context.Background(), args); err == nil {
 		t.Fatal("stale edit was accepted")
+	}
+}
+
+func TestEditFileAppliesNonOverlappingMultiEditAgainstOriginalContent(t *testing.T) {
+	workspace := t.TempDir()
+	target := filepath.Join(workspace, "file.txt")
+	original := "alpha beta three"
+	if err := os.WriteFile(target, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256([]byte(original))
+	arguments, err := json.Marshal(map[string]any{
+		"path": target, "expected_sha256": fmt.Sprintf("%x", digest),
+		"edits": []map[string]string{
+			{"old_text": "alpha", "new_text": "beta"},
+			{"old_text": "beta", "new_text": "gamma"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewEditFile(workspace).Run(context.Background(), arguments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Diff == nil || result.Diff.Path != "file.txt" || result.Diff.OldText != original || result.Diff.NewText != "beta gamma three" {
+		t.Fatalf("multi-edit diff = %#v", result.Diff)
+	}
+	content, err := os.ReadFile(target)
+	if err != nil || string(content) != "beta gamma three" {
+		t.Fatalf("multi-edit content = %q, error = %v", content, err)
+	}
+}
+
+func TestEditFileMultiEditRejectsInvalidSetsWithoutWriting(t *testing.T) {
+	tests := []struct {
+		name  string
+		input map[string]any
+	}{
+		{name: "zero match", input: map[string]any{"edits": []map[string]string{{"old_text": "missing", "new_text": "x"}}}},
+		{name: "multiple matches", input: map[string]any{"edits": []map[string]string{{"old_text": "same", "new_text": "x"}}}},
+		{name: "overlap", input: map[string]any{"edits": []map[string]string{{"old_text": "same ", "new_text": "x"}, {"old_text": "ame", "new_text": "y"}}}},
+		{name: "duplicate", input: map[string]any{"edits": []map[string]string{{"old_text": "tail", "new_text": "x"}, {"old_text": "tail", "new_text": "y"}}}},
+		{name: "empty old text", input: map[string]any{"edits": []map[string]string{{"old_text": "", "new_text": "x"}}}},
+		{name: "both legacy and edits", input: map[string]any{"old_text": "tail", "new_text": "x", "edits": []map[string]string{{"old_text": "same", "new_text": "y"}}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			target := filepath.Join(workspace, "file.txt")
+			original := "same same tail"
+			if err := os.WriteFile(target, []byte(original), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			test.input["path"] = target
+			arguments, err := json.Marshal(test.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := NewEditFile(workspace).Run(context.Background(), arguments); err == nil {
+				t.Fatal("invalid multi-edit succeeded")
+			}
+			content, err := os.ReadFile(target)
+			if err != nil || string(content) != original {
+				t.Fatalf("failed multi-edit changed file: content=%q error=%v", content, err)
+			}
+		})
+	}
+}
+
+func TestEditFileMultiEditRejectsStaleSHAAndLateFailureAtomically(t *testing.T) {
+	workspace := t.TempDir()
+	target := filepath.Join(workspace, "file.txt")
+	original := "first second"
+	if err := os.WriteFile(target, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, arguments := range []json.RawMessage{
+		json.RawMessage(`{"path":"file.txt","expected_sha256":"deadbeef","edits":[{"old_text":"first","new_text":"1"}]}`),
+		json.RawMessage(`{"path":"file.txt","edits":[{"old_text":"first","new_text":"1"},{"old_text":"missing","new_text":"2"}]}`),
+	} {
+		if _, err := NewEditFile(workspace).Run(context.Background(), arguments); err == nil {
+			t.Fatalf("multi-edit unexpectedly succeeded: %s", arguments)
+		}
+		content, err := os.ReadFile(target)
+		if err != nil || string(content) != original {
+			t.Fatalf("failed multi-edit changed file: content=%q error=%v", content, err)
+		}
 	}
 }
 

@@ -130,15 +130,8 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 	if err != nil {
 		return nil, fmt.Errorf("configure Git workflows: %w", err)
 	}
-	for _, registered := range []tool.Tool{
-		builtin.NewReadFile(workspace), builtin.NewWriteFile(workspace), builtin.NewEditFile(workspace),
-		builtin.NewSearchFiles(workspace), builtin.NewShell(workspace, processRunner),
-		builtin.NewAskUser(options.Questioner), builtin.NewWebFetch(nil),
-		builtin.NewWebSearch(builtin.NewDuckDuckGoSearch(nil)), builtin.NewNotebookEdit(workspace),
-	} {
-		if err := registry.Register(registered); err != nil {
-			return nil, err
-		}
+	if err := registerWorkspaceTools(registry, workspace, processRunner, options.Questioner); err != nil {
+		return nil, err
 	}
 	discoveredSkills, err := discoverConfiguredSkills(workspace, options.StateDir)
 	if err != nil {
@@ -289,6 +282,20 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 		return nil, err
 	}
 	return built, nil
+}
+
+func registerWorkspaceTools(registry *tool.Registry, workspace string, executor platform.Executor, questioner builtin.Questioner) error {
+	for _, registered := range []tool.Tool{
+		builtin.NewReadFile(workspace), builtin.NewWriteFile(workspace), builtin.NewEditFile(workspace),
+		builtin.NewSearchFiles(workspace), builtin.NewGrepFiles(workspace), builtin.NewGlobFiles(workspace),
+		builtin.NewShell(workspace, executor), builtin.NewAskUser(questioner), builtin.NewWebFetch(nil),
+		builtin.NewWebSearch(builtin.NewDuckDuckGoSearch(nil)), builtin.NewNotebookEdit(workspace),
+	} {
+		if err := registry.Register(registered); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func todoStatePath(stateDir, sessionID string) string {

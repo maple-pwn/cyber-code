@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"cyber-code/internal/core"
@@ -40,8 +41,8 @@ func NewWriteFile(workspace string) tool.Tool {
 
 func NewEditFile(workspace string) tool.Tool {
 	return &fileTool{workspace: workspace, action: permissions.ActionWrite, spec: tool.Spec{
-		Name: "edit_file", Description: "Replace one unique text occurrence in a file",
-		Schema: json.RawMessage(`{"type":"object","required":["path","old_text","new_text"],"properties":{"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"},"expected_sha256":{"type":"string"}},"additionalProperties":false}`),
+		Name: "edit_file", Description: "Atomically replace one or more unique text occurrences in a file",
+		Schema: json.RawMessage(`{"type":"object","required":["path"],"properties":{"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"},"edits":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"object","required":["old_text","new_text"],"properties":{"old_text":{"type":"string"},"new_text":{"type":"string"}},"additionalProperties":false}},"expected_sha256":{"type":"string"}},"additionalProperties":false}`),
 	}}
 }
 
@@ -101,10 +102,11 @@ func (file *fileTool) Run(ctx context.Context, arguments json.RawMessage) (core.
 		return fileResult("file written", diffPath, string(oldContent), input.Content), nil
 	case "edit_file":
 		var input struct {
-			Path           string `json:"path"`
-			OldText        string `json:"old_text"`
-			NewText        string `json:"new_text"`
-			ExpectedSHA256 string `json:"expected_sha256"`
+			Path           string     `json:"path"`
+			OldText        *string    `json:"old_text"`
+			NewText        *string    `json:"new_text"`
+			Edits          []textEdit `json:"edits"`
+			ExpectedSHA256 string     `json:"expected_sha256"`
 		}
 		if err := json.Unmarshal(arguments, &input); err != nil {
 			return core.ToolResult{}, err
@@ -121,19 +123,28 @@ func (file *fileTool) Run(ctx context.Context, arguments json.RawMessage) (core.
 		if err != nil {
 			return core.ToolResult{}, err
 		}
-		if input.OldText == "" {
-			return core.ToolResult{}, fmt.Errorf("old_text must not be empty")
-		}
 		if input.ExpectedSHA256 != "" {
 			digest := sha256.Sum256(content)
 			if !strings.EqualFold(input.ExpectedSHA256, fmt.Sprintf("%x", digest)) {
 				return core.ToolResult{}, fmt.Errorf("file changed since the expected version")
 			}
 		}
-		if count := strings.Count(string(content), input.OldText); count != 1 {
-			return core.ToolResult{}, fmt.Errorf("old_text matched %d times; expected exactly once", count)
+		hasLegacy := input.OldText != nil || input.NewText != nil
+		hasMulti := input.Edits != nil
+		if hasLegacy == hasMulti {
+			return core.ToolResult{}, fmt.Errorf("provide either old_text/new_text or edits, but not both")
 		}
-		replaced := strings.Replace(string(content), input.OldText, input.NewText, 1)
+		edits := input.Edits
+		if hasLegacy {
+			if input.OldText == nil || input.NewText == nil {
+				return core.ToolResult{}, fmt.Errorf("old_text and new_text must be provided together")
+			}
+			edits = []textEdit{{OldText: *input.OldText, NewText: *input.NewText}}
+		}
+		replaced, err := applyTextEdits(string(content), edits)
+		if err != nil {
+			return core.ToolResult{}, err
+		}
 		latest, err := readLimitedFile(path)
 		if err != nil {
 			return core.ToolResult{}, err
@@ -148,6 +159,52 @@ func (file *fileTool) Run(ctx context.Context, arguments json.RawMessage) (core.
 	default:
 		return core.ToolResult{}, fmt.Errorf("unsupported file operation")
 	}
+}
+
+type textEdit struct {
+	OldText string `json:"old_text"`
+	NewText string `json:"new_text"`
+}
+
+type locatedTextEdit struct {
+	start, end int
+	newText    string
+}
+
+func applyTextEdits(content string, edits []textEdit) (string, error) {
+	if len(edits) == 0 {
+		return "", fmt.Errorf("edits must contain at least one replacement")
+	}
+	if len(edits) > 100 {
+		return "", fmt.Errorf("edits must not contain more than 100 replacements")
+	}
+	located := make([]locatedTextEdit, 0, len(edits))
+	for index, edit := range edits {
+		if edit.OldText == "" {
+			return "", fmt.Errorf("edits[%d].old_text must not be empty", index)
+		}
+		if count := strings.Count(content, edit.OldText); count != 1 {
+			return "", fmt.Errorf("edits[%d].old_text matched %d times; expected exactly once", index, count)
+		}
+		start := strings.Index(content, edit.OldText)
+		located = append(located, locatedTextEdit{start: start, end: start + len(edit.OldText), newText: edit.NewText})
+	}
+	sort.Slice(located, func(i, j int) bool { return located[i].start < located[j].start })
+	for index := 1; index < len(located); index++ {
+		if located[index].start < located[index-1].end {
+			return "", fmt.Errorf("edits overlap in the original file")
+		}
+	}
+	var output strings.Builder
+	output.Grow(len(content))
+	cursor := 0
+	for _, edit := range located {
+		output.WriteString(content[cursor:edit.start])
+		output.WriteString(edit.newText)
+		cursor = edit.end
+	}
+	output.WriteString(content[cursor:])
+	return output.String(), nil
 }
 
 func readLimitedFile(path string) ([]byte, error) {

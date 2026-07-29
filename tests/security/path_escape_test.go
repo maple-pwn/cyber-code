@@ -88,3 +88,51 @@ func TestFileToolRechecksSymlinkBoundaryAtExecution(t *testing.T) {
 	}
 	var _ tool.Tool = fileTool
 }
+
+func TestGrepGlobToolsRecheckSymlinkBoundaryAtExecution(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	outside := filepath.Join(root, "outside")
+	safeDirectory := filepath.Join(workspace, "safe")
+	if err := os.MkdirAll(safeDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("needle"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range []struct {
+		name string
+		tool tool.Tool
+		args json.RawMessage
+	}{
+		{name: "grep", tool: builtin.NewGrepFiles(workspace), args: json.RawMessage(`{"pattern":"needle","path":"safe"}`)},
+		{name: "glob", tool: builtin.NewGlobFiles(workspace), args: json.RawMessage(`{"pattern":"**/*","path":"safe"}`)},
+	} {
+		t.Run(candidate.name, func(t *testing.T) {
+			if _, err := candidate.tool.Authorize(context.Background(), candidate.args); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(safeDirectory); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(outside, safeDirectory); err != nil {
+				if restoreErr := os.MkdirAll(safeDirectory, 0o700); restoreErr != nil {
+					t.Fatal(restoreErr)
+				}
+				t.Skipf("symlink creation unavailable: %v", err)
+			}
+			if _, err := candidate.tool.Run(context.Background(), candidate.args); err == nil {
+				t.Fatal("search followed a symlink introduced after authorization")
+			}
+			if err := os.Remove(safeDirectory); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(safeDirectory, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

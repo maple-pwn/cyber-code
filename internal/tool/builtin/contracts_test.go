@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"cyber-code/internal/tool"
 )
 
 func TestInteractiveAndStateToolContracts(t *testing.T) {
@@ -100,6 +102,34 @@ func TestAdditionalBuiltinBoundaryContracts(t *testing.T) {
 	public, _ := url.Parse("https://1.1.1.1")
 	if err := validatePublicURL(context.Background(), nil, public); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPreciseWorkspaceToolContractsRemainAdditive(t *testing.T) {
+	workspace := t.TempDir()
+	grep := NewGrepFiles(workspace)
+	glob := NewGlobFiles(workspace)
+	edit := NewEditFile(workspace)
+	for _, candidate := range []struct {
+		name string
+		tool interface {
+			Spec() tool.Spec
+		}
+	}{
+		{name: "grep_files", tool: grep},
+		{name: "glob_files", tool: glob},
+		{name: "edit_file", tool: edit},
+	} {
+		spec := candidate.tool.Spec()
+		if spec.Name != candidate.name || len(spec.Schema) == 0 {
+			t.Fatalf("tool contract = %#v", spec)
+		}
+	}
+	if !strings.Contains(string(edit.Spec().Schema), `"edits"`) || !strings.Contains(string(edit.Spec().Schema), `"old_text"`) {
+		t.Fatalf("edit schema is not additive: %s", edit.Spec().Schema)
+	}
+	if NewSearchFiles(workspace).Spec().Name != "search_files" {
+		t.Fatal("search_files compatibility contract was removed")
 	}
 }
 
