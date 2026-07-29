@@ -2,10 +2,12 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -35,9 +37,13 @@ type Message struct {
 }
 
 type ToolPresentation struct {
-	ID     string
-	Name   string
-	Status string
+	ID       string
+	Name     string
+	Status   string
+	Input    map[string]interface{}
+	Output   string
+	FilePath string
+	IsError  bool
 }
 
 type Model struct {
@@ -58,6 +64,7 @@ type Model struct {
 	QuestionInput  *components.InputDialog
 	Tools          []ToolPresentation
 	Usage          core.Usage
+	ProcessingView *components.ProcessingModel
 
 	events          <-chan core.Event
 	turnCancel      context.CancelFunc
@@ -76,6 +83,9 @@ type runtimeEventMsg struct {
 	open  bool
 }
 type permissionRespondedMsg struct{}
+type processingTickMsg struct{}
+
+const processingTickInterval = 100 * time.Millisecond
 
 type PermissionRequestMsg struct {
 	Request permissions.Request
@@ -174,7 +184,8 @@ func NewModel(runner Runner, options ModelOptions) *Model {
 		runner: runner, ctx: ctx, cancel: cancel, Messages: []Message{}, Input: input, Width: options.Width, Height: options.Height,
 		Ready: true, assistantIndex: -1, initialPrompt: options.InitialPrompt,
 		toolIndexes: make(map[string]int), workspace: options.Workspace,
-		commandNames: append([]string(nil), options.CommandNames...),
+		commandNames:   append([]string(nil), options.CommandNames...),
+		ProcessingView: components.NewProcessingIndicator("Working"),
 	}
 }
 
@@ -247,6 +258,12 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if terminal {
 			return model, nil
 		}
+		return model, waitForRuntimeEvent(model.events)
+	case processingTickMsg:
+		if !model.Processing {
+			return model, nil
+		}
+		model.ProcessingView.Update()
 		return model, waitForRuntimeEvent(model.events)
 	case PermissionRequestMsg:
 		model.Permission = components.NewPermissionDialog(message.Request.Tool, permissionDescription(message.Request))
@@ -330,8 +347,12 @@ func startTurn(runner Runner, ctx context.Context, prompt string) tea.Cmd {
 
 func waitForRuntimeEvent(events <-chan core.Event) tea.Cmd {
 	return func() tea.Msg {
-		event, open := <-events
-		return runtimeEventMsg{event: event, open: open}
+		select {
+		case event, open := <-events:
+			return runtimeEventMsg{event: event, open: open}
+		case <-time.After(processingTickInterval):
+			return processingTickMsg{}
+		}
 	}
 }
 
@@ -350,9 +371,6 @@ func (model *Model) applyEvent(event core.Event) bool {
 	case core.EventToolResult:
 		if event.ToolResult != nil {
 			model.recordToolResult(event.ToolResult)
-			if text := toolResultText(event.ToolResult); text != "" {
-				model.Messages = append(model.Messages, Message{Role: "tool", Content: text})
-			}
 		}
 	case core.EventUsage:
 		if event.Usage != nil {
@@ -378,13 +396,18 @@ func (model *Model) applyEvent(event core.Event) bool {
 }
 
 func (model *Model) recordToolCall(call *core.ToolCall) {
+	input := make(map[string]interface{})
+	if len(call.Arguments) > 0 {
+		_ = json.Unmarshal(call.Arguments, &input)
+	}
 	if index, ok := model.toolIndexes[call.ID]; ok {
 		model.Tools[index].Name = call.Name
 		model.Tools[index].Status = "running"
+		model.Tools[index].Input = input
 		return
 	}
 	model.toolIndexes[call.ID] = len(model.Tools)
-	model.Tools = append(model.Tools, ToolPresentation{ID: call.ID, Name: call.Name, Status: "running"})
+	model.Tools = append(model.Tools, ToolPresentation{ID: call.ID, Name: call.Name, Status: "running", Input: input, FilePath: toolFilePath(input)})
 }
 
 func (model *Model) recordToolResult(result *core.ToolResult) {
@@ -397,6 +420,11 @@ func (model *Model) recordToolResult(result *core.ToolResult) {
 		status = "failed"
 	}
 	model.Tools[index].Status = status
+	model.Tools[index].Output = toolResultText(result)
+	model.Tools[index].IsError = result.IsError
+	if result.Diff != nil {
+		model.Tools[index].FilePath = result.Diff.Path
+	}
 }
 
 func (model *Model) appendAssistantDelta(text string) {
@@ -469,9 +497,7 @@ func (model *Model) View() string {
 	width, height := max(20, model.Width), max(6, model.Height)
 	header := []string{product.Name, strings.Repeat("-", width)}
 	middle := renderMessages(model.Messages, width)
-	for _, state := range model.Tools {
-		middle = append(middle, fmt.Sprintf("Tool: %s: %s", state.Name, state.Status))
-	}
+	middle = append(middle, renderToolPresentations(model.Tools, width)...)
 	if model.Usage != (core.Usage{}) {
 		middle = append(middle, fmt.Sprintf("tokens: input=%d output=%d cache_read=%d cache_creation=%d",
 			model.Usage.InputTokens, model.Usage.OutputTokens,
@@ -488,7 +514,8 @@ func (model *Model) View() string {
 		overlays = append(overlays, displayLines(model.QuestionInput.View())...)
 	}
 	if model.Processing {
-		overlays = append(overlays, model.StatusText)
+		model.ProcessingView.Message = model.StatusText
+		overlays = append(overlays, displayLines(model.ProcessingView.View())...)
 	}
 	footer := append([]string{strings.Repeat("-", width)}, displayLines(model.Input.View())...)
 	middle = append(middle, overlays...)
@@ -528,6 +555,48 @@ func toolResultText(result *core.ToolResult) string {
 		}
 	}
 	return text.String()
+}
+
+func toolFilePath(input map[string]interface{}) string {
+	for _, key := range []string{"path", "file_path", "target_file"} {
+		if path, ok := input[key].(string); ok {
+			return path
+		}
+	}
+	return ""
+}
+
+func renderToolPresentations(tools []ToolPresentation, width int) []string {
+	var lines []string
+	for _, state := range tools {
+		if state.Status == "running" {
+			summary := components.ToolUseSummary{ToolName: state.Name, Input: state.Input}
+			lines = append(lines, summary.Render()+" (running)")
+			continue
+		}
+		var toolErr error
+		if state.IsError {
+			message := state.Output
+			if message == "" {
+				message = "tool failed"
+			}
+			toolErr = fmt.Errorf("%s", message)
+		}
+		output := state.Output
+		if state.Name == "read_file" && !state.IsError {
+			output = ""
+		}
+		rendered := components.RenderToolResult(components.ToolResultDisplay{
+			ToolName: state.Name, ToolUseID: state.ID, Output: output, Error: toolErr, FilePath: state.FilePath,
+		}, width)
+		lines = append(lines, displayLines(rendered)...)
+		if state.Name == "read_file" && state.Output != "" {
+			lineCount := strings.Count(state.Output, "\n") + 1
+			preview := components.FilePreview{Path: state.FilePath, Content: state.Output, StartLine: 1, EndLine: min(lineCount, 8)}
+			lines = append(lines, displayLines(preview.Render(width))...)
+		}
+	}
+	return lines
 }
 
 func permissionDescription(request permissions.Request) string {

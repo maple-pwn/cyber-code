@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"cyber-code/internal/core"
 	"cyber-code/internal/permissions"
@@ -57,13 +58,54 @@ func TestModelViewCorrelatesToolStateAndAccumulatesUsage(t *testing.T) {
 
 	view := model.View()
 	for _, want := range []string{
-		"read_file: succeeded",
-		"shell: failed",
+		"✓ read_file",
+		"✗ shell",
 		"tokens: input=12 output=4 cache_read=2 cache_creation=4",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)
 		}
+	}
+}
+
+func TestModelViewUsesAnimatedProcessingIndicatorWithoutMovingInput(t *testing.T) {
+	model := NewModel(&uiTestRunner{}, ModelOptions{Width: 60, Height: 12})
+	model.Processing = true
+	model.StatusText = "Working"
+	before := ansi.Strip(model.View())
+	if !strings.Contains(before, "⠋ Working") {
+		t.Fatalf("initial processing indicator is not connected: %q", before)
+	}
+	inputLine := strings.LastIndex(before, "Type your message")
+
+	updated, command := model.Update(processingTickMsg{})
+	model = updated.(*Model)
+	after := ansi.Strip(model.View())
+	if !strings.Contains(after, "⠙ Working") || command == nil {
+		t.Fatalf("processing tick did not advance or reschedule: view=%q command=%v", after, command)
+	}
+	if got := strings.LastIndex(after, "Type your message"); got != inputLine {
+		t.Fatalf("input moved from byte %d to %d after spinner tick", inputLine, got)
+	}
+}
+
+func TestModelViewUsesStructuredToolResultAndFilePreview(t *testing.T) {
+	model := NewModel(&uiTestRunner{}, ModelOptions{Width: 80, Height: 18})
+	model.applyEvent(core.Event{Type: core.EventToolCall, ToolCall: &core.ToolCall{
+		ID: "read-1", Name: "read_file", Arguments: []byte(`{"path":"internal/app.go"}`),
+	}})
+	model.applyEvent(core.Event{Type: core.EventToolResult, ToolResult: &core.ToolResult{
+		ToolCallID: "read-1", Content: []core.ContentBlock{{Type: core.ContentText, Text: "alpha\nbeta"}},
+	}})
+
+	view := ansi.Strip(model.View())
+	for _, want := range []string{"✓ read_file", "internal/app.go", "1│ alpha", "2│ beta"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("structured tool view missing %q: %q", want, view)
+		}
+	}
+	if strings.Contains(view, "Tool: read_file: succeeded") {
+		t.Fatalf("legacy tool status leaked into structured view: %q", view)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // =============================================================================
@@ -236,9 +237,10 @@ type FilePreview struct {
 // Render renders a file preview with line numbers.
 func (p *FilePreview) Render(width int) string {
 	var b strings.Builder
+	innerWidth := max(1, width-2)
 
 	// Header
-	b.WriteString(filePathStyle.Render("📄 "+p.Path) + "\n")
+	b.WriteString(filePathStyle.Render(ansi.Truncate("📄 "+p.Path, innerWidth, "")) + "\n")
 
 	// Content with line numbers
 	lines := strings.Split(p.Content, "\n")
@@ -251,10 +253,12 @@ func (p *FilePreview) Render(width int) string {
 		}
 
 		lineNumStr := fmt.Sprintf("%*d", lineNumWidth, lineNum)
-		b.WriteString(lineNumStyle.Render(lineNumStr+"│") + " " + line + "\n")
+		prefix := lineNumStr + "│ "
+		available := max(0, innerWidth-ansi.StringWidth(prefix))
+		b.WriteString(lineNumStyle.Render(lineNumStr+"│") + " " + ansi.Truncate(line, available, "") + "\n")
 	}
 
-	return codeStyle.Render(b.String())
+	return codeStyle.MaxWidth(innerWidth).Render(strings.TrimSuffix(b.String(), "\n"))
 }
 
 // =============================================================================
