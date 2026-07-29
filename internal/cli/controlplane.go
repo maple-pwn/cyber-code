@@ -2,7 +2,10 @@ package cli
 
 import (
 	"context"
+	"flag"
 	"fmt"
+	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -28,9 +31,17 @@ type gitWorkflow interface {
 	Commit(context.Context, string) (string, error)
 }
 
+type mcpControl interface {
+	Connect(context.Context, mcp.ServerConfig) error
+	Reconnect(context.Context, string) error
+	Disable(context.Context, string) error
+	Statuses() []mcp.ConnectionStatus
+}
+
 // ControlActions isolates slash commands from Runtime, UI, and configuration
 // implementations while keeping those components authoritative for state.
 type ControlActions struct {
+	Workspace              string
 	InitializeInstructions func(context.Context) (string, error)
 	EffectiveConfig        func() configpkg.Config
 	UsageSnapshot          func() core.Usage
@@ -41,7 +52,7 @@ type ControlActions struct {
 	CreateBugReport        func(context.Context, string) (string, error)
 }
 
-func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model string, mode permissions.PermissionMode, hooksRunner *hooks.Runner, skills []skill.Skill, contextBuilder *contextbuilder.Builder, mcpManager *mcp.Manager, git *gitworkflow.Service, actions ControlActions) (*controlplane.Registry, error) {
+func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model string, mode permissions.PermissionMode, hooksRunner *hooks.Runner, skills []skill.Skill, contextBuilder *contextbuilder.Builder, mcpManager mcpControl, git *gitworkflow.Service, actions ControlActions) (*controlplane.Registry, error) {
 	registry := controlplane.NewRegistry()
 	memoryStore, err := memory.NewStore(filepath.Join(stateDir, "memory"), memory.Options{})
 	if err != nil {
@@ -101,7 +112,7 @@ func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model
 	}}); err != nil {
 		return nil, err
 	}
-	if err := register(controlplane.Spec{Name: "mcp", Usage: "/mcp status|reconnect|disable", Description: "manage runtime MCP connections", Handler: func(ctx context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
+	if err := register(controlplane.Spec{Name: "mcp", Usage: "/mcp status|add NAME (--url URL|--command CMD [--arg ARG])|reconnect NAME|disable NAME", Description: "manage runtime MCP connections", Handler: func(ctx context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
 		if mcpManager == nil {
 			return controlplane.TextEvents("mcp: unavailable"), nil
 		}
@@ -110,6 +121,29 @@ func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model
 			operation = invocation.Args[0]
 		}
 		switch operation {
+		case "add":
+			entry, config, err := parseMCPControlAdd(invocation.Args, actions.Workspace)
+			if err != nil {
+				return nil, err
+			}
+			path := filepath.Join(stateDir, "mcp.json")
+			if err := withStateFileLock(path, func() error {
+				entries, err := loadMCPEntries(path)
+				if err != nil {
+					return err
+				}
+				if _, exists := entries[entry.Name]; exists {
+					return fmt.Errorf("MCP server %q already exists", entry.Name)
+				}
+				entries[entry.Name] = entry
+				return writeStateFile(path, entries)
+			}); err != nil {
+				return nil, err
+			}
+			if err := mcpManager.Connect(ctx, config); err != nil {
+				return controlplane.TextEvents(fmt.Sprintf("mcp %s configuration saved; connection failed: %v", entry.Name, err)), nil
+			}
+			return controlplane.TextEvents("mcp " + entry.Name + ": added and connected"), nil
 		case "status":
 			statuses := mcpManager.Statuses()
 			if len(statuses) == 0 {
@@ -261,6 +295,44 @@ func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model
 		return nil, err
 	}
 	return registry, nil
+}
+
+func parseMCPControlAdd(args []string, workspace string) (mcpEntry, mcp.ServerConfig, error) {
+	if len(args) < 2 || args[0] != "add" || strings.TrimSpace(args[1]) == "" {
+		return mcpEntry{}, mcp.ServerConfig{}, fmt.Errorf("/mcp add requires a server name and exactly one of --url or --command")
+	}
+	name := strings.TrimSpace(args[1])
+	flags := flag.NewFlagSet("/mcp add", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var command, serverURL string
+	var serverArgs []string
+	flags.StringVar(&command, "command", "", "stdio server executable")
+	flags.StringVar(&serverURL, "url", "", "HTTP server URL")
+	flags.Func("arg", "stdio server argument", func(value string) error {
+		serverArgs = append(serverArgs, value)
+		return nil
+	})
+	if err := flags.Parse(args[2:]); err != nil {
+		return mcpEntry{}, mcp.ServerConfig{}, fmt.Errorf("parse /mcp add: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return mcpEntry{}, mcp.ServerConfig{}, fmt.Errorf("/mcp add has unexpected arguments: %s", strings.Join(flags.Args(), " "))
+	}
+	if (command == "") == (serverURL == "") {
+		return mcpEntry{}, mcp.ServerConfig{}, fmt.Errorf("/mcp add requires exactly one of --url or --command")
+	}
+	entry := mcpEntry{Name: name, Command: command, Args: append([]string(nil), serverArgs...), URL: serverURL}
+	config := mcp.ServerConfig{Name: name, Workspace: workspace, Args: append([]string(nil), serverArgs...)}
+	if serverURL != "" {
+		parsed, err := url.Parse(serverURL)
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return mcpEntry{}, mcp.ServerConfig{}, fmt.Errorf("MCP URL must use http or https")
+		}
+		config.Transport, config.URL = mcp.TransportHTTP, serverURL
+	} else {
+		config.Transport, config.Command = mcp.TransportStdio, command
+	}
+	return entry, config, nil
 }
 
 func registerProductCommands(registry *controlplane.Registry, actions ControlActions) error {

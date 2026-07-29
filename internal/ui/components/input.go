@@ -163,6 +163,9 @@ func (m *InputModel) Update(msg tea.Msg) tea.Cmd {
 			m.stopSearch()
 			// Insert character at cursor position
 			m.insertRunes(msg.Runes)
+		case tea.KeySpace:
+			m.stopSearch()
+			m.insertRunes([]rune{' '})
 		}
 	}
 
@@ -343,6 +346,8 @@ func keyStrings(key tea.KeyMsg) []string {
 			values[index] = string(value)
 		}
 		return values
+	case tea.KeySpace:
+		return []string{" "}
 	default:
 		return nil
 	}

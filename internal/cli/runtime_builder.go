@@ -244,6 +244,7 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 	}
 	services = nil // Runtime owns the service lifetime after successful construction.
 	actions := ControlActions{
+		Workspace:              workspace,
 		InitializeInstructions: newInstructionInitializer(workspace),
 		EffectiveConfig:        func() configpkg.Config { return *loaded },
 		UsageSnapshot:          built.UsageSnapshot,
@@ -459,9 +460,6 @@ func connectConfiguredMCP(ctx context.Context, stateDir, workspace string, regis
 	entries, err := loadMCPEntries(filepath.Join(stateDir, "mcp.json"))
 	if err != nil {
 		return nil, fmt.Errorf("load MCP configuration: %w", err)
-	}
-	if len(entries) == 0 {
-		return nil, nil
 	}
 	manager, err := mcp.NewManager(mcp.ManagerOptions{
 		Registry: registry, Authorizer: broker, TransportFactory: mcp.NewDefaultTransportFactory(mcp.DefaultTransportOptions{Runner: processRunner}),

@@ -278,6 +278,8 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			prompt := model.Input.Value
 			model.Input.Clear()
+			model.Tools = nil
+			model.toolIndexes = make(map[string]int)
 			model.Messages = append(model.Messages, Message{Role: "user", Content: prompt})
 			model.Processing, model.StatusText, model.Err = true, "Working", nil
 			turnCtx, cancel := context.WithCancel(model.ctx)
@@ -553,7 +555,7 @@ func (model *Model) View() string {
 	width, height := max(20, model.Width), max(6, model.Height)
 	header := []string{product.Name, strings.Repeat("-", width)}
 	middle := renderMessages(model.Messages, width)
-	middle = append(middle, renderToolPresentations(model.Tools, width)...)
+	middle = append(middle, renderToolPresentations(model.Tools, width, model.Processing)...)
 	if model.Usage != (core.Usage{}) {
 		middle = append(middle, fmt.Sprintf("tokens: input=%d output=%d cache_read=%d cache_creation=%d",
 			model.Usage.InputTokens, model.Usage.OutputTokens,
@@ -622,7 +624,7 @@ func toolFilePath(input map[string]interface{}) string {
 	return ""
 }
 
-func renderToolPresentations(tools []ToolPresentation, width int) []string {
+func renderToolPresentations(tools []ToolPresentation, width int, expanded bool) []string {
 	var lines []string
 	for _, state := range tools {
 		if state.Status == "running" {
@@ -639,14 +641,16 @@ func renderToolPresentations(tools []ToolPresentation, width int) []string {
 			toolErr = fmt.Errorf("%s", message)
 		}
 		output := state.Output
-		if state.Name == "read_file" && !state.IsError {
+		if !expanded && !state.IsError {
+			output = ""
+		} else if state.Name == "read_file" && !state.IsError {
 			output = ""
 		}
 		rendered := components.RenderToolResult(components.ToolResultDisplay{
 			ToolName: state.Name, ToolUseID: state.ID, Output: output, Error: toolErr, FilePath: state.FilePath,
 		}, width)
 		lines = append(lines, displayLines(rendered)...)
-		if state.Name == "read_file" && state.Output != "" {
+		if expanded && state.Name == "read_file" && state.Output != "" {
 			lineCount := strings.Count(state.Output, "\n") + 1
 			preview := components.FilePreview{Path: state.FilePath, Content: state.Output, StartLine: 1, EndLine: min(lineCount, 8)}
 			lines = append(lines, displayLines(preview.Render(width))...)

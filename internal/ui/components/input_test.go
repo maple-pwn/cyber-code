@@ -27,6 +27,25 @@ func TestInputMultilinePreservesPastedNewlines(t *testing.T) {
 	}
 }
 
+func TestInputAcceptsSpaceInStandardAndVimInsertModes(t *testing.T) {
+	standard := NewInput(">", "", 40)
+	standard.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("mcp")})
+	standard.Update(tea.KeyMsg{Type: tea.KeySpace})
+	standard.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("add")})
+	if standard.Value != "mcp add" {
+		t.Fatalf("standard input = %q", standard.Value)
+	}
+
+	vimInput := NewInput(">", "", 40)
+	vimInput.SetVimEnabled(true)
+	vimInput.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("mcp")})
+	vimInput.Update(tea.KeyMsg{Type: tea.KeySpace})
+	vimInput.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("add")})
+	if vimInput.Value != "mcp add" {
+		t.Fatalf("Vim insert input = %q", vimInput.Value)
+	}
+}
+
 func TestInputReverseHistorySearchCyclesMatchingEntries(t *testing.T) {
 	input := NewInput(">", "", 40)
 	for _, value := range []string{"inspect repo", "deploy staging", "deploy production"} {

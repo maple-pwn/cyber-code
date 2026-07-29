@@ -11,6 +11,7 @@ import (
 	configpkg "cyber-code/internal/config"
 	"cyber-code/internal/controlplane"
 	"cyber-code/internal/core"
+	"cyber-code/internal/mcp"
 	"cyber-code/internal/permissions"
 )
 
@@ -162,6 +163,54 @@ func TestControlPlaneBugCreatesLocalReport(t *testing.T) {
 	}
 }
 
+func TestControlPlaneMCPAddPersistsAndConnectsHTTPServer(t *testing.T) {
+	stateDir := t.TempDir()
+	manager := &fakeMCPControl{}
+	registry, err := buildControlPlane(nil, stateDir, "test", "test-model", permissions.PermissionModeDefault, nil, nil, nil, manager, nil, ControlActions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := registry.Dispatch(context.Background(), `/mcp add docs --url "https://mcp.example.test/rpc"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := controlEventText(events); !strings.Contains(text, "added and connected") {
+		t.Fatalf("MCP add output = %q", text)
+	}
+	if len(manager.connected) != 1 || manager.connected[0].Name != "docs" || manager.connected[0].Transport != mcp.TransportHTTP || manager.connected[0].URL != "https://mcp.example.test/rpc" {
+		t.Fatalf("connected configs = %#v", manager.connected)
+	}
+	entries, err := loadMCPEntries(filepath.Join(stateDir, "mcp.json"))
+	if err != nil || entries["docs"].URL != "https://mcp.example.test/rpc" {
+		t.Fatalf("persisted entries = %#v, error = %v", entries, err)
+	}
+}
+
+func TestControlPlaneMCPAddSupportsQuotedStdioArgumentsAndReportsConnectionFailure(t *testing.T) {
+	stateDir := t.TempDir()
+	workspace := t.TempDir()
+	manager := &fakeMCPControl{connectErr: fmt.Errorf("handshake unavailable")}
+	registry, err := buildControlPlane(nil, stateDir, "test", "test-model", permissions.PermissionModeDefault, nil, nil, nil, manager, nil, ControlActions{Workspace: workspace})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := registry.Dispatch(context.Background(), `/mcp add local --command npx --arg "-y" --arg "server package"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := controlEventText(events)
+	if !strings.Contains(text, "configuration saved") || !strings.Contains(text, "handshake unavailable") {
+		t.Fatalf("MCP failed connection output = %q", text)
+	}
+	if len(manager.connected) != 1 || manager.connected[0].Workspace != workspace || fmt.Sprint(manager.connected[0].Args) != "[-y server package]" {
+		t.Fatalf("connected configs = %#v", manager.connected)
+	}
+	entries, loadErr := loadMCPEntries(filepath.Join(stateDir, "mcp.json"))
+	if loadErr != nil || entries["local"].Command != "npx" || fmt.Sprint(entries["local"].Args) != "[-y server package]" {
+		t.Fatalf("persisted entries = %#v, error = %v", entries, loadErr)
+	}
+}
+
 func testControlPlane(t *testing.T, actions ControlActions) *controlplane.Registry {
 	t.Helper()
 	registry, err := buildControlPlane(nil, t.TempDir(), "test", "test-model", permissions.PermissionModeDefault, nil, nil, nil, nil, nil, actions)
@@ -183,6 +232,20 @@ type fakeGitWorkflow struct {
 	diff, review, commit string
 	message              string
 }
+
+type fakeMCPControl struct {
+	connected  []mcp.ServerConfig
+	connectErr error
+}
+
+func (manager *fakeMCPControl) Connect(_ context.Context, config mcp.ServerConfig) error {
+	manager.connected = append(manager.connected, config)
+	return manager.connectErr
+}
+
+func (*fakeMCPControl) Reconnect(context.Context, string) error { return nil }
+func (*fakeMCPControl) Disable(context.Context, string) error   { return nil }
+func (*fakeMCPControl) Statuses() []mcp.ConnectionStatus        { return nil }
 
 func (workflow *fakeGitWorkflow) Diff(context.Context) (string, error)   { return workflow.diff, nil }
 func (workflow *fakeGitWorkflow) Review(context.Context) (string, error) { return workflow.review, nil }

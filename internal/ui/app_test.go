@@ -91,6 +91,7 @@ func TestModelViewUsesAnimatedProcessingIndicatorWithoutMovingInput(t *testing.T
 
 func TestModelViewUsesStructuredToolResultAndFilePreview(t *testing.T) {
 	model := NewModel(&uiTestRunner{}, ModelOptions{Width: 80, Height: 18})
+	model.Processing = true
 	model.applyEvent(core.Event{Type: core.EventToolCall, ToolCall: &core.ToolCall{
 		ID: "read-1", Name: "read_file", Arguments: []byte(`{"path":"internal/app.go"}`),
 	}})
@@ -106,6 +107,33 @@ func TestModelViewUsesStructuredToolResultAndFilePreview(t *testing.T) {
 	}
 	if strings.Contains(view, "Tool: read_file: succeeded") {
 		t.Fatalf("legacy tool status leaked into structured view: %q", view)
+	}
+}
+
+func TestModelCollapsesCompletedToolOutputAndClearsItOnNextTurn(t *testing.T) {
+	model := NewModel(&uiTestRunner{}, ModelOptions{Width: 80, Height: 18})
+	model.Processing = true
+	model.applyEvent(core.Event{Type: core.EventToolCall, ToolCall: &core.ToolCall{
+		ID: "shell-1", Name: "shell", Arguments: []byte(`{"command":"ls"}`),
+	}})
+	model.applyEvent(core.Event{Type: core.EventToolResult, ToolResult: &core.ToolResult{
+		ToolCallID: "shell-1", Content: []core.ContentBlock{{Type: core.ContentText, Text: "coverage.out\ncyber-code-static"}},
+	}})
+	if view := ansi.Strip(model.View()); !strings.Contains(view, "coverage.out") {
+		t.Fatalf("running turn hid tool output: %q", view)
+	}
+
+	model.applyEvent(core.Event{Type: core.EventCompleted, FinishReason: "stop"})
+	view := ansi.Strip(model.View())
+	if strings.Contains(view, "coverage.out") || !strings.Contains(view, "shell") {
+		t.Fatalf("completed tool was not collapsed to a summary: %q", view)
+	}
+
+	model.Input.SetValue("next turn")
+	updated, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(*Model)
+	if command == nil || len(model.Tools) != 0 || len(model.toolIndexes) != 0 {
+		t.Fatalf("new turn retained old tool presentation: tools=%#v indexes=%#v", model.Tools, model.toolIndexes)
 	}
 }
 
