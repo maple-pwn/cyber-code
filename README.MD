@@ -68,6 +68,7 @@ $env:DEEPSEEK_API_KEY = "your-key"
 ./cyber-code mcp list
 ./cyber-code plugins list
 ./cyber-code sessions list
+./cyber-code serve                    # newline-delimited local SDK protocol
 ```
 
 MCP 配置通过 `mcp add` 持久化；启用插件从状态目录的 `plugins/<name>/plugin.json` 加载。Skills、LSP、Hooks、Compact 和审计也从统一状态目录接入，格式见 [docs/configuration.md](docs/configuration.md)。模型可调用 `task_run`、`task_status` 和 `task_cancel` 执行受父级 turn budget 与权限约束的子 Agent。
@@ -92,3 +93,5 @@ GOOS=windows GOARCH=amd64 go build -o cyber-code-windows-amd64.exe ./cmd/cli
 ```
 
 真实云服务验收是显式 opt-in，测试与日志不得保存密钥或完整敏感响应。
+
+完整能力边界与发布门禁见 [docs/capability-matrix.md](docs/capability-matrix.md)。
