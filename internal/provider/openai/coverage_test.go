@@ -92,6 +92,32 @@ func TestEncodeRequestSupportsMessageRolesAndRejectsInvalidContent(t *testing.T)
 	}
 }
 
+func TestEncodeRequestSplitsGroupedToolResultsIntoWireMessages(t *testing.T) {
+	request := core.Request{
+		Model: "model",
+		Messages: []core.Message{{Role: core.RoleTool, Content: []core.ContentBlock{
+			{Type: core.ContentToolResult, ToolResult: &core.ToolResult{ToolCallID: "call-1", Content: []core.ContentBlock{{Type: core.ContentText, Text: "first"}}}},
+			{Type: core.ContentToolResult, ToolResult: &core.ToolResult{ToolCallID: "call-2", Content: []core.ContentBlock{{Type: core.ContentText, Text: "second"}}}},
+		}}},
+	}
+	encoded, err := encodeRequest(config.Profile{Model: "model"}, request)
+	if err != nil {
+		t.Fatalf("encode grouped tool results: %v", err)
+	}
+	var payload requestPayload
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Messages) != 2 {
+		t.Fatalf("wire messages = %#v", payload.Messages)
+	}
+	for index, want := range []string{"call-1", "call-2"} {
+		if payload.Messages[index].Role != "tool" || payload.Messages[index].ToolCallID != want {
+			t.Fatalf("wire message %d = %#v", index, payload.Messages[index])
+		}
+	}
+}
+
 func TestRetryBoundedAndResponseErrorHelpers(t *testing.T) {
 	client := &Client{apiKey: "secret", retryBase: 4 * time.Second, retryMaximum: 5 * time.Second, responseLimit: 8}
 	if client.delay(2, "") != 5*time.Second || client.delay(0, "10") != 5*time.Second {

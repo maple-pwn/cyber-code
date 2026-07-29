@@ -65,6 +65,19 @@ func encodeRequest(profile config.Profile, request core.Request) ([]byte, error)
 		payload.Messages = append(payload.Messages, messagePayload{Role: "system", Content: text})
 	}
 	for _, message := range request.Messages {
+		if message.Role == core.RoleTool {
+			if len(message.Content) == 0 {
+				return nil, &core.Error{Kind: core.ErrorKindTool, Op: "openai.encode", Message: "tool message requires at least one tool result"}
+			}
+			for _, block := range message.Content {
+				encoded, err := encodeToolResult(block)
+				if err != nil {
+					return nil, err
+				}
+				payload.Messages = append(payload.Messages, encoded)
+			}
+			continue
+		}
 		encoded, err := encodeMessage(message)
 		if err != nil {
 			return nil, err
@@ -138,19 +151,26 @@ func encodeMessage(message core.Message) (messagePayload, error) {
 		if len(message.Content) != 1 || message.Content[0].ToolResult == nil {
 			return messagePayload{}, &core.Error{Kind: core.ErrorKindTool, Op: "openai.encode", Message: "tool message requires exactly one tool result"}
 		}
-		result := message.Content[0].ToolResult
-		texts := make([]string, 0, len(result.Content))
-		for _, block := range result.Content {
-			text, err := textBlock(block)
-			if err != nil {
-				return messagePayload{}, err
-			}
-			texts = append(texts, text)
-		}
-		return messagePayload{Role: "tool", ToolCallID: result.ToolCallID, Content: strings.Join(texts, "\n")}, nil
+		return encodeToolResult(message.Content[0])
 	default:
 		return messagePayload{}, &core.Error{Kind: core.ErrorKindProvider, Op: "openai.encode", Message: fmt.Sprintf("unsupported message role %q", message.Role)}
 	}
+}
+
+func encodeToolResult(block core.ContentBlock) (messagePayload, error) {
+	if block.Type != core.ContentToolResult || block.ToolResult == nil {
+		return messagePayload{}, &core.Error{Kind: core.ErrorKindTool, Op: "openai.encode", Message: "tool message content must be a tool result"}
+	}
+	result := block.ToolResult
+	texts := make([]string, 0, len(result.Content))
+	for _, resultBlock := range result.Content {
+		text, err := textBlock(resultBlock)
+		if err != nil {
+			return messagePayload{}, err
+		}
+		texts = append(texts, text)
+	}
+	return messagePayload{Role: "tool", ToolCallID: result.ToolCallID, Content: strings.Join(texts, "\n")}, nil
 }
 
 func validateImageBlock(block core.ContentBlock) error {
