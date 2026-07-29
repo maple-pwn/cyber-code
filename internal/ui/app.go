@@ -31,6 +31,12 @@ type Message struct {
 	Content string
 }
 
+type ToolPresentation struct {
+	ID     string
+	Name   string
+	Status string
+}
+
 type Model struct {
 	runner Runner
 	ctx    context.Context
@@ -47,6 +53,8 @@ type Model struct {
 	Permission     *components.PermissionDialog
 	QuestionSelect *components.SelectDialog
 	QuestionInput  *components.InputDialog
+	Tools          []ToolPresentation
+	Usage          core.Usage
 
 	events          <-chan core.Event
 	turnCancel      context.CancelFunc
@@ -54,6 +62,7 @@ type Model struct {
 	permissionReply chan<- permissions.Decision
 	questionReply   chan<- QuestionAnswer
 	initialPrompt   string
+	toolIndexes     map[string]int
 }
 
 type turnStartedMsg struct{ events <-chan core.Event }
@@ -156,6 +165,7 @@ func NewModel(runner Runner, options ModelOptions) *Model {
 	return &Model{
 		runner: runner, ctx: ctx, cancel: cancel, Messages: []Message{}, Input: input, Width: options.Width, Height: options.Height,
 		Ready: true, assistantIndex: -1, initialPrompt: options.InitialPrompt,
+		toolIndexes: make(map[string]int),
 	}
 }
 
@@ -304,11 +314,21 @@ func (model *Model) applyEvent(event core.Event) bool {
 		}
 	case core.EventToolCall:
 		if event.ToolCall != nil {
-			model.Messages = append(model.Messages, Message{Role: "tool", Content: event.ToolCall.Name})
+			model.recordToolCall(event.ToolCall)
 		}
 	case core.EventToolResult:
 		if event.ToolResult != nil {
-			model.Messages = append(model.Messages, Message{Role: "tool", Content: toolResultText(event.ToolResult)})
+			model.recordToolResult(event.ToolResult)
+			if text := toolResultText(event.ToolResult); text != "" {
+				model.Messages = append(model.Messages, Message{Role: "tool", Content: text})
+			}
+		}
+	case core.EventUsage:
+		if event.Usage != nil {
+			model.Usage.InputTokens += event.Usage.InputTokens
+			model.Usage.OutputTokens += event.Usage.OutputTokens
+			model.Usage.CacheReadInputTokens += event.Usage.CacheReadInputTokens
+			model.Usage.CacheCreationInputTokens += event.Usage.CacheCreationInputTokens
 		}
 	case core.EventWarning:
 		model.Messages = append(model.Messages, Message{Role: "system", Content: event.Text})
@@ -324,6 +344,28 @@ func (model *Model) applyEvent(event core.Event) bool {
 		return true
 	}
 	return false
+}
+
+func (model *Model) recordToolCall(call *core.ToolCall) {
+	if index, ok := model.toolIndexes[call.ID]; ok {
+		model.Tools[index].Name = call.Name
+		model.Tools[index].Status = "running"
+		return
+	}
+	model.toolIndexes[call.ID] = len(model.Tools)
+	model.Tools = append(model.Tools, ToolPresentation{ID: call.ID, Name: call.Name, Status: "running"})
+}
+
+func (model *Model) recordToolResult(result *core.ToolResult) {
+	index, ok := model.toolIndexes[result.ToolCallID]
+	if !ok {
+		return
+	}
+	status := "succeeded"
+	if result.IsError {
+		status = "failed"
+	}
+	model.Tools[index].Status = status
 }
 
 func (model *Model) appendAssistantDelta(text string) {
@@ -393,42 +435,34 @@ func (model *Model) View() string {
 	if !model.Ready {
 		return "Initializing..."
 	}
-	width := max(20, model.Width)
-	var output strings.Builder
-	output.WriteString(product.Name + "\n")
-	output.WriteString(strings.Repeat("-", width) + "\n")
-	for _, message := range model.Messages {
-		label := message.Role
-		switch message.Role {
-		case "user":
-			label = "You"
-		case "assistant":
-			label = "Assistant"
-		case "tool":
-			label = "Tool"
-		case "error":
-			label = "Error"
-		}
-		output.WriteString(fmt.Sprintf("%s: %s\n", label, message.Content))
+	width, height := max(20, model.Width), max(6, model.Height)
+	header := []string{product.Name, strings.Repeat("-", width)}
+	middle := renderMessages(model.Messages)
+	for _, state := range model.Tools {
+		middle = append(middle, fmt.Sprintf("Tool: %s: %s", state.Name, state.Status))
 	}
+	if model.Usage != (core.Usage{}) {
+		middle = append(middle, fmt.Sprintf("tokens: input=%d output=%d cache_read=%d cache_creation=%d",
+			model.Usage.InputTokens, model.Usage.OutputTokens,
+			model.Usage.CacheReadInputTokens, model.Usage.CacheCreationInputTokens))
+	}
+	var overlays []string
 	if model.Permission != nil {
-		output.WriteString(model.Permission.View())
-		output.WriteByte('\n')
+		overlays = append(overlays, displayLines(model.Permission.View())...)
 	}
 	if model.QuestionSelect != nil {
-		output.WriteString(model.QuestionSelect.View())
-		output.WriteByte('\n')
+		overlays = append(overlays, displayLines(model.QuestionSelect.View())...)
 	}
 	if model.QuestionInput != nil {
-		output.WriteString(model.QuestionInput.View())
-		output.WriteByte('\n')
+		overlays = append(overlays, displayLines(model.QuestionInput.View())...)
 	}
 	if model.Processing {
-		output.WriteString(model.StatusText + "\n")
+		overlays = append(overlays, model.StatusText)
 	}
-	output.WriteString(strings.Repeat("-", width) + "\n")
-	output.WriteString(model.Input.View())
-	return output.String()
+	footer := append([]string{strings.Repeat("-", width)}, displayLines(model.Input.View())...)
+	middle = append(middle, overlays...)
+	middle = tailLines(middle, height-len(header)-len(footer))
+	return strings.Join(append(append(header, middle...), footer...), "\n")
 }
 
 func RunUI(runner Runner) error {

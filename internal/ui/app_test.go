@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -39,6 +40,43 @@ func TestModelEnterSubmitsPromptThroughCommandAndConsumesRuntimeEvents(t *testin
 	for _, text := range []string{"inspect", "hello", "read_file", "file"} {
 		if !strings.Contains(view, text) {
 			t.Fatalf("view missing %q: %q", text, view)
+		}
+	}
+}
+
+func TestModelViewCorrelatesToolStateAndAccumulatesUsage(t *testing.T) {
+	model := NewModel(&uiTestRunner{}, ModelOptions{Width: 80, Height: 24})
+	model.applyEvent(core.Event{Type: core.EventToolCall, ToolCall: &core.ToolCall{ID: "call-1", Name: "read_file"}})
+	model.applyEvent(core.Event{Type: core.EventToolCall, ToolCall: &core.ToolCall{ID: "call-2", Name: "shell"}})
+	model.applyEvent(core.Event{Type: core.EventUsage, Usage: &core.Usage{InputTokens: 10, OutputTokens: 3, CacheReadInputTokens: 2}})
+	model.applyEvent(core.Event{Type: core.EventUsage, Usage: &core.Usage{InputTokens: 2, OutputTokens: 1, CacheCreationInputTokens: 4}})
+	model.applyEvent(core.Event{Type: core.EventToolResult, ToolResult: &core.ToolResult{ToolCallID: "call-2", IsError: true}})
+	model.applyEvent(core.Event{Type: core.EventToolResult, ToolResult: &core.ToolResult{ToolCallID: "call-1"}})
+
+	view := model.View()
+	for _, want := range []string{
+		"read_file: succeeded",
+		"shell: failed",
+		"tokens: input=12 output=4 cache_read=2 cache_creation=4",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestModelViewKeepsInputVisibleWithinViewport(t *testing.T) {
+	model := NewModel(&uiTestRunner{}, ModelOptions{Width: 40, Height: 12})
+	for index := 0; index < 20; index++ {
+		model.AddMessage("assistant", fmt.Sprintf("message-%02d", index))
+	}
+	view := model.View()
+	if lines := strings.Count(view, "\n") + 1; lines > 12 {
+		t.Fatalf("view uses %d lines for a 12-line viewport:\n%s", lines, view)
+	}
+	for _, want := range []string{"message-19", "Type your message"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q: %q", want, view)
 		}
 	}
 }
