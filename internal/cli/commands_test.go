@@ -56,6 +56,8 @@ func TestExecuteConfigProfileSetCreatesCompleteProfile(t *testing.T) {
 		"config", "profile", "set", "deepseek",
 		"--provider", "openai-compatible", "--base-url", "https://api.deepseek.com",
 		"--model", "deepseek-v4-pro", "--api-key-env", "DEEPSEEK_API_KEY", "--activate",
+		"--input-cost-per-million", "1.25", "--output-cost-per-million", "2.50",
+		"--cache-read-cost-per-million", "0.25", "--cache-write-cost-per-million", "1.50",
 	}
 	if code := Execute(context.Background(), strings.NewReader(""), &stdout, &stderr, args); code != 0 {
 		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
@@ -67,6 +69,9 @@ func TestExecuteConfigProfileSetCreatesCompleteProfile(t *testing.T) {
 	profile := loaded.Profiles["deepseek"]
 	if loaded.ActiveProfile != "deepseek" || profile.Provider != "openai-compatible" || profile.Model != "deepseek-v4-pro" || profile.APIKeyEnv != "DEEPSEEK_API_KEY" {
 		t.Fatalf("config = %#v", loaded)
+	}
+	if profile.Pricing == nil || profile.Pricing.InputPerMillion != 1.25 || profile.Pricing.CacheWritePerMillion != 1.50 {
+		t.Fatalf("pricing = %#v", profile.Pricing)
 	}
 }
 

@@ -3,10 +3,13 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
+	configpkg "cyber-code/internal/config"
 	"cyber-code/internal/contextbuilder"
 	"cyber-code/internal/controlplane"
 	"cyber-code/internal/core"
@@ -25,7 +28,19 @@ type gitWorkflow interface {
 	Commit(context.Context, string) (string, error)
 }
 
-func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model string, mode permissions.PermissionMode, hooksRunner *hooks.Runner, skills []skill.Skill, contextBuilder *contextbuilder.Builder, mcpManager *mcp.Manager, git *gitworkflow.Service) (*controlplane.Registry, error) {
+// ControlActions isolates slash commands from Runtime, UI, and configuration
+// implementations while keeping those components authoritative for state.
+type ControlActions struct {
+	InitializeInstructions func(context.Context) (string, error)
+	EffectiveConfig        func() configpkg.Config
+	UsageSnapshot          func() core.Usage
+	EstimateCost           func(core.Usage) (float64, error)
+	HistoryCount           func() int
+	ClearHistory           func(context.Context) error
+	SetVimMode             func(bool) error
+}
+
+func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model string, mode permissions.PermissionMode, hooksRunner *hooks.Runner, skills []skill.Skill, contextBuilder *contextbuilder.Builder, mcpManager *mcp.Manager, git *gitworkflow.Service, actions ControlActions) (*controlplane.Registry, error) {
 	registry := controlplane.NewRegistry()
 	memoryStore, err := memory.NewStore(filepath.Join(stateDir, "memory"), memory.Options{})
 	if err != nil {
@@ -36,6 +51,9 @@ func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model
 		return nil, err
 	}
 	if err := register(controlplane.Spec{Name: "help", Aliases: []string{"h"}, Usage: "/help", Description: "list available commands", Handler: registry.Help}); err != nil {
+		return nil, err
+	}
+	if err := registerProductCommands(registry, actions); err != nil {
 		return nil, err
 	}
 	if err := register(controlplane.Spec{Name: "status", Usage: "/status", Description: "show runtime status", Handler: func(_ context.Context, _ controlplane.Invocation) ([]core.Event, error) {
@@ -242,6 +260,160 @@ func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model
 		return nil, err
 	}
 	return registry, nil
+}
+
+func registerProductCommands(registry *controlplane.Registry, actions ControlActions) error {
+	var vimMu sync.Mutex
+	vimEnabled := false
+	commands := []controlplane.Spec{
+		{Name: "init", Usage: "/init", Description: "create CYBER.md project instructions", Handler: func(ctx context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
+			if len(invocation.Args) != 0 {
+				return nil, fmt.Errorf("/init does not accept arguments")
+			}
+			if actions.InitializeInstructions == nil {
+				return nil, fmt.Errorf("instruction initialization is unavailable")
+			}
+			path, err := actions.InitializeInstructions(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return controlplane.TextEvents("created " + path), nil
+		}},
+		{Name: "cost", Usage: "/cost", Description: "show cumulative session cost", Handler: func(_ context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
+			if len(invocation.Args) != 0 {
+				return nil, fmt.Errorf("/cost does not accept arguments")
+			}
+			usage := controlUsage(actions)
+			cost := "estimated cost: unavailable (pricing is not configured)"
+			if actions.EstimateCost != nil {
+				value, err := actions.EstimateCost(usage)
+				if err != nil {
+					return nil, err
+				}
+				cost = fmt.Sprintf("estimated cost: $%.4f", value)
+			}
+			return controlplane.TextEvents(fmt.Sprintf("%s\ninput tokens: %d\noutput tokens: %d", cost, usage.InputTokens, usage.OutputTokens)), nil
+		}},
+		{Name: "stats", Usage: "/stats", Description: "show cumulative session statistics", Handler: func(_ context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
+			if len(invocation.Args) != 0 {
+				return nil, fmt.Errorf("/stats does not accept arguments")
+			}
+			usage := controlUsage(actions)
+			historyCount := 0
+			if actions.HistoryCount != nil {
+				historyCount = actions.HistoryCount()
+			}
+			return controlplane.TextEvents(fmt.Sprintf("history messages: %d\ninput tokens: %d\noutput tokens: %d\ncache read tokens: %d\ncache creation tokens: %d",
+				historyCount, usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens)), nil
+		}},
+		{Name: "clear", Usage: "/clear", Description: "clear the current conversation", Handler: func(ctx context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
+			if len(invocation.Args) != 0 {
+				return nil, fmt.Errorf("/clear does not accept arguments")
+			}
+			if actions.ClearHistory == nil {
+				return nil, fmt.Errorf("history clearing is unavailable")
+			}
+			if err := actions.ClearHistory(ctx); err != nil {
+				return nil, err
+			}
+			return controlplane.TextEvents("conversation history cleared"), nil
+		}},
+		{Name: "vim", Usage: "/vim [on|off|toggle]", Description: "change Vim input mode", Handler: func(_ context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
+			if len(invocation.Args) > 1 {
+				return nil, fmt.Errorf("/vim accepts at most one of on, off, or toggle")
+			}
+			if actions.SetVimMode == nil {
+				return nil, fmt.Errorf("Vim mode control is unavailable")
+			}
+			vimMu.Lock()
+			defer vimMu.Unlock()
+			operation := "toggle"
+			if len(invocation.Args) == 1 {
+				operation = strings.ToLower(invocation.Args[0])
+			}
+			switch operation {
+			case "on":
+				vimEnabled = true
+			case "off":
+				vimEnabled = false
+			case "toggle":
+				vimEnabled = !vimEnabled
+			default:
+				return nil, fmt.Errorf("/vim expects on, off, or toggle")
+			}
+			if err := actions.SetVimMode(vimEnabled); err != nil {
+				return nil, err
+			}
+			return controlplane.TextEvents(fmt.Sprintf("Vim mode: %t", vimEnabled)), nil
+		}},
+		{Name: "config", Usage: "/config", Description: "show effective non-secret configuration", Handler: func(_ context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
+			if len(invocation.Args) != 0 {
+				return nil, fmt.Errorf("/config does not accept arguments; use cyber-code config to make persistent changes")
+			}
+			if actions.EffectiveConfig == nil {
+				return nil, fmt.Errorf("effective configuration is unavailable")
+			}
+			return controlplane.TextEvents(formatEffectiveConfig(actions.EffectiveConfig())), nil
+		}},
+	}
+	for _, command := range commands {
+		if err := registry.Register(command); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func controlUsage(actions ControlActions) core.Usage {
+	if actions.UsageSnapshot == nil {
+		return core.Usage{}
+	}
+	return actions.UsageSnapshot()
+}
+
+func formatEffectiveConfig(config configpkg.Config) string {
+	profile := config.Profiles[config.ActiveProfile]
+	return fmt.Sprintf("active profile: %s\nprovider: %s\nbase URL: %s\nmodel: %s\ncredential env: %s\npermission mode: %s\nsandbox mode: %s\n\nPersistent changes: cyber-code config",
+		config.ActiveProfile, profile.Provider, profile.BaseURL, profile.Model, profile.APIKeyEnv, config.PermissionMode, config.SandboxMode)
+}
+
+const cyberInstructionsTemplate = `# cyber-code project instructions
+
+Describe this project's build, test, architecture, and coding conventions here.
+`
+
+func newInstructionInitializer(workspace string) func(context.Context) (string, error) {
+	return func(ctx context.Context) (string, error) {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		path := filepath.Join(workspace, "CYBER.md")
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err != nil {
+			if os.IsExist(err) {
+				return "", fmt.Errorf("CYBER.md already exists")
+			}
+			return "", fmt.Errorf("create CYBER.md: %w", err)
+		}
+		keep := false
+		defer func() {
+			_ = file.Close()
+			if !keep {
+				_ = os.Remove(path)
+			}
+		}()
+		if _, err := file.WriteString(cyberInstructionsTemplate); err != nil {
+			return "", fmt.Errorf("write CYBER.md: %w", err)
+		}
+		if err := file.Sync(); err != nil {
+			return "", fmt.Errorf("sync CYBER.md: %w", err)
+		}
+		if err := file.Close(); err != nil {
+			return "", fmt.Errorf("close CYBER.md: %w", err)
+		}
+		keep = true
+		return path, nil
+	}
 }
 
 func registerGitCommands(registry *controlplane.Registry, git gitWorkflow) error {

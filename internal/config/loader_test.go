@@ -267,6 +267,38 @@ func TestResolveCredentialReportsMissingEnvironmentVariableWithoutSecret(t *test
 	}
 }
 
+func TestLoadOptionalModelPricingAndRejectsNegativeRates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	writeConfigFile(t, path, `
+active_profile: priced
+profiles:
+  priced:
+    provider: openai
+    model: priced-model
+    pricing:
+      input_per_million: 1.25
+      output_per_million: 2.5
+      cache_read_per_million: 0.25
+      cache_write_per_million: 1.5
+`)
+	loaded, err := Load(LoadOptions{UserFile: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pricing := loaded.Profiles["priced"].Pricing
+	if pricing == nil || pricing.InputPerMillion != 1.25 || pricing.CacheWritePerMillion != 1.5 {
+		t.Fatalf("pricing = %#v", pricing)
+	}
+
+	pricing.OutputPerMillion = -1
+	profile := loaded.Profiles["priced"]
+	profile.Pricing = pricing
+	loaded.Profiles["priced"] = profile
+	if err := Validate(loaded); err == nil || !strings.Contains(err.Error(), "pricing") {
+		t.Fatalf("negative pricing error = %v", err)
+	}
+}
+
 func writeConfigFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {

@@ -198,6 +198,47 @@ func TestModelVimModeTogglePreservesUnicodeInput(t *testing.T) {
 	}
 }
 
+func TestControlBridgeChangesActiveModelVimMode(t *testing.T) {
+	model := NewModel(&uiTestRunner{}, ModelOptions{Width: 80, Height: 24})
+	model.Input.SetValue("保留 text")
+	bridge := NewControlBridge()
+	bridge.Attach(func(message tea.Msg) {
+		updated, _ := model.Update(message)
+		model = updated.(*Model)
+	})
+	defer bridge.Detach()
+
+	if err := bridge.SetVimMode(true); err != nil {
+		t.Fatal(err)
+	}
+	if !model.Input.VimEnabled || model.Input.Value != "保留 text" {
+		t.Fatalf("vim=%t input=%q", model.Input.VimEnabled, model.Input.Value)
+	}
+	bridge.Detach()
+	if err := bridge.SetVimMode(false); err == nil {
+		t.Fatal("detached control bridge accepted a UI state change")
+	}
+}
+
+func TestControlBridgeClearsConversationPresentation(t *testing.T) {
+	model := NewModel(&uiTestRunner{}, ModelOptions{Width: 80, Height: 24})
+	model.Messages = []Message{{Role: "user", Content: "old prompt"}}
+	model.Tools = []ToolPresentation{{ID: "tool-1", Name: "read_file", Status: "succeeded"}}
+	model.toolIndexes["tool-1"] = 0
+	bridge := NewControlBridge()
+	bridge.Attach(func(message tea.Msg) {
+		updated, _ := model.Update(message)
+		model = updated.(*Model)
+	})
+
+	if err := bridge.ClearConversation(); err != nil {
+		t.Fatal(err)
+	}
+	if len(model.Messages) != 0 || len(model.Tools) != 0 || len(model.toolIndexes) != 0 {
+		t.Fatalf("presentation was not cleared: messages=%#v tools=%#v indexes=%#v", model.Messages, model.Tools, model.toolIndexes)
+	}
+}
+
 func TestModelAnswersStructuredUserQuestion(t *testing.T) {
 	model := NewModel(&uiTestRunner{}, ModelOptions{})
 	reply := make(chan QuestionAnswer, 1)

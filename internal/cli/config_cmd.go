@@ -83,6 +83,7 @@ func newConfigCommand(environment *commandEnvironment) *cobra.Command {
 func newConfigProfileCommand(environment *commandEnvironment) *cobra.Command {
 	profiles := &cobra.Command{Use: "profile", Short: "manage complete provider profiles"}
 	var providerName, baseURL, model, apiKeyEnv string
+	var inputCost, outputCost, cacheReadCost, cacheWriteCost float64
 	var activate bool
 	set := &cobra.Command{
 		Use: "set <name>", Args: cobra.ExactArgs(1),
@@ -105,6 +106,26 @@ func newConfigProfileCommand(environment *commandEnvironment) *cobra.Command {
 				if command.Flags().Changed("api-key-env") {
 					profile.APIKeyEnv = apiKeyEnv
 				}
+				if command.Flags().Changed("input-cost-per-million") || command.Flags().Changed("output-cost-per-million") ||
+					command.Flags().Changed("cache-read-cost-per-million") || command.Flags().Changed("cache-write-cost-per-million") {
+					pricing := configpkg.ModelPricing{}
+					if profile.Pricing != nil {
+						pricing = *profile.Pricing
+					}
+					if command.Flags().Changed("input-cost-per-million") {
+						pricing.InputPerMillion = inputCost
+					}
+					if command.Flags().Changed("output-cost-per-million") {
+						pricing.OutputPerMillion = outputCost
+					}
+					if command.Flags().Changed("cache-read-cost-per-million") {
+						pricing.CacheReadPerMillion = cacheReadCost
+					}
+					if command.Flags().Changed("cache-write-cost-per-million") {
+						pricing.CacheWritePerMillion = cacheWriteCost
+					}
+					profile.Pricing = &pricing
+				}
 				loaded.Profiles[args[0]] = profile
 				if activate {
 					loaded.ActiveProfile = args[0]
@@ -124,6 +145,10 @@ func newConfigProfileCommand(environment *commandEnvironment) *cobra.Command {
 	set.Flags().StringVar(&baseURL, "base-url", "", "provider base URL")
 	set.Flags().StringVar(&model, "model", "", "model name")
 	set.Flags().StringVar(&apiKeyEnv, "api-key-env", "", "credential environment variable name")
+	set.Flags().Float64Var(&inputCost, "input-cost-per-million", 0, "input token price in USD per million")
+	set.Flags().Float64Var(&outputCost, "output-cost-per-million", 0, "output token price in USD per million")
+	set.Flags().Float64Var(&cacheReadCost, "cache-read-cost-per-million", 0, "cache-read token price in USD per million")
+	set.Flags().Float64Var(&cacheWriteCost, "cache-write-cost-per-million", 0, "cache-write token price in USD per million")
 	set.Flags().BoolVar(&activate, "activate", false, "make this the active profile")
 	profiles.AddCommand(set)
 	return profiles

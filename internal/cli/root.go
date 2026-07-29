@@ -116,18 +116,22 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 			var shutdown func(context.Context) error
 			var permissionUI *ui.PermissionBridge
 			var questionUI *ui.QuestionBridge
+			var controlUI *ui.ControlBridge
 			bootstrapConfirmer := newBootstrapConfirmer(environment.stdin, environment.stderr)
 			if !printMode {
 				permissionUI = ui.NewPermissionBridge()
 				questionUI = ui.NewQuestionBridge()
+				controlUI = ui.NewControlBridge()
 			}
 			if runner == nil {
 				built, err := composeRuntime(environment.ctx, compositionOptions{
 					ConfigFile: environment.configFile, StateDir: environment.stateDir, Profile: profile,
 					PermissionMode: permissionMode, Model: model, Cwd: cwd, MaxTurns: maxTurns, Headless: printMode,
-					SessionID:  resumeSession,
-					Confirmer:  newInteractiveConfirmer(permissionUI, bootstrapConfirmer),
-					Questioner: newInteractiveQuestioner(questionUI),
+					SessionID:         resumeSession,
+					Confirmer:         newInteractiveConfirmer(permissionUI, bootstrapConfirmer),
+					Questioner:        newInteractiveQuestioner(questionUI),
+					SetVimMode:        controlUI.SetVimMode,
+					ClearConversation: controlUI.ClearConversation,
 				})
 				if err != nil {
 					return err
@@ -154,7 +158,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 				}
 				return nil
 			}
-			app := NewApp(&Config{Runtime: runner, Cwd: cwd, PermissionUI: permissionUI, QuestionUI: questionUI, Context: environment.ctx}, environment.options.Version)
+			app := NewApp(&Config{Runtime: runner, Cwd: cwd, PermissionUI: permissionUI, QuestionUI: questionUI, ControlUI: controlUI, Context: environment.ctx}, environment.options.Version)
 			defer app.Shutdown()
 			return app.Run(prompt)
 		},

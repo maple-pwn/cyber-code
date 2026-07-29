@@ -12,6 +12,11 @@ profiles:
     base_url: https://api.deepseek.com
     model: deepseek-v4-pro
     api_key_env: DEEPSEEK_API_KEY
+    pricing:
+      input_per_million: 1.25
+      output_per_million: 2.50
+      cache_read_per_million: 0.25
+      cache_write_per_million: 1.50
 ```
 
 优先级从高到低为 CLI、环境变量、项目配置、用户配置、默认值。支持的权限模式为 `default`、`plan`、`accept-edits` 和 `bypass`；`bypass` 只能通过显式 CLI 参数启用。
@@ -27,6 +32,8 @@ cyber-code config set permission_mode plan
 cyber-code config profile set NAME --provider PROVIDER --model MODEL [flags]
 cyber-code config validate
 ```
+
+`pricing` 是可选的美元/百万 token 价格。cyber-code 不内置可能过期的厂商费率；配置后 `/cost` 会按 Runtime 累计 usage 计算，未配置时会明确显示 unavailable。也可通过 `config profile set` 的 `--input-cost-per-million`、`--output-cost-per-million`、`--cache-read-cost-per-million` 和 `--cache-write-cost-per-million` 参数维护价格。
 
 配置文件和状态文件使用跨进程事务锁与原子替换；Unix 权限限制为 `0600`，Windows 使用平台锁和替换语义。配置只保存环境变量名，不保存解析后的凭据。
 
@@ -97,10 +104,18 @@ Compact 示例：
 会话控制面命令：
 
 ```text
+/init
+/cost
+/stats
+/clear
+/vim [on|off|toggle]
+/config
 /checkpoint [name]
 /rewind CHECKPOINT_ID
 /branch CHECKPOINT_ID SESSION_ID
 ```
+
+`/init` 以独占创建方式生成根目录 `CYBER.md`，已有普通文件或符号链接时均拒绝覆盖。`/cost` 和 `/stats` 读取 Runtime 的累计 usage；恢复会话时会从 canonical usage 事件重建统计。`/clear` 同步清空 Runtime 历史、持久快照和当前 TUI 展示，但保留累计用量。`/vim` 只在交互式 TUI 中改变当前输入模式。`/config` 只显示生效配置和凭证环境变量名；持久修改仍通过 `cyber-code config` 子命令完成。
 
 `/rewind` 只回退会话对话历史，不覆盖工作区文件；它会追加一条审计性 warning 事件并写入新快照。`/branch` 创建独立 session，继承 checkpoint 历史，事件序列从分支重新开始，并登记到 `sessions` 索引。工作区文件恢复需要后续显式确认和摘要冲突检查。
 

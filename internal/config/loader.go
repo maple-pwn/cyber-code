@@ -115,6 +115,10 @@ func merge(target *Config, overlay Config) {
 		if profile.APIKeyEnv != "" {
 			current.APIKeyEnv = profile.APIKeyEnv
 		}
+		if profile.Pricing != nil {
+			pricing := *profile.Pricing
+			current.Pricing = &pricing
+		}
 		target.Profiles[name] = current
 	}
 }

@@ -44,6 +44,7 @@ type Config struct {
 	Stderr         io.Writer
 	PermissionUI   *ui.PermissionBridge
 	QuestionUI     *ui.QuestionBridge
+	ControlUI      *ui.ControlBridge
 	Context        context.Context
 }
 
@@ -132,6 +133,10 @@ func (a *App) runInteractiveMode() error {
 	if a.config.QuestionUI != nil {
 		a.config.QuestionUI.Attach(p.Send)
 		defer a.config.QuestionUI.Detach()
+	}
+	if a.config.ControlUI != nil {
+		a.config.ControlUI.Attach(p.Send)
+		defer a.config.ControlUI.Detach()
 	}
 
 	// Handle UI events in a goroutine

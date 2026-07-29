@@ -34,6 +34,7 @@ type Runtime struct {
 	sessionID string
 	started   bool
 	commands  *controlplane.Registry
+	usage     core.Usage
 
 	shutdownOnce sync.Once
 	shutdownDone chan struct{}
@@ -90,10 +91,26 @@ func Resume(modelProvider provider.Provider, options agent.Options, store *sessi
 		_ = lease.Close()
 		return nil, fmt.Errorf("resume session %q: %w", sessionID, err)
 	}
+	records, err := store.Events(context.Background(), sessionID)
+	if err != nil {
+		_ = lease.Close()
+		return nil, fmt.Errorf("restore usage for session %q: %w", sessionID, err)
+	}
+	var usage core.Usage
+	for _, record := range records {
+		if record.Event.Type == core.EventUsage && record.Event.Usage != nil {
+			usage.InputTokens += record.Event.Usage.InputTokens
+			usage.OutputTokens += record.Event.Usage.OutputTokens
+			usage.CacheReadInputTokens += record.Event.Usage.CacheReadInputTokens
+			usage.CacheCreationInputTokens += record.Event.Usage.CacheCreationInputTokens
+		}
+	}
 	options.InitialHistory = snapshot.History
 	options.SessionID = sessionID
 	services = append([]io.Closer{lease}, services...)
-	return newRuntime(modelProvider, options, &persistentSession{store: store, id: sessionID}, services...), nil
+	runtime := newRuntime(modelProvider, options, &persistentSession{store: store, id: sessionID}, services...)
+	runtime.usage = usage
+	return runtime, nil
 }
 
 func newRuntime(modelProvider provider.Provider, options agent.Options, persisted *persistentSession, services ...io.Closer) *Runtime {
@@ -235,6 +252,9 @@ func (r *Runtime) run(ctx context.Context, prompt string, content []core.Content
 			if runCtx.Err() != nil {
 				continue
 			}
+			if event.Type == core.EventUsage && event.Usage != nil {
+				r.addUsage(*event.Usage)
+			}
 			if r.hooks != nil && (event.Type == core.EventCompleted || event.Type == core.EventError) {
 				outcome, err := r.hooks.Run(runCtx, hooks.HookInput{
 					EventName: hooks.HookEventStop, SessionID: r.sessionID, Message: event.FinishReason,
@@ -354,6 +374,72 @@ func (r *Runtime) sendPersistenceError(ctx context.Context, output chan<- core.E
 // History returns an independent snapshot of the canonical conversation.
 func (r *Runtime) History() []core.Message {
 	return r.engine.History()
+}
+
+// UsageSnapshot returns cumulative provider usage observed by this Runtime.
+func (r *Runtime) UsageSnapshot() core.Usage {
+	if r == nil {
+		return core.Usage{}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.usage
+}
+
+func (r *Runtime) addUsage(usage core.Usage) {
+	r.mu.Lock()
+	r.usage.InputTokens += usage.InputTokens
+	r.usage.OutputTokens += usage.OutputTokens
+	r.usage.CacheReadInputTokens += usage.CacheReadInputTokens
+	r.usage.CacheCreationInputTokens += usage.CacheCreationInputTokens
+	r.mu.Unlock()
+}
+
+// ClearHistory atomically clears the canonical conversation and its persisted
+// snapshot. If persistence fails, the in-memory history is restored.
+func (r *Runtime) ClearHistory(ctx context.Context) error {
+	if r == nil {
+		return fmt.Errorf("runtime is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return fmt.Errorf("runtime is shut down")
+	}
+	r.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-r.turn:
+	}
+	defer func() { r.turn <- struct{}{} }()
+
+	previousHistory := r.engine.History()
+	var snapshot session.Snapshot
+	if r.session != nil {
+		var err error
+		snapshot, err = r.session.store.Resume(ctx, r.session.id)
+		if errors.Is(err, session.ErrSessionNotFound) {
+			snapshot = session.Snapshot{SessionID: r.session.id}
+		} else if err != nil {
+			return fmt.Errorf("load session snapshot: %w", err)
+		}
+	}
+	if err := r.engine.ReplaceHistory(ctx, nil); err != nil {
+		return err
+	}
+	if r.session == nil {
+		return nil
+	}
+	snapshot.History = nil
+	if err := r.session.store.SaveSnapshot(ctx, snapshot); err != nil {
+		rollbackErr := r.engine.ReplaceHistory(context.Background(), previousHistory)
+		return errors.Join(fmt.Errorf("persist cleared history: %w", err), rollbackErr)
+	}
+	return nil
 }
 
 // Compact compacts the current conversation and persists the resulting

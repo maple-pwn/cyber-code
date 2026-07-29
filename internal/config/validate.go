@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"regexp"
@@ -52,6 +53,14 @@ func Validate(config *Config) error {
 		}
 		if profile.APIKeyEnv != "" && !environmentNamePattern.MatchString(profile.APIKeyEnv) {
 			return fmt.Errorf("profile %q api_key_env is not a valid environment variable name", name)
+		}
+		if profile.Pricing != nil {
+			rates := []float64{profile.Pricing.InputPerMillion, profile.Pricing.OutputPerMillion, profile.Pricing.CacheReadPerMillion, profile.Pricing.CacheWritePerMillion}
+			for _, rate := range rates {
+				if rate < 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
+					return fmt.Errorf("profile %q pricing rates must be finite and non-negative", name)
+				}
+			}
 		}
 	}
 

@@ -17,6 +17,7 @@ import (
 	"cyber-code/internal/collaboration"
 	configpkg "cyber-code/internal/config"
 	"cyber-code/internal/contextbuilder"
+	"cyber-code/internal/core"
 	"cyber-code/internal/gitworkflow"
 	"cyber-code/internal/hooks"
 	"cyber-code/internal/lsp"
@@ -53,6 +54,8 @@ type compositionOptions struct {
 	Headless                                                             bool
 	Confirmer                                                            permissions.Confirmer
 	Questioner                                                           builtin.Questioner
+	SetVimMode                                                           func(bool) error
+	ClearConversation                                                    func() error
 }
 
 func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtimepkg.Runtime, returnErr error) {
@@ -245,7 +248,34 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 		return nil, err
 	}
 	services = nil // Runtime owns the service lifetime after successful construction.
-	commands, err := buildControlPlane(built, options.StateDir, loaded.ActiveProfile, profile.Model, mode, hookRunner, discoveredSkills, contextBuilder, mcpManager, gitService)
+	actions := ControlActions{
+		InitializeInstructions: newInstructionInitializer(workspace),
+		EffectiveConfig:        func() configpkg.Config { return *loaded },
+		UsageSnapshot:          built.UsageSnapshot,
+		HistoryCount:           func() int { return len(built.History()) },
+		ClearHistory: func(ctx context.Context) error {
+			if err := built.ClearHistory(ctx); err != nil {
+				return err
+			}
+			if options.ClearConversation != nil && !options.Headless {
+				return options.ClearConversation()
+			}
+			return nil
+		},
+		SetVimMode: options.SetVimMode,
+	}
+	if profile.Pricing != nil {
+		pricing := session.ModelPricing{
+			InputPerMillion:      profile.Pricing.InputPerMillion,
+			OutputPerMillion:     profile.Pricing.OutputPerMillion,
+			CacheReadPerMillion:  profile.Pricing.CacheReadPerMillion,
+			CacheWritePerMillion: profile.Pricing.CacheWritePerMillion,
+		}
+		actions.EstimateCost = func(usage core.Usage) (float64, error) {
+			return pricing.Cost(usage), nil
+		}
+	}
+	commands, err := buildControlPlane(built, options.StateDir, loaded.ActiveProfile, profile.Model, mode, hookRunner, discoveredSkills, contextBuilder, mcpManager, gitService, actions)
 	if err != nil {
 		_ = built.Shutdown(context.Background())
 		return nil, fmt.Errorf("configure command control plane: %w", err)

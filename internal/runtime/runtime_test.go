@@ -191,6 +191,110 @@ func TestPersistentRuntimeLogsAndResumesConversationHistory(t *testing.T) {
 	}
 }
 
+func TestRuntimeUsageSnapshotAccumulatesCanonicalUsageEvents(t *testing.T) {
+	model := &completedProvider{events: []core.Event{
+		{Type: core.EventUsage, Usage: &core.Usage{InputTokens: 10, OutputTokens: 3, CacheReadInputTokens: 2}},
+		{Type: core.EventUsage, Usage: &core.Usage{InputTokens: 4, OutputTokens: 1, CacheCreationInputTokens: 5}},
+		{Type: core.EventCompleted, FinishReason: "stop"},
+	}}
+	runtime := New(model, agent.Options{Model: "test"})
+	collectRuntimeEvents(t, runtime.Run(context.Background(), "count usage"))
+
+	got := runtime.UsageSnapshot()
+	want := core.Usage{InputTokens: 14, OutputTokens: 4, CacheReadInputTokens: 2, CacheCreationInputTokens: 5}
+	if got != want {
+		t.Fatalf("usage snapshot = %#v, want %#v", got, want)
+	}
+
+	got.InputTokens = 0
+	if second := runtime.UsageSnapshot(); second.InputTokens != want.InputTokens {
+		t.Fatalf("usage snapshot exposed mutable runtime state: %#v", second)
+	}
+}
+
+func TestResumeRestoresCumulativeUsageLedger(t *testing.T) {
+	store, err := session.NewStore(t.TempDir(), session.StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := NewPersistent(&completedProvider{events: []core.Event{
+		{Type: core.EventUsage, Usage: &core.Usage{InputTokens: 12, OutputTokens: 3, CacheReadInputTokens: 4}},
+		{Type: core.EventCompleted, FinishReason: "stop"},
+	}}, agent.Options{Model: "test"}, store, "usage-resume")
+	if err != nil {
+		t.Fatal(err)
+	}
+	collectRuntimeEvents(t, first.Run(context.Background(), "question"))
+	if err := first.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	resumed, err := Resume(&completedProvider{}, agent.Options{Model: "test"}, store, "usage-resume")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resumed.Shutdown(context.Background())
+	if got := resumed.UsageSnapshot(); got != (core.Usage{InputTokens: 12, OutputTokens: 3, CacheReadInputTokens: 4}) {
+		t.Fatalf("resumed usage = %#v", got)
+	}
+}
+
+func TestPersistentRuntimeClearHistoryUpdatesMemoryAndSnapshot(t *testing.T) {
+	store, err := session.NewStore(t.TempDir(), session.StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := &completedProvider{events: []core.Event{
+		{Type: core.EventTextDelta, Text: "answer"},
+		{Type: core.EventCompleted, FinishReason: "stop"},
+	}}
+	runtime, err := NewPersistent(model, agent.Options{Model: "test"}, store, "clear-history")
+	if err != nil {
+		t.Fatal(err)
+	}
+	collectRuntimeEvents(t, runtime.Run(context.Background(), "question"))
+
+	if err := runtime.ClearHistory(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if history := runtime.History(); len(history) != 0 {
+		t.Fatalf("runtime history after clear = %#v", history)
+	}
+	snapshot, err := store.Resume(context.Background(), "clear-history")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.History) != 0 {
+		t.Fatalf("persisted history after clear = %#v", snapshot.History)
+	}
+	if snapshot.LastSequence != 3 {
+		t.Fatalf("clear changed the last canonical sequence to %d", snapshot.LastSequence)
+	}
+}
+
+func TestPersistentRuntimeClearHistoryBeforeFirstTurnCreatesEmptySnapshot(t *testing.T) {
+	store, err := session.NewStore(t.TempDir(), session.StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewPersistent(&completedProvider{}, agent.Options{Model: "test"}, store, "empty-clear")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Shutdown(context.Background())
+
+	if err := runtime.ClearHistory(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.Resume(context.Background(), "empty-clear")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.SessionID != "empty-clear" || snapshot.LastSequence != 0 || len(snapshot.History) != 0 {
+		t.Fatalf("empty snapshot = %#v", snapshot)
+	}
+}
+
 func TestPersistentRuntimeHoldsExclusiveSessionLeaseUntilShutdown(t *testing.T) {
 	root := t.TempDir()
 	firstStore, err := session.NewStore(root, session.StoreOptions{})

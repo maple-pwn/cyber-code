@@ -5,10 +5,19 @@ package config
 // Profile configures one model provider. APIKeyEnv names an environment
 // variable; its value is resolved only when a provider is constructed.
 type Profile struct {
-	Provider  string `json:"provider" yaml:"provider"`
-	BaseURL   string `json:"base_url,omitempty" yaml:"base_url,omitempty"`
-	Model     string `json:"model" yaml:"model"`
-	APIKeyEnv string `json:"api_key_env,omitempty" yaml:"api_key_env,omitempty"`
+	Provider  string        `json:"provider" yaml:"provider"`
+	BaseURL   string        `json:"base_url,omitempty" yaml:"base_url,omitempty"`
+	Model     string        `json:"model" yaml:"model"`
+	APIKeyEnv string        `json:"api_key_env,omitempty" yaml:"api_key_env,omitempty"`
+	Pricing   *ModelPricing `json:"pricing,omitempty" yaml:"pricing,omitempty"`
+}
+
+// ModelPricing contains user-supplied USD rates per million tokens.
+type ModelPricing struct {
+	InputPerMillion      float64 `json:"input_per_million" yaml:"input_per_million"`
+	OutputPerMillion     float64 `json:"output_per_million" yaml:"output_per_million"`
+	CacheReadPerMillion  float64 `json:"cache_read_per_million,omitempty" yaml:"cache_read_per_million,omitempty"`
+	CacheWritePerMillion float64 `json:"cache_write_per_million,omitempty" yaml:"cache_write_per_million,omitempty"`
 }
 
 // Config is the merged, validated application configuration.

@@ -23,7 +23,7 @@ func TestCompleteInputReturnsBoundedSortedDataOnlySuggestions(t *testing.T) {
 }
 
 func TestDefaultCommandCompletionIncludesGitWorkflows(t *testing.T) {
-	for _, command := range []string{"commit", "diff", "review"} {
+	for _, command := range []string{"commit", "diff", "review", "init", "cost", "stats", "clear", "vim", "config"} {
 		found := false
 		for _, candidate := range defaultCommandNames {
 			found = found || candidate == command

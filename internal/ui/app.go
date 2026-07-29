@@ -84,6 +84,8 @@ type runtimeEventMsg struct {
 }
 type permissionRespondedMsg struct{}
 type processingTickMsg struct{}
+type setVimModeMsg struct{ enabled bool }
+type clearConversationMsg struct{}
 
 const processingTickInterval = 100 * time.Millisecond
 
@@ -110,6 +112,51 @@ type PermissionBridge struct {
 type QuestionBridge struct {
 	mu   sync.RWMutex
 	send func(tea.Msg)
+}
+
+// ControlBridge sends control-plane UI state changes to the active Bubble Tea
+// program without exposing the Model to command handlers.
+type ControlBridge struct {
+	mu   sync.RWMutex
+	send func(tea.Msg)
+}
+
+func NewControlBridge() *ControlBridge { return &ControlBridge{} }
+
+func (bridge *ControlBridge) Attach(send func(tea.Msg)) {
+	bridge.mu.Lock()
+	bridge.send = send
+	bridge.mu.Unlock()
+}
+
+func (bridge *ControlBridge) Detach() { bridge.Attach(nil) }
+
+func (bridge *ControlBridge) SetVimMode(enabled bool) error {
+	if bridge == nil {
+		return fmt.Errorf("UI control is unavailable")
+	}
+	bridge.mu.RLock()
+	send := bridge.send
+	bridge.mu.RUnlock()
+	if send == nil {
+		return fmt.Errorf("UI control is unavailable")
+	}
+	send(setVimModeMsg{enabled: enabled})
+	return nil
+}
+
+func (bridge *ControlBridge) ClearConversation() error {
+	if bridge == nil {
+		return fmt.Errorf("UI control is unavailable")
+	}
+	bridge.mu.RLock()
+	send := bridge.send
+	bridge.mu.RUnlock()
+	if send == nil {
+		return fmt.Errorf("UI control is unavailable")
+	}
+	send(clearConversationMsg{})
+	return nil
 }
 
 func NewQuestionBridge() *QuestionBridge { return &QuestionBridge{} }
@@ -265,6 +312,15 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		model.ProcessingView.Update()
 		return model, waitForRuntimeEvent(model.events)
+	case setVimModeMsg:
+		model.SetVimMode(message.enabled)
+		return model, nil
+	case clearConversationMsg:
+		model.Messages = nil
+		model.Tools = nil
+		model.toolIndexes = make(map[string]int)
+		model.assistantIndex = -1
+		return model, nil
 	case PermissionRequestMsg:
 		model.Permission = components.NewPermissionDialog(message.Request.Tool, permissionDescription(message.Request))
 		model.permissionReply = message.Respond
