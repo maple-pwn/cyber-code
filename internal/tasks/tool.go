@@ -43,6 +43,7 @@ type ToolService struct {
 	board          *collaboration.Board
 	ctx            context.Context
 	cancel         context.CancelFunc
+	observations   *observationHub
 }
 
 type taskRunInput struct {
@@ -89,6 +90,7 @@ func NewToolService(options ToolServiceOptions) (*ToolService, error) {
 	return &ToolService{
 		manager: options.Manager, execute: options.Execute, parentMode: parentMode,
 		parentMaxTurns: normalizedTurns(options.ParentMaxTurns), definitions: definitions, board: options.Board, ctx: ctx, cancel: cancel,
+		observations: newObservationHub(defaultObservationBuffer),
 	}, nil
 }
 
@@ -97,7 +99,27 @@ func (service *ToolService) Close() error {
 		return nil
 	}
 	service.cancel()
-	return service.manager.Close()
+	err := service.manager.Close()
+	service.observations.close()
+	return err
+}
+
+// Observe subscribes to bounded, provider-independent child task events.
+func (service *ToolService) Observe(ctx context.Context) <-chan core.Event {
+	if service == nil || service.observations == nil {
+		closed := make(chan core.Event)
+		close(closed)
+		return closed
+	}
+	return service.observations.observe(ctx)
+}
+
+// Snapshots returns immutable task observation summaries ordered by task ID.
+func (service *ToolService) Snapshots() []Snapshot {
+	if service == nil || service.observations == nil {
+		return nil
+	}
+	return service.observations.snapshots()
 }
 
 func RegisterTools(registry *toolpkg.Registry, service *ToolService) error {

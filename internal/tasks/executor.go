@@ -551,47 +551,36 @@ func (m *Manager) notifyTaskRetrieved(task *LocalAgentTaskState) {
 
 // UpdateProgress updates the progress of a local agent task.
 func (m *Manager) UpdateProgress(taskID string, progress AgentProgress) error {
-	task := m.registry.Get(taskID)
-	if task == nil {
-		return fmt.Errorf("task %s not found", taskID)
-	}
-
-	agentTask, ok := task.(*LocalAgentTaskState)
-	if !ok {
+	if _, ok := m.registry.Get(taskID).(*LocalAgentTaskState); !ok {
 		return fmt.Errorf("task %s is not a local agent task", taskID)
 	}
-
-	agentTask.Progress = &progress
-	return nil
+	return m.registry.Update(taskID, func(task TaskState) TaskState {
+		agentTask := task.(*LocalAgentTaskState)
+		copy := progress
+		agentTask.Progress = &copy
+		return agentTask
+	})
 }
 
 // AddToolActivity adds a tool activity to progress tracking.
 func (m *Manager) AddToolActivity(taskID string, activity ToolActivity) error {
-	task := m.registry.Get(taskID)
-	if task == nil {
-		return fmt.Errorf("task %s not found", taskID)
-	}
-
-	agentTask, ok := task.(*LocalAgentTaskState)
-	if !ok {
+	if _, ok := m.registry.Get(taskID).(*LocalAgentTaskState); !ok {
 		return fmt.Errorf("task %s is not a local agent task", taskID)
 	}
-
-	if agentTask.Progress == nil {
-		agentTask.Progress = &AgentProgress{}
-	}
-
-	agentTask.Progress.ToolUseCount++
-	agentTask.Progress.RecentActivities = append(
-		agentTask.Progress.RecentActivities,
-		activity,
-	)
-
-	if len(agentTask.Progress.RecentActivities) > 10 {
-		agentTask.Progress.RecentActivities = agentTask.Progress.RecentActivities[len(agentTask.Progress.RecentActivities)-10:]
-	}
-
-	return nil
+	return m.registry.Update(taskID, func(task TaskState) TaskState {
+		agentTask := task.(*LocalAgentTaskState)
+		if agentTask.Progress == nil {
+			agentTask.Progress = &AgentProgress{}
+		}
+		agentTask.Progress.ToolUseCount++
+		copy := activity
+		agentTask.Progress.LastActivity = &copy
+		agentTask.Progress.RecentActivities = append(agentTask.Progress.RecentActivities, activity)
+		if len(agentTask.Progress.RecentActivities) > 10 {
+			agentTask.Progress.RecentActivities = agentTask.Progress.RecentActivities[len(agentTask.Progress.RecentActivities)-10:]
+		}
+		return agentTask
+	})
 }
 
 // =============================================================================
