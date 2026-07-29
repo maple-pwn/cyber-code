@@ -81,6 +81,11 @@ func configureTaskService(options taskCompositionOptions) (*tasks.ToolService, e
 			}
 			var output strings.Builder
 			for event := range child.Engine.Run(ctx, request.Prompt) {
+				if request.Emit != nil {
+					if err := request.Emit(event); err != nil {
+						return nil, err
+					}
+				}
 				switch event.Type {
 				case core.EventTextDelta:
 					output.WriteString(event.Text)

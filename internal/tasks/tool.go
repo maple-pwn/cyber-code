@@ -21,6 +21,7 @@ type AgentRequest struct {
 	MaxTurns    int
 	Mode        permissions.PermissionMode
 	Definition  *collaboration.Definition
+	Emit        func(core.Event) error
 }
 
 type AgentExecuteFunc func(context.Context, AgentRequest) (any, error)
@@ -265,6 +266,10 @@ func (service *ToolService) run(ctx context.Context, arguments json.RawMessage) 
 	if err != nil {
 		return taskToolResult{}, err
 	}
+	if err := service.publishStatus(core.EventSubagentStarted, task.ID, input.Agent, input.Description, TaskStatusPending); err != nil {
+		service.manager.registry.Unregister(task.ID)
+		return taskToolResult{}, err
+	}
 	if service.board != nil {
 		if err := service.board.Create(ctx, collaboration.Task{ID: task.ID, Agent: input.Agent, Description: input.Description}); err != nil {
 			service.manager.registry.Unregister(task.ID)
@@ -272,6 +277,14 @@ func (service *ToolService) run(ctx context.Context, arguments json.RawMessage) 
 		}
 	}
 	request := AgentRequest{TaskID: task.ID, Prompt: input.Prompt, Description: input.Description, MaxTurns: input.MaxTurns, Mode: input.PermissionMode}
+	request.Emit = func(event core.Event) error {
+		return service.observations.publish(core.Event{
+			Type: core.EventSubagentEvent,
+			Subagent: &core.SubagentEvent{
+				TaskID: task.ID, Agent: input.Agent, Description: input.Description, Status: string(TaskStatusRunning), Event: &event,
+			},
+		})
+	}
 	if input.Agent != "" {
 		definition := service.definitions[input.Agent]
 		definition.Tools = append([]string(nil), definition.Tools...)
@@ -282,6 +295,9 @@ func (service *ToolService) run(ctx context.Context, arguments json.RawMessage) 
 		executionCtx = service.ctx
 	}
 	if err := service.manager.StartExecution(executionCtx, task.ID, func(ctx context.Context, _ *LocalAgentTaskState) (any, error) {
+		if err := service.publishStatus(core.EventSubagentStatus, request.TaskID, input.Agent, input.Description, TaskStatusRunning); err != nil {
+			return nil, err
+		}
 		if service.board != nil {
 			if err := service.board.Transition(ctx, request.TaskID, collaboration.TaskRunning, ""); err != nil {
 				return nil, err
@@ -297,20 +313,40 @@ func (service *ToolService) run(ctx context.Context, arguments json.RawMessage) 
 				}
 			}
 			if transitionErr := service.board.Transition(context.Background(), request.TaskID, status, message); transitionErr != nil && executeErr == nil {
-				return nil, transitionErr
+				executeErr = transitionErr
 			}
+		}
+		terminalStatus := TaskStatusCompleted
+		if executeErr != nil {
+			terminalStatus = TaskStatusFailed
+			if errors.Is(executeErr, context.Canceled) {
+				terminalStatus = TaskStatusCancelled
+			}
+		}
+		if publishErr := service.publishStatus(core.EventSubagentStatus, request.TaskID, input.Agent, input.Description, terminalStatus); publishErr != nil && executeErr == nil {
+			executeErr = publishErr
 		}
 		return result, executeErr
 	}); err != nil {
 		if service.board != nil {
 			_ = service.board.Transition(context.Background(), task.ID, collaboration.TaskCancelled, err.Error())
 		}
+		_ = service.publishStatus(core.EventSubagentStatus, task.ID, input.Agent, input.Description, TaskStatusCancelled)
 		return taskToolResult{}, err
 	}
 	if input.Background {
 		return service.result(task.ID)
 	}
 	return service.wait(ctx, task.ID)
+}
+
+func (service *ToolService) publishStatus(eventType core.EventType, taskID, agent, description string, status TaskStatus) error {
+	return service.observations.publish(core.Event{
+		Type: eventType,
+		Subagent: &core.SubagentEvent{
+			TaskID: taskID, Agent: agent, Description: description, Status: string(status),
+		},
+	})
 }
 
 func (service *ToolService) wait(ctx context.Context, id string) (taskToolResult, error) {

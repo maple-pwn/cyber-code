@@ -3,14 +3,154 @@ package tasks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"cyber-code/internal/collaboration"
+	"cyber-code/internal/core"
 	"cyber-code/internal/permissions"
 	toolpkg "cyber-code/internal/tool"
 )
+
+func TestTaskRunPublishesSubagentObservations(t *testing.T) {
+	service, err := NewToolService(ToolServiceOptions{
+		ParentMode: permissions.PermissionModeDefault, ParentMaxTurns: 4,
+		Execute: func(_ context.Context, request AgentRequest) (any, error) {
+			for _, event := range []core.Event{
+				{Type: core.EventThinkingDelta, Text: "checking"},
+				{Type: core.EventToolCall, ToolCall: &core.ToolCall{ID: "call-1", Name: "read_file"}},
+				{Type: core.EventUsage, Usage: &core.Usage{InputTokens: 11, OutputTokens: 4}},
+				{Type: core.EventCompleted, FinishReason: "stop"},
+			} {
+				if err := request.Emit(event); err != nil {
+					return nil, err
+				}
+			}
+			return "done", nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	events := service.Observe(context.Background())
+
+	result, err := service.run(context.Background(), json.RawMessage(`{"agent":"","prompt":"inspect","description":"review"}`))
+	if err != nil || result.Status != TaskStatusCompleted {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+
+	got := receiveObservations(t, events, 7)
+	wantTypes := []core.EventType{
+		core.EventSubagentStarted, core.EventSubagentStatus,
+		core.EventSubagentEvent, core.EventSubagentEvent, core.EventSubagentEvent, core.EventSubagentEvent,
+		core.EventSubagentStatus,
+	}
+	for index, want := range wantTypes {
+		if got[index].Type != want || got[index].Subagent == nil || got[index].Subagent.TaskID != result.ID {
+			t.Fatalf("event[%d]=%#v, want %s for %s", index, got[index], want, result.ID)
+		}
+	}
+	if got[0].Subagent.Status != string(TaskStatusPending) || got[1].Subagent.Status != string(TaskStatusRunning) || got[6].Subagent.Status != string(TaskStatusCompleted) {
+		t.Fatalf("lifecycle = %q, %q, %q", got[0].Subagent.Status, got[1].Subagent.Status, got[6].Subagent.Status)
+	}
+	snapshots := service.Snapshots()
+	if len(snapshots) != 1 || snapshots[0].RecentTool != "read_file" || snapshots[0].Usage.InputTokens != 11 || snapshots[0].Usage.OutputTokens != 4 {
+		t.Fatalf("snapshots = %#v", snapshots)
+	}
+}
+
+func TestTaskRunPublishesBackgroundAndFailedStatuses(t *testing.T) {
+	release := make(chan struct{})
+	service, err := NewToolService(ToolServiceOptions{
+		ParentMode: permissions.PermissionModeDefault, ParentMaxTurns: 2,
+		Execute: func(_ context.Context, request AgentRequest) (any, error) {
+			<-release
+			if err := request.Emit(core.Event{Type: core.EventWarning, Text: "child warning"}); err != nil {
+				return nil, err
+			}
+			return nil, errors.New("child failed")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	events := service.Observe(context.Background())
+
+	result, err := service.run(context.Background(), json.RawMessage(`{"prompt":"inspect","background":true}`))
+	if err != nil || result.Status != TaskStatusRunning {
+		t.Fatalf("background result=%#v err=%v", result, err)
+	}
+	close(release)
+	got := receiveUntilTerminalObservation(t, events)
+	if got[0].Type != core.EventSubagentStarted || got[1].Type != core.EventSubagentStatus {
+		t.Fatalf("initial lifecycle = %#v", got)
+	}
+	last := got[len(got)-1]
+	if last.Type != core.EventSubagentStatus || last.Subagent.Status != string(TaskStatusFailed) {
+		t.Fatalf("terminal observation = %#v", last)
+	}
+}
+
+func TestTaskEmitterRejectsRecursiveSubagentObservation(t *testing.T) {
+	service, err := NewToolService(ToolServiceOptions{
+		ParentMode: permissions.PermissionModeDefault, ParentMaxTurns: 2,
+		Execute: func(_ context.Context, request AgentRequest) (any, error) {
+			return nil, request.Emit(core.Event{Type: core.EventSubagentEvent, Subagent: &core.SubagentEvent{TaskID: "nested"}})
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	if _, err := service.run(context.Background(), json.RawMessage(`{"prompt":"inspect"}`)); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		snapshots := service.Snapshots()
+		if len(snapshots) == 1 && snapshots[0].Status == TaskStatusFailed {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("recursive observation did not fail the task")
+}
+
+func receiveObservations(t *testing.T, events <-chan core.Event, count int) []core.Event {
+	t.Helper()
+	result := make([]core.Event, 0, count)
+	for len(result) < count {
+		select {
+		case event, open := <-events:
+			if !open {
+				t.Fatalf("observation stream closed after %d events", len(result))
+			}
+			result = append(result, event)
+		case <-time.After(time.Second):
+			t.Fatalf("timed out after %d observations", len(result))
+		}
+	}
+	return result
+}
+
+func receiveUntilTerminalObservation(t *testing.T, events <-chan core.Event) []core.Event {
+	t.Helper()
+	result := make([]core.Event, 0, 8)
+	for {
+		result = append(result, receiveObservations(t, events, 1)[0])
+		last := result[len(result)-1]
+		if last.Type == core.EventSubagentStatus && last.Subagent != nil {
+			status := TaskStatus(last.Subagent.Status)
+			if status == TaskStatusCompleted || status == TaskStatusFailed || status == TaskStatusCancelled {
+				return result
+			}
+		}
+	}
+}
 
 func TestTaskToolsRunForegroundAgentAndReportStatus(t *testing.T) {
 	service, err := NewToolService(ToolServiceOptions{
