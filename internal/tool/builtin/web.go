@@ -272,30 +272,40 @@ func truncateRunes(value string, limit int) string {
 // NewDuckDuckGoSearch provides a keyless default search backend. Its response
 // is treated as untrusted content and bounded again by webSearchTool.
 func NewDuckDuckGoSearch(client *http.Client) WebSearch {
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	clientCopy := *client
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.DialContext = secureDialContext(net.DefaultResolver)
+	clientCopy.Transport = transport
+	return newDuckDuckGoSearch(&clientCopy, "https://api.duckduckgo.com/", func(ctx context.Context, target *url.URL) error {
+		return validatePublicURL(ctx, net.DefaultResolver, target)
+	})
+}
+
+func newDuckDuckGoSearch(client *http.Client, endpointURL string, validate func(context.Context, *url.URL) error) WebSearch {
 	return func(ctx context.Context, query string, limit int) ([]WebResult, error) {
-		endpoint, _ := url.Parse("https://api.duckduckgo.com/")
+		endpoint, err := url.Parse(endpointURL)
+		if err != nil {
+			return nil, err
+		}
 		parameters := endpoint.Query()
 		parameters.Set("q", query)
 		parameters.Set("format", "json")
 		parameters.Set("no_html", "1")
 		parameters.Set("no_redirect", "1")
 		endpoint.RawQuery = parameters.Encode()
-		if err := validatePublicURL(ctx, net.DefaultResolver, endpoint); err != nil {
+		if err := validate(ctx, endpoint); err != nil {
 			return nil, err
 		}
-		if client == nil {
-			client = &http.Client{Timeout: 30 * time.Second}
-		}
 		clientCopy := *client
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.Proxy = nil
-		transport.DialContext = secureDialContext(net.DefaultResolver)
-		clientCopy.Transport = transport
 		clientCopy.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 			if len(via) >= maxWebRedirects {
 				return errors.New("web search exceeded redirect limit")
 			}
-			return validatePublicURL(req.Context(), net.DefaultResolver, req.URL)
+			return validate(req.Context(), req.URL)
 		}
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 		if err != nil {

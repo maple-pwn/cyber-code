@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -64,6 +65,12 @@ type Health struct {
 	ConnectedAt time.Time
 }
 
+type ConnectionStatus struct {
+	Name     string
+	Disabled bool
+	Health   Health
+}
+
 type Manager struct {
 	registry      *toolpkg.Registry
 	authorizer    Authorizer
@@ -90,6 +97,7 @@ type connection struct {
 	resources  []Resource
 	tools      map[string]*remoteTool
 	health     Health
+	disabled   bool
 }
 
 func NewManager(options ManagerOptions) (*Manager, error) {
@@ -152,7 +160,59 @@ func (manager *Manager) Reconnect(ctx context.Context, name string) error {
 	if !ok {
 		return fmt.Errorf("MCP server %q is not connected", name)
 	}
+	if old.disabled {
+		return fmt.Errorf("MCP server %q is disabled", name)
+	}
 	return manager.connectLocked(ctx, old.config, old)
+}
+
+func (manager *Manager) Disable(ctx context.Context, name string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	manager.operationMu.Lock()
+	defer manager.operationMu.Unlock()
+	manager.mu.Lock()
+	conn, ok := manager.connections[name]
+	if !ok {
+		manager.mu.Unlock()
+		return fmt.Errorf("MCP server %q is not connected", name)
+	}
+	conn.disabled = true
+	conn.health.State = HealthClosed
+	conn.health.LastError = ""
+	manager.mu.Unlock()
+	if conn.cancel != nil {
+		conn.cancel()
+	}
+	if conn.transport != nil {
+		return conn.transport.Close()
+	}
+	return nil
+}
+
+func (manager *Manager) Status(name string) (ConnectionStatus, bool) {
+	manager.mu.RLock()
+	defer manager.mu.RUnlock()
+	conn, ok := manager.connections[name]
+	if !ok {
+		return ConnectionStatus{}, false
+	}
+	return ConnectionStatus{Name: name, Disabled: conn.disabled, Health: conn.health}, true
+}
+
+func (manager *Manager) Statuses() []ConnectionStatus {
+	manager.mu.RLock()
+	defer manager.mu.RUnlock()
+	statuses := make([]ConnectionStatus, 0, len(manager.connections))
+	for name, conn := range manager.connections {
+		statuses = append(statuses, ConnectionStatus{Name: name, Disabled: conn.disabled, Health: conn.health})
+	}
+	sort.Slice(statuses, func(i, j int) bool { return statuses[i].Name < statuses[j].Name })
+	return statuses
 }
 
 func (manager *Manager) connectLocked(ctx context.Context, config ServerConfig, old *connection) error {
@@ -322,6 +382,9 @@ func (manager *Manager) call(ctx context.Context, server, method string, params,
 		manager.mu.RUnlock()
 		if !ok {
 			return fmt.Errorf("MCP server %q is not connected", server)
+		}
+		if conn.disabled {
+			return fmt.Errorf("MCP server %q is disabled", server)
 		}
 		callCtx, cancel := context.WithCancel(conn.ctx)
 		stop := context.AfterFunc(ctx, cancel)

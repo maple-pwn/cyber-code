@@ -7,8 +7,11 @@
 - `start` 或 `input`：携带 `prompt`，启动一次串行 Runtime turn。
 - `cancel`：取消当前 turn。
 - `status`：返回 session、运行状态和历史消息数。
+- `permission`：使用服务端发出的 `permission_id` 返回 `allow` 或 `deny`；未知 ID 会被拒绝。
 
-服务端先返回 `accepted`，随后以相同 `id` 返回 `event` 消息。Runtime 的权限确认仍由宿主 UI/权限 Broker 处理；协议拒绝外部注入 `permission` 响应，防止伪造授权。
+服务端先返回 `accepted`，随后以相同 `id` 返回 `event` 消息；turn 结束时返回 `turn_finished`，取消完成时包含 `canceled: true`。权限请求通过 `permission` 消息发送，响应必须匹配当前连接中的待处理 ID，断线会默认拒绝。
+
+输出使用有界队列。客户端持续不读取时，服务端返回 slow-consumer 错误并取消当前 turn，避免无界内存增长。断开连接后，同一 Server 可以接受新连接。
 
 `internal/bridge` 提供两个适配器：
 

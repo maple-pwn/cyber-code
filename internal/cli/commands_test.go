@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"cyber-code/internal/core"
+	"cyber-code/internal/mcp"
 	"cyber-code/internal/session"
 )
 
@@ -92,6 +94,66 @@ func TestExecuteMCPAndPluginManagement(t *testing.T) {
 		if strings.Contains(strings.ToLower(stdout.String()+stderr.String()), "todo") || strings.Contains(strings.ToLower(stdout.String()+stderr.String()), "placeholder") {
 			t.Fatalf("args %v emitted placeholder output", test.args)
 		}
+	}
+}
+
+func TestMCPDisableEnableAndStatusPersistLifecycle(t *testing.T) {
+	stateDir := t.TempDir()
+	var output bytes.Buffer
+	for _, args := range [][]string{{"mcp", "add", "remote", "--url", "https://example.test/mcp"}, {"mcp", "disable", "remote"}, {"mcp", "status", "remote"}} {
+		output.Reset()
+		if code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &output, io.Discard, args, ExecuteOptions{StateDir: stateDir}); code != 0 {
+			t.Fatalf("args=%v code=%d", args, code)
+		}
+	}
+	if !strings.Contains(output.String(), "disabled") {
+		t.Fatalf("status=%q", output.String())
+	}
+	output.Reset()
+	if code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &output, io.Discard, []string{"mcp", "enable", "remote"}, ExecuteOptions{StateDir: stateDir}); code != 0 {
+		t.Fatalf("enable code=%d", code)
+	}
+	entries, err := loadMCPEntries(filepath.Join(stateDir, "mcp.json"))
+	if err != nil || entries["remote"].Disabled {
+		t.Fatalf("entry=%#v err=%v", entries["remote"], err)
+	}
+}
+
+func TestMCPAuthSetReadsTokensFromEnvironment(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("MCP_ACCESS", "access-secret")
+	t.Setenv("MCP_REFRESH", "refresh-secret")
+	for _, args := range [][]string{{"mcp", "add", "remote", "--url", "https://example.test/mcp"}, {"mcp", "auth", "set", "remote", "--access-token-env", "MCP_ACCESS", "--refresh-token-env", "MCP_REFRESH", "--expires-at", "123"}} {
+		if code := ExecuteWithOptions(context.Background(), strings.NewReader(""), io.Discard, io.Discard, args, ExecuteOptions{StateDir: stateDir}); code != 0 {
+			t.Fatalf("args=%v code=%d", args, code)
+		}
+	}
+	store, err := mcp.NewCredentialStore(filepath.Join(stateDir, "mcp-credentials"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, ok, err := store.Get(context.Background(), "remote")
+	if err != nil || !ok || value.AccessToken != "access-secret" || value.RefreshToken != "refresh-secret" {
+		t.Fatalf("value=%#v ok=%v err=%v", value, ok, err)
+	}
+	configBytes, _ := os.ReadFile(filepath.Join(stateDir, "mcp.json"))
+	if bytes.Contains(configBytes, []byte("access-secret")) {
+		t.Fatal("secret leaked into MCP config")
+	}
+}
+
+func TestResolveMCPHeadersUsesStoredCredential(t *testing.T) {
+	stateDir := t.TempDir()
+	store, err := mcp.NewCredentialStore(filepath.Join(stateDir, "mcp-credentials"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Put(context.Background(), "remote", mcp.Credential{AccessToken: "secret", TokenType: "Bearer"}); err != nil {
+		t.Fatal(err)
+	}
+	headers, err := resolveMCPHeaders(context.Background(), stateDir, "remote", mcpEntry{})
+	if err != nil || headers["Authorization"] != "Bearer secret" {
+		t.Fatalf("headers=%#v err=%v", headers, err)
 	}
 }
 

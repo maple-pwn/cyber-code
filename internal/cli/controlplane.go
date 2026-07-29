@@ -11,13 +11,14 @@ import (
 	"cyber-code/internal/controlplane"
 	"cyber-code/internal/core"
 	"cyber-code/internal/hooks"
+	"cyber-code/internal/mcp"
 	"cyber-code/internal/memory"
 	"cyber-code/internal/permissions"
 	runtimepkg "cyber-code/internal/runtime"
 	"cyber-code/internal/skill"
 )
 
-func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model string, mode permissions.PermissionMode, hooksRunner *hooks.Runner, skills []skill.Skill, contextBuilder *contextbuilder.Builder) (*controlplane.Registry, error) {
+func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model string, mode permissions.PermissionMode, hooksRunner *hooks.Runner, skills []skill.Skill, contextBuilder *contextbuilder.Builder, mcpManager *mcp.Manager) (*controlplane.Registry, error) {
 	registry := controlplane.NewRegistry()
 	memoryStore, err := memory.NewStore(filepath.Join(stateDir, "memory"), memory.Options{})
 	if err != nil {
@@ -68,6 +69,49 @@ func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model
 	}
 	if err := register(controlplane.Spec{Name: "tasks", Usage: "/tasks", Description: "show task service status", Handler: func(_ context.Context, _ controlplane.Invocation) ([]core.Event, error) {
 		return controlplane.TextEvents("tasks: enabled"), nil
+	}}); err != nil {
+		return nil, err
+	}
+	if err := register(controlplane.Spec{Name: "mcp", Usage: "/mcp status|reconnect|disable", Description: "manage runtime MCP connections", Handler: func(ctx context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
+		if mcpManager == nil {
+			return controlplane.TextEvents("mcp: unavailable"), nil
+		}
+		operation := "status"
+		if len(invocation.Args) > 0 {
+			operation = invocation.Args[0]
+		}
+		switch operation {
+		case "status":
+			statuses := mcpManager.Statuses()
+			if len(statuses) == 0 {
+				return controlplane.TextEvents("mcp: none"), nil
+			}
+			lines := make([]string, len(statuses))
+			for index, status := range statuses {
+				state := string(status.Health.State)
+				if status.Disabled {
+					state = "disabled"
+				}
+				lines[index] = status.Name + ": " + state
+			}
+			return controlplane.TextEvents(strings.Join(lines, "\n")), nil
+		case "reconnect", "disable":
+			if len(invocation.Args) != 2 {
+				return nil, fmt.Errorf("/mcp %s requires a server name", operation)
+			}
+			var err error
+			if operation == "reconnect" {
+				err = mcpManager.Reconnect(ctx, invocation.Args[1])
+			} else {
+				err = mcpManager.Disable(ctx, invocation.Args[1])
+			}
+			if err != nil {
+				return nil, err
+			}
+			return controlplane.TextEvents("mcp " + invocation.Args[1] + ": " + operation + " complete"), nil
+		default:
+			return nil, fmt.Errorf("unknown MCP operation %q", operation)
+		}
 	}}); err != nil {
 		return nil, err
 	}

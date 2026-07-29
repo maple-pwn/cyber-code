@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"cyber-code/internal/credential"
 	"cyber-code/internal/filelock"
@@ -28,6 +29,37 @@ type CredentialStore struct {
 	path      string
 	lockPath  string
 	mu        sync.Mutex
+}
+
+type CredentialRefresher interface {
+	Refresh(context.Context, string, Credential) (Credential, error)
+}
+
+func (store *CredentialStore) Resolve(ctx context.Context, server string, now time.Time, refresher CredentialRefresher) (Credential, error) {
+	value, ok, err := store.Get(ctx, server)
+	if err != nil {
+		return Credential{}, err
+	}
+	if !ok {
+		return Credential{}, errors.New("MCP credential is unavailable")
+	}
+	if value.ExpiresAt == 0 || now.Unix() < value.ExpiresAt {
+		return value, nil
+	}
+	if refresher == nil || value.RefreshToken == "" {
+		return Credential{}, errors.New("MCP credential has expired")
+	}
+	refreshed, err := refresher.Refresh(ctx, server, value)
+	if err != nil {
+		return Credential{}, errors.New("refresh MCP credential")
+	}
+	if strings.TrimSpace(refreshed.AccessToken) == "" {
+		return Credential{}, errors.New("refreshed MCP credential omitted access token")
+	}
+	if err := store.Put(ctx, server, refreshed); err != nil {
+		return Credential{}, err
+	}
+	return refreshed, nil
 }
 
 func NewCredentialStore(directory string) (*CredentialStore, error) {

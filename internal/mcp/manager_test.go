@@ -251,6 +251,32 @@ func TestManagerRetriesIdempotentCallAfterTransportFailure(t *testing.T) {
 	}
 }
 
+func TestManagerDisableClosesConnectionAndReportsStatus(t *testing.T) {
+	transport := newScriptedTransport()
+	manager := newTestManager(t, toolpkg.NewRegistry(), allowAllAuthorizer(), func(context.Context, ServerConfig) (Transport, error) { return transport, nil })
+	t.Cleanup(func() { _ = manager.Close() })
+	if err := manager.Connect(context.Background(), ServerConfig{Name: "server", Transport: TransportHTTP, URL: "https://example.test"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Disable(context.Background(), "server"); err != nil {
+		t.Fatal(err)
+	}
+	status, ok := manager.Status("server")
+	if !ok || !status.Disabled || status.Health.State != HealthClosed {
+		t.Fatalf("status=%#v ok=%v", status, ok)
+	}
+	if !transport.closed {
+		t.Fatal("disabled transport was not closed")
+	}
+	statuses := manager.Statuses()
+	if len(statuses) != 1 || statuses[0].Name != "server" {
+		t.Fatalf("statuses=%#v", statuses)
+	}
+	if err := manager.Reconnect(context.Background(), "server"); err == nil {
+		t.Fatal("disabled server reconnected")
+	}
+}
+
 func TestManagerToolConflictRollsBackConnection(t *testing.T) {
 	registry := toolpkg.NewRegistry()
 	conflict := &testTool{name: "mcp__conflict__lookup"}

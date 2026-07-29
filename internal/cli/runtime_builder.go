@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"cyber-code/internal/agent"
 	"cyber-code/internal/collaboration"
@@ -239,7 +240,7 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 		return nil, err
 	}
 	services = nil // Runtime owns the service lifetime after successful construction.
-	commands, err := buildControlPlane(built, options.StateDir, loaded.ActiveProfile, profile.Model, mode, hookRunner, discoveredSkills, contextBuilder)
+	commands, err := buildControlPlane(built, options.StateDir, loaded.ActiveProfile, profile.Model, mode, hookRunner, discoveredSkills, contextBuilder, mcpManager)
 	if err != nil {
 		_ = built.Shutdown(context.Background())
 		return nil, fmt.Errorf("configure command control plane: %w", err)
@@ -389,18 +390,17 @@ func connectConfiguredMCP(ctx context.Context, stateDir, workspace string, regis
 		return nil, err
 	}
 	for name, entry := range entries {
+		if entry.Disabled {
+			continue
+		}
 		config := mcp.ServerConfig{Name: name, Workspace: workspace, Args: append([]string(nil), entry.Args...)}
 		if entry.URL != "" {
 			config.Transport = mcp.TransportHTTP
 			config.URL = entry.URL
-			config.Headers = make(map[string]string, len(entry.HeaderEnv))
-			for header, environment := range entry.HeaderEnv {
-				value, exists := os.LookupEnv(environment)
-				if !exists || strings.TrimSpace(value) == "" {
-					_ = manager.Close()
-					return nil, fmt.Errorf("MCP header environment variable %s is not set", environment)
-				}
-				config.Headers[header] = value
+			config.Headers, err = resolveMCPHeaders(ctx, stateDir, name, entry)
+			if err != nil {
+				_ = manager.Close()
+				return nil, err
 			}
 		} else {
 			config.Transport = mcp.TransportStdio
@@ -412,6 +412,48 @@ func connectConfiguredMCP(ctx context.Context, stateDir, workspace string, regis
 		}
 	}
 	return manager, nil
+}
+
+func resolveMCPHeaders(ctx context.Context, stateDir, name string, entry mcpEntry) (map[string]string, error) {
+	headers := make(map[string]string, len(entry.HeaderEnv)+1)
+	for header, environment := range entry.HeaderEnv {
+		value, exists := os.LookupEnv(environment)
+		if !exists || strings.TrimSpace(value) == "" {
+			return nil, fmt.Errorf("MCP header environment variable %s is not set", environment)
+		}
+		headers[header] = value
+	}
+	store, err := mcp.NewCredentialStore(filepath.Join(stateDir, "mcp-credentials"))
+	if err != nil {
+		return nil, err
+	}
+	if _, exists := headers["Authorization"]; exists {
+		return headers, nil
+	}
+	credential, ok, err := store.Get(ctx, name)
+	if err != nil || !ok {
+		return headers, err
+	}
+	if credential.ExpiresAt > 0 && time.Now().Unix() >= credential.ExpiresAt {
+		secret := ""
+		if entry.OAuthClientSecretEnv != "" {
+			var exists bool
+			secret, exists = os.LookupEnv(entry.OAuthClientSecretEnv)
+			if !exists {
+				return nil, fmt.Errorf("MCP OAuth client secret environment variable %s is not set", entry.OAuthClientSecretEnv)
+			}
+		}
+		credential, err = store.Resolve(ctx, name, time.Now(), mcp.OAuthRefresher{TokenURL: entry.OAuthTokenURL, ClientID: entry.OAuthClientID, ClientSecret: secret})
+		if err != nil {
+			return nil, err
+		}
+	}
+	tokenType := strings.TrimSpace(credential.TokenType)
+	if tokenType == "" {
+		tokenType = "Bearer"
+	}
+	headers["Authorization"] = tokenType + " " + credential.AccessToken
+	return headers, nil
 }
 
 func loadEnabledPlugins(ctx context.Context, stateDir string, registry *tool.Registry, broker *permissions.Broker) (*plugin.Manager, error) {

@@ -62,4 +62,90 @@ func TestServerStartsTurnAndReportsStatus(t *testing.T) {
 	}
 }
 
+type blockingWriter struct {
+	release <-chan struct{}
+	started chan<- struct{}
+}
+
+func (writer blockingWriter) Write(data []byte) (int, error) {
+	writer.started <- struct{}{}
+	<-writer.release
+	return len(data), nil
+}
+
+func TestConnectionOutputRejectsSlowConsumer(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{}, 1)
+	output := newConnectionOutput(blockingWriter{release: release, started: started}, NewCodec(0), 1)
+	defer func() { close(release); output.Close() }()
+	if err := output.Send(Response{Type: "first"}); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	if err := output.Send(Response{Type: "second"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := output.Send(Response{Type: "third"}); !errors.Is(err, ErrSlowConsumer) {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestConnectionOutputCloseDoesNotWaitForBlockedWriter(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{}, 1)
+	output := newConnectionOutput(blockingWriter{release: release, started: started}, NewCodec(0), 1)
+	if err := output.Send(Response{Type: "first"}); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	done := make(chan error, 1)
+	go func() { done <- output.Close() }()
+	select {
+	case <-done:
+	case <-time.After(100 * time.Millisecond):
+		close(release)
+		t.Fatal("close blocked on slow writer")
+	}
+	close(release)
+}
+
+type cancelRuntime struct{}
+
+func (cancelRuntime) Run(ctx context.Context, _ string) <-chan core.Event {
+	output := make(chan core.Event)
+	go func() { <-ctx.Done(); close(output) }()
+	return output
+}
+func (cancelRuntime) SessionID() string       { return "cancel" }
+func (cancelRuntime) History() []core.Message { return nil }
+
+func TestServerConfirmsTurnCancellation(t *testing.T) {
+	server, err := NewServer(cancelRuntime{}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := bytes.NewBufferString(`{"version":1,"id":"turn","type":"start","prompt":"wait"}` + "\n" + `{"version":1,"id":"cancel","type":"cancel"}` + "\n")
+	var output bytes.Buffer
+	if err := server.Serve(context.Background(), input, &output); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), `"type":"turn_finished"`) || !strings.Contains(output.String(), `"canceled":true`) {
+		t.Fatalf("output=%s", output.String())
+	}
+}
+
+func TestServerCanServeNewConnectionAfterDisconnect(t *testing.T) {
+	server, err := NewServer(&fakeRuntime{}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 2; index++ {
+		var output bytes.Buffer
+		input := bytes.NewBufferString(`{"version":1,"type":"status"}` + "\n")
+		if err := server.Serve(context.Background(), input, &output); err != nil || !strings.Contains(output.String(), `"type":"status"`) {
+			t.Fatalf("connection %d output=%s err=%v", index, output.String(), err)
+		}
+	}
+}
+
 func bufioReader(reader io.Reader) *bufio.Reader { return bufio.NewReader(reader) }

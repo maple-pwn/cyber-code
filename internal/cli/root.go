@@ -169,12 +169,14 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 
 func newServeCommand(environment *commandEnvironment) *cobra.Command {
 	command := &cobra.Command{Use: "serve", Short: "serve the local integration protocol", Args: cobra.NoArgs, RunE: func(_ *cobra.Command, _ []string) error {
-		built, err := composeRuntime(environment.ctx, compositionOptions{ConfigFile: environment.configFile, StateDir: environment.stateDir, Headless: true, Confirmer: newBootstrapConfirmer(environment.stdin, environment.stderr)})
+		permissionBroker := protocol.NewPermissionBroker(16)
+		defer permissionBroker.Close()
+		built, err := composeRuntime(environment.ctx, compositionOptions{ConfigFile: environment.configFile, StateDir: environment.stateDir, Headless: true, Confirmer: permissionBroker.Confirm})
 		if err != nil {
 			return err
 		}
 		defer built.Shutdown(context.Background())
-		server, err := protocol.NewServer(built, 0)
+		server, err := protocol.NewServerWithOptions(built, protocol.ServerOptions{Permissions: permissionBroker})
 		if err != nil {
 			return err
 		}

@@ -52,6 +52,7 @@ Skill 正文不会自动进入每次请求。可用 Skill 由只读 `load_skill`
 以下路径相对于 `CYBER_CODE_STATE_DIR`。不存在的文件表示未配置对应能力。
 
 - `mcp.json`：由 `cyber-code mcp` 命令管理的 MCP server。
+- `mcp-credentials/credentials.json`：MCP OAuth/access token 私有存储，不写入 `mcp.json`。
 - `plugins.json` 与 `plugins/<name>/plugin.json`：插件启用状态和 manifest。
 - `skills/<name>/SKILL.md`：用户技能；项目技能位于 `<workspace>/.cyber-code/skills/<name>/SKILL.md`。项目同名技能优先。
 - `lsp.json`：语言到 LSP 启动配置的映射；进程在首次工具调用时惰性启动。
@@ -104,3 +105,19 @@ Compact 示例：
 `/rewind` 只回退会话对话历史，不覆盖工作区文件；它会追加一条审计性 warning 事件并写入新快照。`/branch` 创建独立 session，继承 checkpoint 历史，事件序列从分支重新开始，并登记到 `sessions` 索引。工作区文件恢复需要后续显式确认和摘要冲突检查。
 
 LSP、Hooks 和插件配置中的命令会执行本地程序，应仅配置受信内容。插件 manifest 的能力声明用于 Broker 授权和工具注册，不限制子进程在操作系统层面的文件或网络访问。
+
+MCP 生命周期与 OAuth：
+
+```bash
+cyber-code mcp add remote --url https://example.com/mcp \
+  --oauth-token-url https://example.com/oauth/token \
+  --oauth-client-id CLIENT_ID \
+  --oauth-client-secret-env MCP_CLIENT_SECRET
+cyber-code mcp auth set remote --access-token-env MCP_ACCESS_TOKEN \
+  --refresh-token-env MCP_REFRESH_TOKEN --expires-at UNIX_TIMESTAMP
+cyber-code mcp status remote
+cyber-code mcp disable remote
+cyber-code mcp enable remote
+```
+
+运行中可使用 `/mcp status`、`/mcp reconnect NAME` 和 `/mcp disable NAME`。过期 access token 会通过配置的 token endpoint 刷新并原子保存；token 和 client secret 不进入普通配置、日志或错误文本。
