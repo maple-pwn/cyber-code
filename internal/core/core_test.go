@@ -119,6 +119,34 @@ func TestEventJSONRoundTripToolArgumentsDelta(t *testing.T) {
 	}
 }
 
+func TestSubagentEventJSONRoundTrip(t *testing.T) {
+	want := Event{
+		Type: EventSubagentEvent,
+		Subagent: &SubagentEvent{
+			TaskID: "task-1", Agent: "reviewer", Description: "review changes", Status: "running",
+			Usage: &Usage{InputTokens: 7, OutputTokens: 3}, RecentTool: "read_file", Truncated: true,
+			Event: &Event{Type: EventTextDelta, Text: "checking"},
+		},
+	}
+	data, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Event
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Type != EventSubagentEvent || got.Subagent == nil || got.Subagent.TaskID != "task-1" || got.Subagent.Agent != "reviewer" {
+		t.Fatalf("subagent event shape changed: %#v", got)
+	}
+	if got.Subagent.Event == nil || got.Subagent.Event.Type != EventTextDelta || got.Subagent.Event.Text != "checking" {
+		t.Fatalf("nested event changed: %#v", got.Subagent.Event)
+	}
+	if got.Subagent.Usage == nil || got.Subagent.Usage.InputTokens != 7 || got.Subagent.RecentTool != "read_file" || !got.Subagent.Truncated {
+		t.Fatalf("subagent metadata changed: %#v", got.Subagent)
+	}
+}
+
 func TestErrorPreservesCauseAndRedactsUserMessage(t *testing.T) {
 	cause := errors.New("upstream authorization failed with Bearer sk-secret-value")
 	err := &Error{
