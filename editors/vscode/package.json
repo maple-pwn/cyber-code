@@ -1,0 +1,41 @@
+{
+  "name": "cyber-code-vscode",
+  "displayName": "cyber-code",
+  "description": "Local VS Code integration for cyber-code",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onCommand:cyber-code.ask",
+    "onCommand:cyber-code.cancel"
+  ],
+  "contributes": {
+    "commands": [
+      { "command": "cyber-code.ask", "title": "cyber-code: Ask" },
+      { "command": "cyber-code.cancel", "title": "cyber-code: Cancel" }
+    ],
+    "configuration": {
+      "title": "cyber-code",
+      "properties": {
+        "cyber-code.executable": {
+          "type": "string",
+          "default": "cyber-code",
+          "description": "Path to the cyber-code executable. Provider credentials remain managed by cyber-code."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p tsconfig.json --noEmit",
+    "compile:test": "tsc -p tsconfig.json",
+    "test": "npm run compile:test && node --test dist/client.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.7.2"
+  }
+}

@@ -29,6 +29,70 @@ func (runtime *fakeRuntime) Run(ctx context.Context, prompt string) <-chan core.
 func (runtime *fakeRuntime) SessionID() string       { return "session-1" }
 func (runtime *fakeRuntime) History() []core.Message { return []core.Message{{Role: core.RoleUser}} }
 
+type ideRuntime struct {
+	fakeRuntime
+	ide *IDEContext
+}
+
+func (runtime *ideRuntime) RunWithIDEContext(ctx context.Context, prompt string, ide *IDEContext) <-chan core.Event {
+	runtime.ide = ide
+	return runtime.Run(ctx, prompt)
+}
+
+func TestIDESendsWorkspaceFocusSelectionAndDiagnosticsToRuntime(t *testing.T) {
+	runtime := &ideRuntime{}
+	server, err := NewServer(runtime, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{
+		Version: Version,
+		ID:      "ide-turn",
+		Type:    "start",
+		Prompt:  "fix this",
+		IDEContext: &IDEContext{
+			Workspace:   "/workspace",
+			Focus:       "main.go",
+			Selection:   &IDESelection{Path: "main.go", Start: IDEPosition{Line: 3, Character: 2}, End: IDEPosition{Line: 5, Character: 8}, Text: "broken()"},
+			Diagnostics: []IDEDiagnostic{{Path: "main.go", Message: "undefined: broken", Severity: "error", Start: IDEPosition{Line: 3, Character: 2}}},
+		},
+	}
+	encoded, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := server.Serve(context.Background(), bytes.NewReader(append(encoded, '\n')), &output); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.ide == nil || runtime.ide.Workspace != "/workspace" || runtime.ide.Focus != "main.go" {
+		t.Fatalf("IDE context = %#v", runtime.ide)
+	}
+	if runtime.ide.Selection == nil || runtime.ide.Selection.Text != "broken()" || len(runtime.ide.Diagnostics) != 1 {
+		t.Fatalf("IDE details = %#v", runtime.ide)
+	}
+}
+
+func TestIDEFallbackAddsBoundedUntrustedContextForLegacyRuntime(t *testing.T) {
+	runtime := &fakeRuntime{}
+	server, err := NewServer(runtime, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{Version: Version, Type: "start", Prompt: "fix this", IDEContext: &IDEContext{
+		Workspace: "/workspace", Focus: "main.go",
+		Diagnostics: []IDEDiagnostic{{Path: "main.go", Message: "undefined: value", Severity: "error"}},
+	}}
+	encoded, _ := json.Marshal(request)
+	var output bytes.Buffer
+	if err := server.Serve(context.Background(), bytes.NewReader(append(encoded, '\n')), &output); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(runtime.prompt, "fix this") || !strings.Contains(runtime.prompt, "main.go") || !strings.Contains(runtime.prompt, "untrusted editor context") {
+		t.Fatalf("prompt = %q", runtime.prompt)
+	}
+}
+
 func TestCodecRejectsOversizedAndWrongVersion(t *testing.T) {
 	codec := NewCodec(32)
 	var request Request

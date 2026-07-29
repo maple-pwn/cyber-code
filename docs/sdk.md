@@ -9,6 +9,32 @@
 - `status`：返回 session、运行状态和历史消息数。
 - `permission`：使用服务端发出的 `permission_id` 返回 `allow` 或 `deny`；未知 ID 会被拒绝。
 
+`start`/`input` 还可以携带可选的 `ide_context`：
+
+```json
+{
+  "version": 1,
+  "id": "turn-1",
+  "type": "start",
+  "prompt": "修复当前错误",
+  "ide_context": {
+    "workspace": "/workspace/project",
+    "focus": "internal/app.go",
+    "selection": {
+      "path": "internal/app.go",
+      "start": { "line": 10, "character": 2 },
+      "end": { "line": 12, "character": 8 },
+      "text": "selected source"
+    },
+    "diagnostics": [
+      { "path": "internal/app.go", "message": "undefined: value", "severity": "error" }
+    ]
+  }
+}
+```
+
+位置使用从零开始的行号和字符号。上下文受协议单帧上限约束；服务端对旧 Runtime 使用额外的字段数量和文本长度限制，并明确把内容标记为不可信编辑器数据。实现 `protocol.IDERuntime` 的宿主可以直接接收结构化上下文。新增字段均为可选，旧版 v1 客户端和 Runtime 保持兼容。
+
 服务端先返回 `accepted`，随后以相同 `id` 返回 `event` 消息；turn 结束时返回 `turn_finished`，取消完成时包含 `canceled: true`。权限请求通过 `permission` 消息发送，响应必须匹配当前连接中的待处理 ID，断线会默认拒绝。
 
 输出使用有界队列。客户端持续不读取时，服务端返回 slow-consumer 错误并取消当前 turn，避免无界内存增长。断开连接后，同一 Server 可以接受新连接。
@@ -19,3 +45,15 @@
 - `IDEMessage`：承载文件焦点、选择范围、诊断和 diff 的编辑器中立消息模型。
 
 适配器不会写入用户工作区，也不会把凭据放进协议消息。生产入口可直接运行 `cyber-code serve`，它会创建 Runtime 并绑定本机 stdio；嵌入式宿主也可以绑定 `protocol.NewServer` 或 `bridge.NewMCPServer` 到自定义 stdio/socket。
+
+## VS Code 扩展
+
+`editors/vscode` 提供基于同一 JSONL 协议的扩展。它管理 `cyber-code serve` 子进程，发送工作区、当前文件、选区和诊断上下文，显示流式事件，处理取消及带 challenge ID 的权限确认，并在应用 diff 前检查文档内容是否仍与基线一致。
+
+扩展设置只包含 `cyber-code.executable`，不保存 Provider API Key。凭据继续由 cyber-code 的配置和环境变量解析。开发验证命令：
+
+```bash
+npm install --prefix editors/vscode
+npm test --prefix editors/vscode
+npm run compile --prefix editors/vscode
+```
