@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"cyber-code/internal/contextbuilder"
+	"cyber-code/internal/permissions"
+	"cyber-code/internal/platform"
 )
 
 func TestBuildContextBuilderLoadsUserAndProjectHierarchy(t *testing.T) {
@@ -65,6 +67,27 @@ func TestBuildContextBuilderUsesConfiguredGovernanceThresholds(t *testing.T) {
 	}
 	if plan.Budget.WarningThreshold != 0.65 || plan.Budget.CompactThreshold != 0.85 {
 		t.Fatalf("governance thresholds = %#v", plan.Budget)
+	}
+}
+
+func TestBuildContextBuilderIncludesPermissionAndSandboxRuntime(t *testing.T) {
+	root := t.TempDir()
+	runtimeSource := runtimeEnvironmentSource(permissions.PermissionModeDefault, platform.SandboxCapability{
+		Mode: platform.SandboxBestEffort, Backend: "process-group", ProcessTree: true,
+	})
+	builder, err := buildContextBuilderWithThresholds(root, filepath.Join(root, "state"), 0.65, 0.85, runtimeSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := builder.Build(context.Background(), contextbuilder.BuildInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := systemText(plan)
+	for _, want := range []string{"permission mode: default", "sandbox mode: best-effort", "backend: process-group", "Do not repeatedly retry"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("runtime context missing %q: %s", want, joined)
+		}
 	}
 }
 

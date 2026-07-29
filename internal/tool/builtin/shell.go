@@ -129,16 +129,36 @@ func (shell *shellTool) Run(ctx context.Context, arguments json.RawMessage) (cor
 	}
 	result, err := shell.executor.Run(ctx, platform.ExecRequest{Command: input.Command, Workspace: shell.workspace, Timeout: timeout, Sandbox: input.Sandbox})
 	if err != nil {
+		if result.ExitCode != 0 && result.ExitCode != -1 {
+			return shellProcessResult(result, true), nil
+		}
 		return core.ToolResult{}, err
 	}
-	output := result.Stdout
-	if result.Stderr != "" {
-		if output != "" {
-			output += "\n"
-		}
-		output += result.Stderr
+	return shellProcessResult(result, false), nil
+}
+
+func shellProcessResult(result platform.ExecResult, failed bool) core.ToolResult {
+	var sections []string
+	if failed {
+		sections = append(sections, fmt.Sprintf("exit code %d", result.ExitCode))
 	}
-	return textResult(output), nil
+	if result.Stdout != "" {
+		if failed {
+			sections = append(sections, "stdout:\n"+result.Stdout)
+		} else {
+			sections = append(sections, result.Stdout)
+		}
+	}
+	if result.Stderr != "" {
+		if failed {
+			sections = append(sections, "stderr:\n"+result.Stderr)
+		} else {
+			sections = append(sections, result.Stderr)
+		}
+	}
+	toolResult := textResult(strings.Join(sections, "\n"))
+	toolResult.IsError = failed
+	return toolResult
 }
 
 func parseShellInput(arguments json.RawMessage) (shellInput, error) {

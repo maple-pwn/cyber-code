@@ -163,6 +163,8 @@ Anthropic、Bedrock、Vertex、Azure 与更多 OpenAI-compatible 配置见 [Prov
 
 运行 `/help` 可查看当前版本实际注册的命令和参数。
 
+常用 TUI 快捷键：输入 `/` 会显示斜杠命令候选，使用 `↑/↓` 选择、`Tab` 或 `Enter` 接受；`PgUp/PgDn` 或鼠标滚轮滚动对话，普通 `↑/↓` 仍用于输入历史；模型生成期间按 `Ctrl+C` 只取消当前生成，再次处于空闲状态时按 `Ctrl+C` 退出。权限窗口中的 `Allow Always` 仅记住当前进程会话内相同工具和动作的批准，不会写入配置，也不会绕过显式 deny 或沙箱边界。
+
 ## 会话与项目指令
 
 cyber-code 会持久化 canonical 事件日志和原子快照。使用 `sessions list` 浏览按更新时间倒序排列的脱敏摘要，使用 `--resume` 继续工作。单个会话采用单写者 lease，避免多个进程同时覆盖状态。

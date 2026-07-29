@@ -66,6 +66,19 @@ func TestInputReverseHistorySearchCyclesMatchingEntries(t *testing.T) {
 	}
 }
 
+func TestInputAcceptsDecoderSpaceVariantsAndPastedSpaces(t *testing.T) {
+	for _, vimMode := range []bool{false, true} {
+		input := NewInput(">", "", 40)
+		input.SetVimEnabled(vimMode)
+		input.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hello ")})
+		input.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+		input.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("world sentence")})
+		if input.Value != "hello  world sentence" {
+			t.Fatalf("vim=%v input=%q", vimMode, input.Value)
+		}
+	}
+}
+
 func TestVimInputUsesRuneCursorAndSupportsUndoRepeatFind(t *testing.T) {
 	input := NewInput(">", "", 40)
 	input.SetValue("a你 bc你")

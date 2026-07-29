@@ -204,6 +204,48 @@ func TestBrokerFailsClosedWhenAuditCannotBeRecorded(t *testing.T) {
 
 type failingAuditSink struct{}
 
+func TestBrokerRememberedSessionApprovalOnlyMatchesToolAndAction(t *testing.T) {
+	calls := 0
+	broker, err := NewBroker(Options{Mode: PermissionModeDefault, Confirmer: func(context.Context, Request) (Decision, error) {
+		calls++
+		return Decision{Behavior: PermissionBehaviorAllow, RememberSession: true}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{Tool: "shell", Action: ActionExecute}
+	for range 2 {
+		decision, decideErr := broker.Decide(context.Background(), request)
+		if decideErr != nil || decision.Behavior != PermissionBehaviorAllow {
+			t.Fatalf("decision = %#v, error = %v", decision, decideErr)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("confirmer calls = %d, want 1", calls)
+	}
+	_, _ = broker.Decide(context.Background(), Request{Tool: "other", Action: ActionExecute})
+	if calls != 2 {
+		t.Fatalf("different tool reused approval; calls = %d", calls)
+	}
+}
+
+func TestBrokerOrdinaryApprovalIsNotRemembered(t *testing.T) {
+	calls := 0
+	broker, err := NewBroker(Options{Mode: PermissionModeDefault, Confirmer: func(context.Context, Request) (Decision, error) {
+		calls++
+		return Decision{Behavior: PermissionBehaviorAllow}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{Tool: "shell", Action: ActionExecute}
+	_, _ = broker.Decide(context.Background(), request)
+	_, _ = broker.Decide(context.Background(), request)
+	if calls != 2 {
+		t.Fatalf("ordinary approval was remembered; calls = %d", calls)
+	}
+}
+
 func (failingAuditSink) Record(AuditRecord) error { return errors.New("disk unavailable") }
 
 func TestBrokerDeniesMalformedRequestsEvenInBypassMode(t *testing.T) {

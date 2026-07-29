@@ -95,6 +95,25 @@ func TestShellRunValidatesExecutorTimeoutAndOutput(t *testing.T) {
 	}
 }
 
+func TestShellNonzeroExitPreservesDiagnosticsInErrorResult(t *testing.T) {
+	executor := &fakeExecutor{
+		result: platform.ExecResult{Stdout: "partial output", Stderr: "compile error: missing symbol", ExitCode: 1},
+		err:    errors.New("process exited: exit status 1"),
+	}
+	result, err := NewShell(t.TempDir(), executor).Run(context.Background(), json.RawMessage(`{"command":"go test ./..."}`))
+	if err != nil {
+		t.Fatalf("nonzero exit returned Go error: %v", err)
+	}
+	if !result.IsError || len(result.Content) != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	for _, want := range []string{"exit code 1", "partial output", "compile error: missing symbol"} {
+		if !strings.Contains(result.Content[0].Text, want) {
+			t.Fatalf("result missing %q: %#v", want, result)
+		}
+	}
+}
+
 type fakeExecutor struct {
 	calls   int
 	request platform.ExecRequest

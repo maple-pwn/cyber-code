@@ -125,8 +125,9 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 	}
 	registry := tool.NewRegistry()
 	processRunner := platform.NewRunner(platform.Options{SandboxMode: platform.SandboxMode(loaded.SandboxMode)})
-	if capability := processRunner.SandboxCapability(); capability.Mode == platform.SandboxRequired && !capability.Strong {
-		return nil, fmt.Errorf("configure process sandbox: %w: %s", platform.ErrSandboxUnavailable, capability.DegradedReason)
+	sandboxCapability := processRunner.SandboxCapability()
+	if sandboxCapability.Mode == platform.SandboxRequired && !sandboxCapability.Strong {
+		return nil, fmt.Errorf("configure process sandbox: %w: %s", platform.ErrSandboxUnavailable, sandboxCapability.DegradedReason)
 	}
 	gitService, err := gitworkflow.NewService(workspace, &authorizedExecutor{tool: "git", broker: broker, delegate: processRunner})
 	if err != nil {
@@ -201,7 +202,10 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 	if maxTurns <= 0 {
 		maxTurns = 100
 	}
-	contextBuilder, err := buildContextBuilderWithThresholds(workspace, options.StateDir, loaded.ContextWarningThreshold, loaded.ContextCompactThreshold)
+	contextBuilder, err := buildContextBuilderWithThresholds(
+		workspace, options.StateDir, loaded.ContextWarningThreshold, loaded.ContextCompactThreshold,
+		runtimeEnvironmentSource(mode, sandboxCapability),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -415,7 +419,7 @@ func buildContextBuilder(currentDir, stateDir string) (*contextbuilder.Builder, 
 	return buildContextBuilderWithThresholds(currentDir, stateDir, contextbuilder.DefaultWarningThreshold, contextbuilder.DefaultCompactThreshold)
 }
 
-func buildContextBuilderWithThresholds(currentDir, stateDir string, warningThreshold, compactThreshold float64) (*contextbuilder.Builder, error) {
+func buildContextBuilderWithThresholds(currentDir, stateDir string, warningThreshold, compactThreshold float64, runtimeSources ...contextbuilder.Source) (*contextbuilder.Builder, error) {
 	projectRoot := currentDir
 	if root, err := utils.FindGitRoot(currentDir); err == nil {
 		projectRoot = root
@@ -430,6 +434,7 @@ func buildContextBuilderWithThresholds(currentDir, stateDir string, warningThres
 	if err != nil {
 		return nil, fmt.Errorf("load context instructions: %w", err)
 	}
+	sources = append(sources, runtimeSources...)
 	memoryStore, err := memory.NewStore(filepath.Join(stateDir, "memory"), memory.Options{})
 	if err != nil {
 		return nil, fmt.Errorf("configure memory: %w", err)
@@ -454,6 +459,35 @@ func buildContextBuilderWithThresholds(currentDir, stateDir string, warningThres
 		return nil, fmt.Errorf("configure context builder: %w", err)
 	}
 	return builder, nil
+}
+
+func runtimeEnvironmentSource(mode permissions.PermissionMode, capability platform.SandboxCapability) contextbuilder.Source {
+	permissionSummary := "workspace reads are allowed; state-changing tools require user confirmation"
+	switch mode {
+	case permissions.PermissionModePlan:
+		permissionSummary = "workspace reads are allowed; state-changing actions are denied"
+	case permissions.PermissionModeAcceptEdits:
+		permissionSummary = "workspace reads and writes are allowed; execution, deletion, and network actions require confirmation"
+	case permissions.PermissionModeBypass:
+		permissionSummary = "tool permission prompts are bypassed by an explicit CLI choice; sandbox boundaries still apply"
+	}
+	backend := capability.Backend
+	if backend == "" {
+		backend = "none"
+	}
+	content := fmt.Sprintf(`Runtime authorization environment (authoritative):
+- permission mode: %s (%s)
+- sandbox mode: %s; backend: %s; strong isolation: %t; filesystem isolation: %t; network isolation: %t
+- A permission approval does not disable the process sandbox. Do not claim access outside these boundaries.
+- If a tool is denied, explain the required permission or choose an allowed alternative. Do not repeatedly retry the same denied operation.`,
+		mode, permissionSummary, capability.Mode, backend, capability.Strong, capability.Filesystem, capability.Network)
+	if capability.DegradedReason != "" {
+		content += "\n- sandbox limitation: " + capability.DegradedReason
+	}
+	return contextbuilder.Source{
+		ID: "cyber-code:runtime-environment", Kind: contextbuilder.SourceRuntime,
+		Priority: 5, Trusted: true, Required: true, Content: content,
+	}
 }
 
 func connectConfiguredMCP(ctx context.Context, stateDir, workspace string, registry *tool.Registry, broker *permissions.Broker, processRunner *platform.Runner) (*mcp.Manager, error) {

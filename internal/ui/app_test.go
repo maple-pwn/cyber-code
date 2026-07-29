@@ -209,6 +209,60 @@ func TestNewModelDefaultsCompletionWorkspaceToCurrentDirectory(t *testing.T) {
 	}
 }
 
+func TestModelShowsAndNavigatesSlashCommandCompletions(t *testing.T) {
+	model := NewModel(&uiTestRunner{}, ModelOptions{Width: 80, Height: 24, CommandNames: []string{"skills", "stats", "status"}})
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/s")})
+	model = updated.(*Model)
+	view := ansi.Strip(model.View())
+	for _, command := range []string{"/skills", "/stats", "/status"} {
+		if !strings.Contains(view, command) {
+			t.Fatalf("completion window missing %q: %q", command, view)
+		}
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(*Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model = updated.(*Model)
+	if model.Input.Value != "/stats " {
+		t.Fatalf("selected completion = %q", model.Input.Value)
+	}
+}
+
+func TestModelCtrlCCancelsActiveTurnWithoutQuitting(t *testing.T) {
+	model := NewModel(&uiTestRunner{}, ModelOptions{})
+	turnContext, cancel := context.WithCancel(context.Background())
+	model.Processing, model.turnCancel = true, cancel
+	updated, command := model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	model = updated.(*Model)
+	if command != nil || !model.Processing || model.StatusText != "Canceling" {
+		t.Fatalf("processing=%v status=%q command=%v", model.Processing, model.StatusText, command)
+	}
+	select {
+	case <-turnContext.Done():
+	default:
+		t.Fatal("turn context was not canceled")
+	}
+}
+
+func TestModelPageAndMouseScrollKeepInputHistorySeparate(t *testing.T) {
+	model := NewModel(&uiTestRunner{}, ModelOptions{Width: 40, Height: 12})
+	for index := 0; index < 20; index++ {
+		model.AddMessage("assistant", fmt.Sprintf("message-%02d", index))
+	}
+	model.Input.SetValue("draft")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	model = updated.(*Model)
+	if model.ScrollOffset == 0 || !strings.Contains(ansi.Strip(model.View()), "message-0") {
+		t.Fatalf("page up did not reveal older content: offset=%d view=%q", model.ScrollOffset, ansi.Strip(model.View()))
+	}
+	before := model.Input.Value
+	updated, _ = model.Update(tea.MouseMsg{Type: tea.MouseWheelDown, Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+	model = updated.(*Model)
+	if model.Input.Value != before {
+		t.Fatalf("mouse scrolling changed input from %q to %q", before, model.Input.Value)
+	}
+}
+
 func TestModelViewUsesCyberCodeBrand(t *testing.T) {
 	view := NewModel(&uiTestRunner{}, ModelOptions{Width: 80, Height: 24}).View()
 	if !strings.Contains(view, "cyber-code") || strings.Contains(strings.ToLower(view), "claude code") {
@@ -347,6 +401,27 @@ func TestPermissionBridgeAttachesAndDefaultsToDenyWhenDetached(t *testing.T) {
 	decision, err = bridge.Confirm(context.Background(), permissions.Request{Tool: "shell", Action: permissions.ActionExecute})
 	if err != nil || decision.Behavior != permissions.PermissionBehaviorDeny {
 		t.Fatalf("detached decision = %#v, error = %v", decision, err)
+	}
+}
+
+func TestModelAllowAlwaysRequestsSessionApproval(t *testing.T) {
+	model := NewModel(&uiTestRunner{}, ModelOptions{Width: 80, Height: 24})
+	responses := make(chan permissions.Decision, 1)
+	updated, _ := model.Update(PermissionRequestMsg{Request: permissions.Request{Tool: "shell", Action: permissions.ActionExecute}, Respond: responses})
+	model = updated.(*Model)
+	for range 2 {
+		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+		model = updated.(*Model)
+	}
+	updated, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(*Model)
+	if command == nil {
+		t.Fatal("permission response command is nil")
+	}
+	_ = command()
+	decision := <-responses
+	if decision.Behavior != permissions.PermissionBehaviorAllow || !decision.RememberSession {
+		t.Fatalf("decision = %#v", decision)
 	}
 }
 

@@ -51,20 +51,23 @@ type Model struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	Messages       []Message
-	Input          *components.InputModel
-	Processing     bool
-	StatusText     string
-	Err            error
-	Width          int
-	Height         int
-	Ready          bool
-	Permission     *components.PermissionDialog
-	QuestionSelect *components.SelectDialog
-	QuestionInput  *components.InputDialog
-	Tools          []ToolPresentation
-	Usage          core.Usage
-	ProcessingView *components.ProcessingModel
+	Messages        []Message
+	Input           *components.InputModel
+	Processing      bool
+	StatusText      string
+	Err             error
+	Width           int
+	Height          int
+	Ready           bool
+	Permission      *components.PermissionDialog
+	QuestionSelect  *components.SelectDialog
+	QuestionInput   *components.InputDialog
+	Tools           []ToolPresentation
+	Usage           core.Usage
+	ProcessingView  *components.ProcessingModel
+	ScrollOffset    int
+	Completions     []string
+	CompletionIndex int
 
 	events          <-chan core.Event
 	turnCancel      context.CancelFunc
@@ -264,20 +267,50 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch message.Type {
 		case tea.KeyCtrlC:
-			if model.turnCancel != nil {
+			if model.Processing && model.turnCancel != nil {
 				model.turnCancel()
+				model.StatusText = "Canceling"
+				return model, nil
 			}
 			model.cancel()
 			return model, tea.Quit
+		case tea.KeyPgUp:
+			model.scrollBy(model.pageSize())
+			return model, nil
+		case tea.KeyPgDown:
+			model.scrollBy(-model.pageSize())
+			return model, nil
+		case tea.KeyUp:
+			if len(model.Completions) > 0 {
+				model.CompletionIndex = (model.CompletionIndex - 1 + len(model.Completions)) % len(model.Completions)
+				return model, nil
+			}
+			return model, model.Input.Update(message)
+		case tea.KeyDown:
+			if len(model.Completions) > 0 {
+				model.CompletionIndex = (model.CompletionIndex + 1) % len(model.Completions)
+				return model, nil
+			}
+			return model, model.Input.Update(message)
 		case tea.KeyEnter:
 			if message.Alt {
 				return model, model.Input.Update(message)
+			}
+			if len(model.Completions) > 0 {
+				selected := model.Completions[min(model.CompletionIndex, len(model.Completions)-1)]
+				if model.Input.Value != selected {
+					model.applyCompletion()
+					return model, nil
+				}
+				model.closeCompletions()
 			}
 			if model.Processing || strings.TrimSpace(model.Input.Value) == "" {
 				return model, nil
 			}
 			prompt := model.Input.Value
 			model.Input.Clear()
+			model.closeCompletions()
+			model.ScrollOffset = 0
 			model.Tools = nil
 			model.toolIndexes = make(map[string]int)
 			model.Messages = append(model.Messages, Message{Role: "user", Content: prompt})
@@ -288,9 +321,30 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyTab:
 			model.applyCompletion()
 			return model, nil
-		default:
+		case tea.KeyShiftTab:
+			if len(model.Completions) > 0 {
+				model.CompletionIndex = (model.CompletionIndex - 1 + len(model.Completions)) % len(model.Completions)
+			}
+			return model, nil
+		case tea.KeyEsc:
+			if len(model.Completions) > 0 {
+				model.closeCompletions()
+				return model, nil
+			}
 			return model, model.Input.Update(message)
+		default:
+			command := model.Input.Update(message)
+			model.refreshCompletions()
+			return model, command
 		}
+	case tea.MouseMsg:
+		switch message.Type {
+		case tea.MouseWheelUp:
+			model.scrollBy(3)
+		case tea.MouseWheelDown:
+			model.scrollBy(-3)
+		}
+		return model, nil
 	case turnStartedMsg:
 		model.events = message.events
 		if message.events == nil {
@@ -303,7 +357,11 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.finish()
 			return model, nil
 		}
+		oldLineCount := model.scrollableLineCount()
 		terminal := model.applyEvent(message.event)
+		if model.ScrollOffset > 0 {
+			model.ScrollOffset += max(0, model.scrollableLineCount()-oldLineCount)
+		}
 		if terminal {
 			return model, nil
 		}
@@ -342,6 +400,15 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (model *Model) applyCompletion() {
+	if len(model.Completions) > 0 {
+		value := model.Completions[min(model.CompletionIndex, len(model.Completions)-1)]
+		if !strings.HasSuffix(value, string(os.PathSeparator)) {
+			value += " "
+		}
+		model.Input.SetValue(value)
+		model.closeCompletions()
+		return
+	}
 	commands := model.commandNames
 	if len(commands) == 0 {
 		commands = defaultCommandNames
@@ -355,6 +422,34 @@ func (model *Model) applyCompletion() {
 		value += " "
 	}
 	model.Input.SetValue(value)
+	model.closeCompletions()
+}
+
+func (model *Model) refreshCompletions() {
+	value := model.Input.Value
+	if !strings.HasPrefix(value, "/") || strings.ContainsAny(value, " \t\r\n") {
+		model.closeCompletions()
+		return
+	}
+	commands := model.commandNames
+	if len(commands) == 0 {
+		commands = defaultCommandNames
+	}
+	model.Completions = completeInput(value, model.Input.CursorPos, commands, model.workspace)
+	if model.CompletionIndex >= len(model.Completions) {
+		model.CompletionIndex = 0
+	}
+}
+
+func (model *Model) closeCompletions() {
+	model.Completions = nil
+	model.CompletionIndex = 0
+}
+
+func (model *Model) pageSize() int { return max(1, model.Height-5) }
+
+func (model *Model) scrollBy(delta int) {
+	model.ScrollOffset = max(0, model.ScrollOffset+delta)
 }
 
 func (model *Model) updateQuestion(key tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -516,6 +611,7 @@ func (model *Model) updatePermission(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	reply := model.permissionReply
 	decision := permissions.Decision{Behavior: behavior, Reason: "interactive permission response"}
+	decision.RememberSession = model.Permission.Result == "Allow Always"
 	model.Permission, model.permissionReply = nil, nil
 	return model, func() tea.Msg {
 		if reply != nil {
@@ -554,13 +650,7 @@ func (model *Model) View() string {
 	}
 	width, height := max(20, model.Width), max(6, model.Height)
 	header := []string{product.Name, strings.Repeat("-", width)}
-	middle := renderMessages(model.Messages, width)
-	middle = append(middle, renderToolPresentations(model.Tools, width, model.Processing)...)
-	if model.Usage != (core.Usage{}) {
-		middle = append(middle, fmt.Sprintf("tokens: input=%d output=%d cache_read=%d cache_creation=%d",
-			model.Usage.InputTokens, model.Usage.OutputTokens,
-			model.Usage.CacheReadInputTokens, model.Usage.CacheCreationInputTokens))
-	}
+	middle := model.renderScrollableContent(width)
 	var overlays []string
 	if model.Permission != nil {
 		overlays = append(overlays, displayLines(model.Permission.View())...)
@@ -573,16 +663,70 @@ func (model *Model) View() string {
 	}
 	if model.Processing {
 		model.ProcessingView.Message = model.StatusText
-		overlays = append(overlays, displayLines(model.ProcessingView.View())...)
+		overlays = append(overlays, displayLines(model.ProcessingView.View()+"  Ctrl+C cancel")...)
+	}
+	if len(model.Completions) > 0 {
+		overlays = append(overlays, model.renderCompletions(6)...)
 	}
 	footer := append([]string{strings.Repeat("-", width)}, displayLines(model.Input.View())...)
+	available := max(0, height-len(header)-len(footer)-len(overlays))
+	if model.ScrollOffset > 0 && len(middle) > available {
+		available = max(0, available-1)
+		model.ScrollOffset = min(model.ScrollOffset, max(0, len(middle)-available))
+		overlays = append([]string{fmt.Sprintf("↑ scrolled %d lines (PgDn/mouse wheel to return)", model.ScrollOffset)}, overlays...)
+	} else {
+		model.ScrollOffset = 0
+	}
+	model.ScrollOffset = min(model.ScrollOffset, max(0, len(middle)-available))
+	middle = viewportLines(middle, available, model.ScrollOffset)
 	middle = append(middle, overlays...)
-	middle = tailLines(middle, height-len(header)-len(footer))
 	return strings.Join(append(append(header, middle...), footer...), "\n")
 }
 
+func (model *Model) renderCompletions(limit int) []string {
+	count := min(limit, len(model.Completions))
+	lines := []string{"commands (↑/↓ select, Tab/Enter accept):"}
+	start := 0
+	if model.CompletionIndex >= count {
+		start = model.CompletionIndex - count + 1
+	}
+	for index := start; index < start+count; index++ {
+		marker := "  "
+		if index == model.CompletionIndex {
+			marker = "> "
+		}
+		lines = append(lines, marker+model.Completions[index])
+	}
+	return lines
+}
+
+func (model *Model) renderScrollableContent(width int) []string {
+	middle := renderMessages(model.Messages, width)
+	middle = append(middle, renderToolPresentations(model.Tools, width, model.Processing)...)
+	if model.Usage != (core.Usage{}) {
+		middle = append(middle, fmt.Sprintf("tokens: input=%d output=%d cache_read=%d cache_creation=%d",
+			model.Usage.InputTokens, model.Usage.OutputTokens,
+			model.Usage.CacheReadInputTokens, model.Usage.CacheCreationInputTokens))
+	}
+	return middle
+}
+
+func (model *Model) scrollableLineCount() int {
+	return len(model.renderScrollableContent(max(20, model.Width)))
+}
+
+func viewportLines(lines []string, maximum, offset int) []string {
+	if maximum <= 0 || len(lines) == 0 {
+		return nil
+	}
+	offset = min(max(0, offset), max(0, len(lines)-maximum))
+	end := len(lines) - offset
+	start := max(0, end-maximum)
+	return lines[start:end]
+}
+
 func RunUI(runner Runner) error {
-	program := tea.NewProgram(NewModel(runner, ModelOptions{}), tea.WithAltScreen())
+	program := tea.NewProgram(NewModel(runner, ModelOptions{}), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := program.Run()
 	return err
 }

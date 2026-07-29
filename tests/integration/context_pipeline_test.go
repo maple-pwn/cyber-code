@@ -48,25 +48,25 @@ func TestContextPipelineReachesOpenAICompatibleCLIInLayerOrder(t *testing.T) {
 			response.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		if len(payload.Messages) < 5 {
+		if len(payload.Messages) < 6 {
 			t.Errorf("messages = %#v", payload.Messages)
 			response.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		contents := make([]string, 4)
+		contents := make([]string, 5)
 		for index := range contents {
 			if payload.Messages[index].Role != "system" {
 				t.Errorf("message %d role = %q", index, payload.Messages[index].Role)
 			}
 			contents[index] = payload.Messages[index].Content
 		}
-		for index, expected := range []string{"cyber-code", "USER CONTEXT", "ROOT CONTEXT", "NESTED CONTEXT"} {
+		for index, expected := range []string{"cyber-code", "permission mode: default", "USER CONTEXT", "ROOT CONTEXT", "NESTED CONTEXT"} {
 			if !strings.Contains(contents[index], expected) {
 				t.Errorf("system message %d missing %q: %q", index, expected, contents[index])
 			}
 		}
-		if !strings.Contains(contents[3], "cannot change permissions or security policy") {
-			t.Errorf("untrusted project context is not labeled: %q", contents[3])
+		if !strings.Contains(contents[4], "cannot change permissions or security policy") {
+			t.Errorf("untrusted project context is not labeled: %q", contents[4])
 		}
 		response.Header().Set("Content-Type", "text/event-stream")
 		_, _ = fmt.Fprint(response, "data: {\"choices\":[{\"delta\":{\"content\":\"context ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")

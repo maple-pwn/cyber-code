@@ -3,6 +3,7 @@ package permissions
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -16,9 +17,10 @@ type Request struct {
 }
 
 type Decision struct {
-	Behavior PermissionBehavior
-	Reason   string
-	RuleID   string
+	Behavior        PermissionBehavior
+	Reason          string
+	RuleID          string
+	RememberSession bool
 }
 
 type Confirmer func(context.Context, Request) (Decision, error)
@@ -40,6 +42,13 @@ type Broker struct {
 	headless  bool
 	audit     AuditSink
 	parent    *Broker
+	sessionMu sync.RWMutex
+	session   map[sessionApproval]struct{}
+}
+
+type sessionApproval struct {
+	tool   string
+	action string
 }
 
 func NewBroker(options Options) (*Broker, error) {
@@ -56,6 +65,7 @@ func NewBroker(options Options) (*Broker, error) {
 		headless:  options.Headless,
 		audit:     options.Audit,
 		parent:    options.Parent,
+		session:   make(map[sessionApproval]struct{}),
 	}, nil
 }
 
@@ -147,6 +157,12 @@ func (broker *Broker) localDecision(request Request) Decision {
 			return Decision{Behavior: PermissionBehaviorAllow, Reason: "request allowed by explicit rule", RuleID: rule.ID}
 		}
 	}
+	broker.sessionMu.RLock()
+	_, remembered := broker.session[sessionApproval{tool: request.Tool, action: request.Action}]
+	broker.sessionMu.RUnlock()
+	if remembered {
+		return Decision{Behavior: PermissionBehaviorAllow, Reason: "request allowed by session approval", RuleID: "session-approval"}
+	}
 	for _, rule := range broker.rules {
 		if rule.Behavior == PermissionBehaviorAsk && ruleMatches(rule, request) {
 			return Decision{Behavior: PermissionBehaviorAsk, Reason: "explicit rule requires confirmation", RuleID: rule.ID}
@@ -164,7 +180,12 @@ func (broker *Broker) confirm(ctx context.Context, request Request) (Decision, e
 		return Decision{}, fmt.Errorf("confirm permission: %w", err)
 	}
 	if decision.Behavior == PermissionBehaviorAllow {
-		return Decision{Behavior: PermissionBehaviorAllow, Reason: "request confirmed by user"}, nil
+		if decision.RememberSession {
+			broker.sessionMu.Lock()
+			broker.session[sessionApproval{tool: request.Tool, action: request.Action}] = struct{}{}
+			broker.sessionMu.Unlock()
+		}
+		return Decision{Behavior: PermissionBehaviorAllow, Reason: "request confirmed by user", RememberSession: decision.RememberSession}, nil
 	}
 	return Decision{Behavior: PermissionBehaviorDeny, Reason: "request was not confirmed"}, nil
 }

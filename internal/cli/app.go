@@ -125,7 +125,7 @@ func (a *App) runInteractiveMode() error {
 	a.uiModel = ui.NewModel(a.runner(), ui.ModelOptions{InitialPrompt: a.initialPrompt})
 
 	// Create and run the tea program
-	p := tea.NewProgram(a.uiModel, tea.WithAltScreen())
+	p := tea.NewProgram(a.uiModel, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if a.config.PermissionUI != nil {
 		a.config.PermissionUI.Attach(p.Send)
 		defer a.config.PermissionUI.Detach()

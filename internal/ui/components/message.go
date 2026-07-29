@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // =============================================================================
@@ -193,36 +194,7 @@ func wrapText(text string, width int) string {
 	if width <= 0 {
 		return text
 	}
-
-	var result strings.Builder
-	lines := strings.Split(text, "\n")
-
-	for i, line := range lines {
-		if i > 0 {
-			result.WriteString("\n")
-		}
-
-		// Wrap long lines
-		for len(line) > width {
-			// Find a good break point
-			breakPoint := width
-			for j := width - 1; j >= 0 && j >= width-20; j-- {
-				if line[j] == ' ' || line[j] == '\t' {
-					breakPoint = j
-					break
-				}
-			}
-
-			result.WriteString(line[:breakPoint] + "\n")
-			line = line[breakPoint:]
-			if line[0] == ' ' || line[0] == '\t' {
-				line = line[1:]
-			}
-		}
-		result.WriteString(line)
-	}
-
-	return result.String()
+	return ansi.Wrap(text, width, "")
 }
 
 // =============================================================================
