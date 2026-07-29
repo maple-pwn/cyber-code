@@ -4,14 +4,14 @@ set -eu
 
 # Keep this list limited to paths that have completed migration. Callers may
 # provide explicit paths to check a different, similarly reviewed scope.
-MIGRATED_PATHS="internal/state internal/core internal/provider internal/agent internal/runtime internal/tool internal/permissions internal/session internal/hooks internal/mcp internal/plugin internal/skill internal/tasks internal/lsp internal/platform internal/frontend internal/ui internal/cli internal/doctor internal/security tests cmd editors"
+MIGRATED_PATHS="internal tests cmd editors"
 
 usage() {
 	printf 'usage: %s [--self-test] [PATH ...]\n' "$0"
 }
 
 scan() {
-	pattern='not[[:space:]_-]+implemented|placeholder[[:space:]_-]+(response|success)|stub[[:space:]_-]+response|empty[[:space:]_-]+success|no-?op[[:space:]_-]+success|panic\([[:space:]]*"(TODO|not[[:space:]_-]+implemented)|return[[:space:]]+(nil|true|""|\{\})[[:space:]]*(//|#)[[:space:]]*(TODO|FIXME|placeholder|stub)'
+	pattern='not([[:space:]_-]+yet)?[[:space:]_-]+implemented|placeholder[[:space:]_-]+(response|success)|stub[[:space:]_-]+response|empty[[:space:]_-]+success|no-?op[[:space:]_-]+success|panic\([[:space:]]*"(TODO|not([[:space:]_-]+yet)?[[:space:]_-]+implemented)|return[[:space:]]+(nil|true|""|\{\})[[:space:]]*(//|#)[[:space:]]*(TODO|FIXME|placeholder|stub)'
 
 	for target in "$@"; do
 		if [ ! -e "$target" ]; then
@@ -50,6 +50,7 @@ self_test() {
 	fi
 
 	assert_rejected 'not ' 'implemented'
+	assert_rejected 'not yet ' 'implemented'
 	assert_rejected 'placeholder ' 'response'
 	assert_rejected 'func unfinished() error { return nil // ' 'TODO }'
 	assert_rejected 'no-op ' 'success'

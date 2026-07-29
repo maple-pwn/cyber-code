@@ -63,11 +63,14 @@ $env:DEEPSEEK_API_KEY = "your-key"
 ./cyber-code                         # 交互 TUI
 ./cyber-code --print "inspect repo" # 非交互文本
 ./cyber-code --print --json "..."   # JSON Lines
+./cyber-code --print --verbose "..." # stderr 工具进度与 token usage
+./cyber-code --image screenshot.png "inspect" # 首轮图片
 ./cyber-code --resume ID --print "continue"
 ./cyber-code doctor --json
 ./cyber-code config list
 ./cyber-code mcp list
 ./cyber-code plugins list
+./cyber-code plugins marketplace search review
 ./cyber-code sessions list
 ./cyber-code serve                    # newline-delimited local SDK protocol
 ```
@@ -75,6 +78,8 @@ $env:DEEPSEEK_API_KEY = "your-key"
 MCP 配置通过 `mcp add` 持久化；启用插件从状态目录的 `plugins/<name>/plugin.json` 加载。Skills、LSP、Hooks、Compact 和审计也从统一状态目录接入，格式见 [docs/configuration.md](docs/configuration.md)。模型可调用 `task_run`、`task_status` 和 `task_cancel` 执行受父级 turn budget 与权限约束的子 Agent。
 
 `cmd/cli` 是唯一产品入口。旧的占位 CLI、工具集合、语音控制器和重复 ChatModel 已移除，并由 `scripts/check-entrypoint-reachability.sh` 阻止回归。VS Code 扩展位于 `editors/vscode`，构建与协议说明见 [docs/sdk.md](docs/sdk.md)。
+
+VS Code 扩展从设置 `cyber-code.executable` 启动 `cyber-code serve`，Provider 凭据仍由 CLI 配置和环境变量管理。扩展不会保存 API Key。
 
 外部进程或网络在 headless 默认权限模式下会被拒绝，自动化场景必须显式选择经过审查的规则或 `--permission-mode bypass`。安全模型见 [docs/security.md](docs/security.md)。
 
@@ -87,6 +92,8 @@ go vet ./...
 scripts/check-placeholders.sh
 scripts/check-entrypoint-reachability.sh
 scripts/check-coverage.sh
+npm test --prefix editors/vscode
+npm run compile --prefix editors/vscode
 ```
 
 交叉构建：

@@ -3,7 +3,7 @@
 set -eu
 
 entrypoint=./cmd/cli
-forbidden_paths='internal/commands internal/tools internal/voice internal/ui/components/chat.go'
+forbidden_paths='internal/commands internal/tools internal/voice internal/ui/components/chat.go internal/services/plugin_loader.go internal/services/plugins.go internal/services/mcp'
 
 if [ ! -f cmd/cli/main.go ]; then
 	printf 'canonical entry point is missing: cmd/cli/main.go\n' >&2

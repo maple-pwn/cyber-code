@@ -59,3 +59,10 @@ func TestRedactorDoesNotRewriteOrdinarySourceIdentifiers(t *testing.T) {
 		t.Fatalf("ordinary source was rewritten: %q", got)
 	}
 }
+
+func TestRedactorIgnoresEmptyAndDuplicateSecrets(t *testing.T) {
+	redactor := NewRedactor("", "same-secret", "same-secret")
+	if got := redactor.Text("same-secret"); got != redacted {
+		t.Fatalf("redacted text = %q", got)
+	}
+}

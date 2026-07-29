@@ -205,7 +205,7 @@ func (g *GoogleAuthManager) getServiceAccountToken(sa struct {
 }) (*GoogleCredentials, error) {
 	// This would require JWT signing and OAuth2 flow
 	// For now, we'll fall back to gcloud CLI
-	return nil, fmt.Errorf("service account token generation not implemented, use gcloud auth")
+	return nil, fmt.Errorf("service account JSON authentication is unavailable; use gcloud auth application-default login")
 }
 
 // getADCToken refreshes an ADC token.

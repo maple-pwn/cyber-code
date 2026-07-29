@@ -57,3 +57,5 @@ npm install --prefix editors/vscode
 npm test --prefix editors/vscode
 npm run compile --prefix editors/vscode
 ```
+
+在 VS Code 的 Extension Development Host 中打开 `editors/vscode` 后，可运行 `cyber-code: Ask` 和 `cyber-code: Cancel`。`cyber-code.executable` 应指向已构建的本机二进制；扩展继承宿主进程环境，但不会把环境变量值写入设置或协议消息。diff 仅允许工作区相对路径，应用前要求当前文档全文仍等于服务端提供的 `old_text`，否则以冲突拒绝。

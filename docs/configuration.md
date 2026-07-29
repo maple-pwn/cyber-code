@@ -41,7 +41,7 @@ cyber-code config validate
 3. Git 项目根的 `CYBER.md`；
 4. 从 Git 项目根到 `--cwd` 当前目录逐层查找的 `.cyber-code/instructions.md`。
 
-不在 Git 仓库时，`--cwd` 同时作为项目根和当前目录。不存在或仅包含空白的文件会被忽略。单个指令文件最多 256 KiB，全部自动发现的指令最多 1 MiB；符号链接解析后必须仍位于相应的用户状态目录或项目根，否则启动失败。
+不在 Git 仓库时，`--cwd` 同时作为项目根和当前目录。不存在或仅包含空白的文件会被忽略。单个指令文件最多 256 KiB，全部自动发现的指令最多 1 MiB；符号链接解析后必须仍位于相应的用户状态目录或项目根，否则启动失败。文件句柄会在读取任何字节前重新核对路径和文件身份，目录被并发替换时会拒绝读取。
 
 项目和用户指令会标记来源、路径、摘要、估算 Token 与“不可信策略输入”属性。它们可以指导编码行为，但不能修改权限模式、安全策略、凭据处理或沙箱状态。系统为 Context 保留 8192 个输出 Token，并以 128000 Token 作为当前保守窗口；低优先级非必需段超限时会产生确定性截断/排除诊断，身份、安全边界和未完成的消息/工具回合不会被静默删除。
 
@@ -108,7 +108,7 @@ LSP、Hooks 和插件配置中的命令会执行本地程序，应仅配置受�
 
 ## Claude-compatible Marketplace
 
-公开的 Claude Code marketplace 可作为兼容内容源添加。支持本地目录和 HTTPS Git URL；URL 可用 `#branch-or-tag` 固定引用，实际 Git commit 和内容 SHA-256 会写入状态锁文件。
+公开的 Claude Code marketplace 可作为兼容内容源添加。支持本地目录和 HTTPS Git URL；URL 可用 `#branch-or-tag` 固定引用，实际 Git commit 和内容 SHA-256 会写入状态锁文件。当前不提供静默自动更新，升级必须重新执行显式安装流程。
 
 ```bash
 cyber-code plugins marketplace add community https://github.com/example/marketplace.git#v1.0.0
