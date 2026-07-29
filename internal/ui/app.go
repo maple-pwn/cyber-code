@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
@@ -24,6 +25,8 @@ type ModelOptions struct {
 	Height        int
 	InitialPrompt string
 	VimMode       bool
+	Workspace     string
+	CommandNames  []string
 }
 
 type Message struct {
@@ -63,6 +66,8 @@ type Model struct {
 	questionReply   chan<- QuestionAnswer
 	initialPrompt   string
 	toolIndexes     map[string]int
+	workspace       string
+	commandNames    []string
 }
 
 type turnStartedMsg struct{ events <-chan core.Event }
@@ -159,13 +164,17 @@ func NewModel(runner Runner, options ModelOptions) *Model {
 	if options.Height <= 0 {
 		options.Height = 24
 	}
+	if strings.TrimSpace(options.Workspace) == "" {
+		options.Workspace, _ = os.Getwd()
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	input := components.NewInput(">", "Type your message...", options.Width)
 	input.SetVimEnabled(options.VimMode)
 	return &Model{
 		runner: runner, ctx: ctx, cancel: cancel, Messages: []Message{}, Input: input, Width: options.Width, Height: options.Height,
 		Ready: true, assistantIndex: -1, initialPrompt: options.InitialPrompt,
-		toolIndexes: make(map[string]int),
+		toolIndexes: make(map[string]int), workspace: options.Workspace,
+		commandNames: append([]string(nil), options.CommandNames...),
 	}
 }
 
@@ -203,6 +212,9 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.cancel()
 			return model, tea.Quit
 		case tea.KeyEnter:
+			if message.Alt {
+				return model, model.Input.Update(message)
+			}
 			if model.Processing || strings.TrimSpace(model.Input.Value) == "" {
 				return model, nil
 			}
@@ -213,6 +225,9 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			turnCtx, cancel := context.WithCancel(model.ctx)
 			model.turnCancel = cancel
 			return model, startTurn(model.runner, turnCtx, prompt)
+		case tea.KeyTab:
+			model.applyCompletion()
+			return model, nil
 		default:
 			return model, model.Input.Update(message)
 		}
@@ -249,6 +264,22 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return model, nil
 	}
 	return model, nil
+}
+
+func (model *Model) applyCompletion() {
+	commands := model.commandNames
+	if len(commands) == 0 {
+		commands = defaultCommandNames
+	}
+	suggestions := completeInput(model.Input.Value, model.Input.CursorPos, commands, model.workspace)
+	if len(suggestions) == 0 {
+		return
+	}
+	value := suggestions[0]
+	if len(suggestions) == 1 && !strings.HasSuffix(value, string(os.PathSeparator)) {
+		value += " "
+	}
+	model.Input.SetValue(value)
 }
 
 func (model *Model) updateQuestion(key tea.KeyMsg) (tea.Model, tea.Cmd) {

@@ -1,10 +1,51 @@
 package components
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+func TestInputMultilineUsesAltEnterAndCtrlJ(t *testing.T) {
+	for _, key := range []tea.KeyMsg{{Type: tea.KeyEnter, Alt: true}, {Type: tea.KeyCtrlJ}} {
+		input := NewInput(">", "", 40)
+		input.SetValue("first")
+		input.Update(key)
+		input.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("second")})
+		if input.Value != "first\nsecond" || !input.Multiline {
+			t.Fatalf("key = %s, value = %q, multiline = %v", key.String(), input.Value, input.Multiline)
+		}
+	}
+}
+
+func TestInputMultilinePreservesPastedNewlines(t *testing.T) {
+	input := NewInput(">", "", 40)
+	input.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("first\nsecond")})
+	if input.Value != "first\nsecond" || !input.Multiline {
+		t.Fatalf("pasted value = %q, multiline = %v", input.Value, input.Multiline)
+	}
+}
+
+func TestInputReverseHistorySearchCyclesMatchingEntries(t *testing.T) {
+	input := NewInput(">", "", 40)
+	for _, value := range []string{"inspect repo", "deploy staging", "deploy production"} {
+		input.SetValue(value)
+		input.Clear()
+	}
+	input.SetValue("deploy")
+	input.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	if input.Value != "deploy production" {
+		t.Fatalf("first reverse search = %q", input.Value)
+	}
+	input.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	if input.Value != "deploy staging" {
+		t.Fatalf("second reverse search = %q", input.Value)
+	}
+	if !strings.Contains(input.View(), "reverse search") {
+		t.Fatalf("search state is not visible: %q", input.View())
+	}
+}
 
 func TestVimInputUsesRuneCursorAndSupportsUndoRepeatFind(t *testing.T) {
 	input := NewInput(">", "", 40)

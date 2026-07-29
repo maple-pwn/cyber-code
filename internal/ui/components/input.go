@@ -47,6 +47,9 @@ type InputModel struct {
 	Focused     bool
 	History     []string
 	HistoryPos  int
+	SearchQuery string
+	SearchPos   int
+	Searching   bool
 	VimEnabled  bool
 	VimState    *vim.VimState
 
@@ -97,30 +100,47 @@ func (m *InputModel) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.Type {
+		case tea.KeyEnter:
+			if msg.Alt {
+				m.insertRunes([]rune{'\n'})
+				m.Multiline = true
+			}
+		case tea.KeyCtrlJ:
+			m.insertRunes([]rune{'\n'})
+			m.Multiline = true
+		case tea.KeyCtrlR:
+			m.reverseSearch()
 		case tea.KeyBackspace:
+			m.stopSearch()
 			if m.CursorPos > 0 {
 				runes := []rune(m.Value)
 				m.Value = string(append(runes[:m.CursorPos-1], runes[m.CursorPos:]...))
 				m.CursorPos--
 			}
 		case tea.KeyDelete:
+			m.stopSearch()
 			runes := []rune(m.Value)
 			if m.CursorPos < len(runes) {
 				m.Value = string(append(runes[:m.CursorPos], runes[m.CursorPos+1:]...))
 			}
 		case tea.KeyLeft:
+			m.stopSearch()
 			if m.CursorPos > 0 {
 				m.CursorPos--
 			}
 		case tea.KeyRight:
+			m.stopSearch()
 			if m.CursorPos < len([]rune(m.Value)) {
 				m.CursorPos++
 			}
 		case tea.KeyHome:
+			m.stopSearch()
 			m.CursorPos = 0
 		case tea.KeyEnd:
+			m.stopSearch()
 			m.CursorPos = len([]rune(m.Value))
 		case tea.KeyUp:
+			m.stopSearch()
 			// Navigate history
 			if len(m.History) > 0 && m.HistoryPos < len(m.History)-1 {
 				m.HistoryPos++
@@ -128,6 +148,7 @@ func (m *InputModel) Update(msg tea.Msg) tea.Cmd {
 				m.CursorPos = len([]rune(m.Value))
 			}
 		case tea.KeyDown:
+			m.stopSearch()
 			// Navigate history
 			if m.HistoryPos > 0 {
 				m.HistoryPos--
@@ -139,6 +160,7 @@ func (m *InputModel) Update(msg tea.Msg) tea.Cmd {
 				m.CursorPos = 0
 			}
 		case tea.KeyRunes:
+			m.stopSearch()
 			// Insert character at cursor position
 			m.insertRunes(msg.Runes)
 		}
@@ -175,7 +197,10 @@ func (m *InputModel) View() string {
 
 	// Multiline hint
 	if m.Multiline {
-		b.WriteString("\n" + multilineHintStyle.Render("Shift+Enter for new line"))
+		b.WriteString("\n" + multilineHintStyle.Render("Alt+Enter or Ctrl+J for new line"))
+	}
+	if m.Searching {
+		b.WriteString("\n" + multilineHintStyle.Render("reverse search: "+m.SearchQuery))
 	}
 
 	return inputBoxStyle.Render(b.String())
@@ -185,6 +210,8 @@ func (m *InputModel) View() string {
 func (m *InputModel) SetValue(value string) {
 	m.Value = value
 	m.CursorPos = len([]rune(value))
+	m.Multiline = strings.Contains(value, "\n")
+	m.stopSearch()
 }
 
 // Clear clears the input.
@@ -196,12 +223,37 @@ func (m *InputModel) Clear() {
 	m.Value = ""
 	m.CursorPos = 0
 	m.HistoryPos = -1
+	m.Multiline = false
+	m.stopSearch()
 	m.undo, m.redo, m.lastEdit = nil, nil, nil
 	if m.VimEnabled {
 		m.VimState = vim.NewVimState()
 		m.vimPersistent = vim.NewPersistentState()
 		m.vimTransition = vim.NewTransition(m.VimState, m.vimPersistent)
 	}
+}
+
+func (m *InputModel) reverseSearch() {
+	if !m.Searching {
+		m.SearchQuery = m.Value
+		m.SearchPos = len(m.History)
+		m.Searching = true
+	}
+	for index := m.SearchPos - 1; index >= 0; index-- {
+		if strings.Contains(m.History[index], m.SearchQuery) {
+			m.Value = m.History[index]
+			m.CursorPos = len([]rune(m.Value))
+			m.Multiline = strings.Contains(m.Value, "\n")
+			m.SearchPos = index
+			return
+		}
+	}
+}
+
+func (m *InputModel) stopSearch() {
+	m.SearchQuery = ""
+	m.SearchPos = 0
+	m.Searching = false
 }
 
 // Focus focuses the input.
@@ -505,6 +557,7 @@ func (m *InputModel) insertRunes(inserted []rune) {
 	updated = append(updated, runes[m.CursorPos:]...)
 	m.Value = string(updated)
 	m.CursorPos += len(inserted)
+	m.Multiline = strings.Contains(m.Value, "\n")
 }
 
 func (m *InputModel) deleteRange(start, end int) {
@@ -515,6 +568,7 @@ func (m *InputModel) deleteRange(start, end int) {
 	}
 	m.Value = string(append(append([]rune{}, runes[:start]...), runes[end:]...))
 	m.CursorPos = min(start, max(0, len([]rune(m.Value))-1))
+	m.Multiline = strings.Contains(m.Value, "\n")
 }
 
 func nextWordStart(runes []rune, position int) int {

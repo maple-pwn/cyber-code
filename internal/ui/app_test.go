@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -78,6 +80,62 @@ func TestModelViewKeepsInputVisibleWithinViewport(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)
 		}
+	}
+}
+
+func TestModelMultilineDoesNotSubmitUntilPlainEnter(t *testing.T) {
+	runner := &uiTestRunner{}
+	model := NewModel(runner, ModelOptions{})
+	model.Input.SetValue("first")
+	updated, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
+	model = updated.(*Model)
+	if command != nil || runner.prompt != "" || model.Input.Value != "first\n" {
+		t.Fatalf("alt-enter submitted: prompt=%q input=%q", runner.prompt, model.Input.Value)
+	}
+	model.Input.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("second")})
+	updated, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(*Model)
+	if command == nil {
+		t.Fatal("plain enter did not submit multiline input")
+	}
+	_ = command()
+	if runner.prompt != "first\nsecond" {
+		t.Fatalf("submitted prompt = %q", runner.prompt)
+	}
+}
+
+func TestModelTabCompletesSlashCommandsAndWorkspacePaths(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	model := NewModel(&uiTestRunner{}, ModelOptions{Workspace: workspace, CommandNames: []string{"status", "skills"}})
+	model.Input.SetValue("/sta")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model = updated.(*Model)
+	if model.Input.Value != "/status " {
+		t.Fatalf("command completion = %q", model.Input.Value)
+	}
+	model.Input.SetValue("read REA")
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model = updated.(*Model)
+	if model.Input.Value != "read README.md " {
+		t.Fatalf("path completion = %q", model.Input.Value)
+	}
+}
+
+func TestNewModelDefaultsCompletionWorkspaceToCurrentDirectory(t *testing.T) {
+	workspace := t.TempDir()
+	t.Chdir(workspace)
+	if err := os.WriteFile(filepath.Join(workspace, "CURRENT.md"), []byte("test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	model := NewModel(&uiTestRunner{}, ModelOptions{})
+	model.Input.SetValue("open CUR")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model = updated.(*Model)
+	if model.Input.Value != "open CURRENT.md " {
+		t.Fatalf("default workspace completion = %q", model.Input.Value)
 	}
 }
 
