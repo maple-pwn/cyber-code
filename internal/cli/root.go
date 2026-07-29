@@ -127,7 +127,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 				built, err := composeRuntime(environment.ctx, compositionOptions{
 					ConfigFile: environment.configFile, StateDir: environment.stateDir, Profile: profile,
 					PermissionMode: permissionMode, Model: model, Cwd: cwd, MaxTurns: maxTurns, Headless: printMode,
-					SessionID:         resumeSession,
+					SessionID: resumeSession, Version: environment.options.Version,
 					Confirmer:         newInteractiveConfirmer(permissionUI, bootstrapConfirmer),
 					Questioner:        newInteractiveQuestioner(questionUI),
 					SetVimMode:        controlUI.SetVimMode,
@@ -179,6 +179,8 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	command.AddCommand(newPluginsCommand(environment))
 	command.AddCommand(newSessionsCommand(environment))
 	command.AddCommand(newServeCommand(environment))
+	command.AddCommand(newVersionCheckCommand(environment))
+	command.AddCommand(newTerminalSetupCommand(environment))
 	return command
 }
 

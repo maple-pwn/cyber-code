@@ -520,6 +520,22 @@ func TestExecuteDoctorTextIncludesRemediation(t *testing.T) {
 	}
 }
 
+func TestExecuteOptionalUtilityCommandsAreLocalByDefault(t *testing.T) {
+	for _, test := range []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"version-check"}, want: "disabled"},
+		{args: []string{"terminal-setup"}, want: "does not modify"},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &stdout, &stderr, test.args, ExecuteOptions{Version: "2.1.88", StateDir: t.TempDir()})
+		if code != 0 || !strings.Contains(stdout.String(), test.want) {
+			t.Fatalf("args=%v code=%d stdout=%q stderr=%q", test.args, code, stdout.String(), stderr.String())
+		}
+	}
+}
+
 func TestExecutePrintUsesInjectedCanonicalRunner(t *testing.T) {
 	runner := &commandTestRunner{events: []core.Event{
 		{Type: core.EventTextDelta, Text: "hello"},

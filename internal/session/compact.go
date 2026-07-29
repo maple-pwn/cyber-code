@@ -47,23 +47,46 @@ func NewCompactor(options CompactOptions) (*Compactor, error) {
 	return &Compactor{options: options}, nil
 }
 
+// ShouldCompact reports whether the configured token and history boundaries
+// are currently crossed without invoking the summarizer.
+func (compactor *Compactor) ShouldCompact(ctx context.Context, request core.Request, counter TokenCounter) bool {
+	if compactor == nil {
+		return false
+	}
+	if compactor.options.EstimateOnly {
+		counter = nil
+	}
+	count := CountRequestTokens(ctx, counter, request, compactor.options.Estimate)
+	return count.Tokens >= compactor.options.ThresholdTokens && compactor.CanCompact(request)
+}
+
 func (compactor *Compactor) Compact(ctx context.Context, request core.Request, counter TokenCounter) CompactResult {
+	return compactor.compact(ctx, request, counter, false)
+}
+
+// CompactNow bypasses the legacy token threshold while retaining history
+// boundaries. It is used after the context-window governance threshold crosses.
+func (compactor *Compactor) CompactNow(ctx context.Context, request core.Request, counter TokenCounter) CompactResult {
+	return compactor.compact(ctx, request, counter, true)
+}
+
+// CanCompact reports whether enough history exists to preserve the configured
+// recent-message boundary.
+func (compactor *Compactor) CanCompact(request core.Request) bool {
+	return compactor != nil && compactBoundary(request.Messages, compactor.options.KeepRecentMessages) > 0
+}
+
+func (compactor *Compactor) compact(ctx context.Context, request core.Request, counter TokenCounter, force bool) CompactResult {
 	original := cloneSessionMessages(request.Messages)
 	if compactor.options.EstimateOnly {
 		counter = nil
 	}
 	count := CountRequestTokens(ctx, counter, request, compactor.options.Estimate)
 	result := CompactResult{Messages: original, TokenCount: count.Tokens, Exact: count.Exact}
-	if count.Tokens < compactor.options.ThresholdTokens {
+	if !force && count.Tokens < compactor.options.ThresholdTokens {
 		return result
 	}
-	boundary := len(original) - compactor.options.KeepRecentMessages
-	if boundary <= 0 {
-		return result
-	}
-	for boundary > 0 && original[boundary].Role == core.RoleTool {
-		boundary--
-	}
+	boundary := compactBoundary(original, compactor.options.KeepRecentMessages)
 	if boundary <= 0 {
 		return result
 	}
@@ -83,6 +106,17 @@ func (compactor *Compactor) Compact(ctx context.Context, request core.Request, c
 	result.CoveredMessages = boundary
 	result.Messages = append([]core.Message{summary}, cloneSessionMessages(original[boundary:])...)
 	return result
+}
+
+func compactBoundary(messages []core.Message, keepRecent int) int {
+	boundary := len(messages) - keepRecent
+	if boundary <= 0 {
+		return 0
+	}
+	for boundary > 0 && messages[boundary].Role == core.RoleTool {
+		boundary--
+	}
+	return boundary
 }
 
 func cloneSessionMessages(messages []core.Message) []core.Message {

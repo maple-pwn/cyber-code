@@ -151,6 +151,27 @@ func TestEngineAutoCompactAttemptsOncePerThresholdCrossing(t *testing.T) {
 	}
 }
 
+func TestEngineContextThresholdForcesCompactionBelowLegacyTokenThreshold(t *testing.T) {
+	attempts := 0
+	compactor, err := session.NewCompactor(session.CompactOptions{
+		ThresholdTokens: 1_000_000, KeepRecentMessages: 1,
+		Summarize: func(context.Context, []core.Message) (string, error) {
+			attempts++
+			return "forced summary", nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder := &governanceContextBuilder{ratio: func(int) float64 { return 0.95 }}
+	model := &compactProvider{count: 100, events: []core.Event{{Type: core.EventCompleted, FinishReason: "stop"}}}
+	engine := NewEngine(model, Options{InitialHistory: textHistory("old user", "old assistant"), ContextBuilder: builder, Compactor: compactor})
+	events := collectAgentEvents(t, engine.Run(context.Background(), "new question"))
+	if attempts != 1 || len(events) < 3 || events[2].Type != core.EventCompacted {
+		t.Fatalf("attempts=%d events=%#v", attempts, events)
+	}
+}
+
 func TestEngineAutoCompactIsCanceledWithTurn(t *testing.T) {
 	started := make(chan struct{})
 	compactor, err := session.NewCompactor(session.CompactOptions{

@@ -25,6 +25,10 @@
 | MCP Server 有限会话工具 | implemented | `internal/bridge.MCPServer` 集成测试 |
 | IDE 文件焦点/选择/诊断/diff 消息模型 | implemented | `cyber-code serve` 转发文件工具执行后的 canonical diff；协议和客户端测试 |
 | VS Code 扩展 | partial | 命令入口、托管进程、流式/取消/权限客户端测试，协议 diff 转发测试及只读预览实现通过 TypeScript 编译；尚未运行 Extension Host 原生 UI smoke |
+| Doctor 修复建议与会话摘要 | implemented | 结构化 remediation；会话 metadata sidecar、脱敏摘要、倒序与终端限宽测试 |
+| 可选版本检查 | implemented | 显式 opt-in、HTTPS + Ed25519 metadata、超时/大小上限；不自动下载或安装 |
+| 本地 bug report | implemented | `/bug` 写入限长、凭据脱敏、私有权限报告；默认不上传或打开浏览器 |
+| Terminal setup 指导 | implemented | Linux/Windows/macOS 平台检测；只输出建议，不修改 profile、注册表或终端配置 |
 | Claude Code 私有服务、账号和内部提示词 | out-of-scope | 不复制私有实现 |
 
 ## 发布门禁

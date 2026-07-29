@@ -68,6 +68,29 @@ func TestCompactEstimateOnlyDoesNotCallProviderCounter(t *testing.T) {
 	}
 }
 
+func TestCompactNowBypassesTokenThresholdButPreservesHistoryBoundary(t *testing.T) {
+	compactor, err := NewCompactor(CompactOptions{
+		ThresholdTokens: 1_000_000, KeepRecentMessages: 2,
+		Estimate:  func(core.Request) int { return 10 },
+		Summarize: func(context.Context, []core.Message) (string, error) { return "forced summary", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := core.Request{Messages: compactFixtureMessages()}
+	if !compactor.CanCompact(request) || compactor.ShouldCompact(context.Background(), request, nil) {
+		t.Fatalf("unexpected compact eligibility")
+	}
+	result := compactor.CompactNow(context.Background(), request, nil)
+	if !result.Applied || result.Summary == nil || result.Summary.Content[0].Text != "forced summary" {
+		t.Fatalf("forced compact result = %#v", result)
+	}
+	var missing *Compactor
+	if missing.CanCompact(request) || missing.ShouldCompact(context.Background(), request, nil) {
+		t.Fatal("nil compactor reported eligibility")
+	}
+}
+
 func TestCompactFailureKeepsOriginalHistoryAndReturnsWarning(t *testing.T) {
 	compactor, err := NewCompactor(CompactOptions{
 		ThresholdTokens:    1,

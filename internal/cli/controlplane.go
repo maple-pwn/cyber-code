@@ -38,6 +38,7 @@ type ControlActions struct {
 	HistoryCount           func() int
 	ClearHistory           func(context.Context) error
 	SetVimMode             func(bool) error
+	CreateBugReport        func(context.Context, string) (string, error)
 }
 
 func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model string, mode permissions.PermissionMode, hooksRunner *hooks.Runner, skills []skill.Skill, contextBuilder *contextbuilder.Builder, mcpManager *mcp.Manager, git *gitworkflow.Service, actions ControlActions) (*controlplane.Registry, error) {
@@ -354,6 +355,19 @@ func registerProductCommands(registry *controlplane.Registry, actions ControlAct
 				return nil, fmt.Errorf("effective configuration is unavailable")
 			}
 			return controlplane.TextEvents(formatEffectiveConfig(actions.EffectiveConfig())), nil
+		}},
+		{Name: "bug", Usage: "/bug DESCRIPTION", Description: "create a redacted local bug report", Handler: func(ctx context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
+			if len(invocation.Args) == 0 {
+				return nil, fmt.Errorf("/bug requires a description")
+			}
+			if actions.CreateBugReport == nil {
+				return nil, fmt.Errorf("bug reporting is unavailable")
+			}
+			path, err := actions.CreateBugReport(ctx, strings.Join(invocation.Args, " "))
+			if err != nil {
+				return nil, err
+			}
+			return controlplane.TextEvents("redacted local bug report created: " + path), nil
 		}},
 	}
 	for _, command := range commands {

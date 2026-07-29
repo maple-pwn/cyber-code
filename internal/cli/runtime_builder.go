@@ -9,11 +9,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"sort"
 	"strings"
 	"time"
 
 	"cyber-code/internal/agent"
+	"cyber-code/internal/bugreport"
 	"cyber-code/internal/collaboration"
 	configpkg "cyber-code/internal/config"
 	"cyber-code/internal/contextbuilder"
@@ -49,13 +51,13 @@ const (
 )
 
 type compositionOptions struct {
-	ConfigFile, StateDir, Profile, PermissionMode, Model, Cwd, SessionID string
-	MaxTurns                                                             int
-	Headless                                                             bool
-	Confirmer                                                            permissions.Confirmer
-	Questioner                                                           builtin.Questioner
-	SetVimMode                                                           func(bool) error
-	ClearConversation                                                    func() error
+	ConfigFile, StateDir, Profile, PermissionMode, Model, Cwd, SessionID, Version string
+	MaxTurns                                                                      int
+	Headless                                                                      bool
+	Confirmer                                                                     permissions.Confirmer
+	Questioner                                                                    builtin.Questioner
+	SetVimMode                                                                    func(bool) error
+	ClearConversation                                                             func() error
 }
 
 func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtimepkg.Runtime, returnErr error) {
@@ -256,6 +258,16 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 			return nil
 		},
 		SetVimMode: options.SetVimMode,
+		CreateBugReport: func(ctx context.Context, description string) (string, error) {
+			result, err := bugreport.Create(ctx, bugreport.Options{
+				Directory: filepath.Join(options.StateDir, "bug-reports"), Version: options.Version, GOOS: goruntime.GOOS, GOARCH: goruntime.GOARCH,
+				Secrets: configuredBugReportSecrets(*loaded, os.LookupEnv),
+			}, bugreport.Input{
+				Description: description,
+				Diagnostics: fmt.Sprintf("profile: %s\nmodel: %s\nsession: %s\nhistory messages: %d", loaded.ActiveProfile, profile.Model, sessionID, len(built.History())),
+			})
+			return result.Path, err
+		},
 	}
 	if profile.Pricing != nil {
 		pricing := session.ModelPricing{
@@ -282,6 +294,26 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 		return nil, err
 	}
 	return built, nil
+}
+
+func configuredBugReportSecrets(configuration configpkg.Config, lookup func(string) (string, bool)) []string {
+	if lookup == nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	secrets := make([]string, 0, len(configuration.Profiles))
+	for _, profile := range configuration.Profiles {
+		value, ok := lookup(profile.APIKeyEnv)
+		if !ok || strings.TrimSpace(value) == "" {
+			continue
+		}
+		if _, duplicate := seen[value]; duplicate {
+			continue
+		}
+		seen[value] = struct{}{}
+		secrets = append(secrets, value)
+	}
+	return secrets
 }
 
 func registerWorkspaceTools(registry *tool.Registry, workspace string, executor platform.Executor, questioner builtin.Questioner) error {

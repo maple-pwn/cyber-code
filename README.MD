@@ -72,8 +72,12 @@ $env:DEEPSEEK_API_KEY = "your-key"
 ./cyber-code plugins list
 ./cyber-code plugins marketplace search review
 ./cyber-code sessions list
+./cyber-code version-check             # 默认不联网；显示显式启用方法
+./cyber-code terminal-setup            # 只显示指导，不修改终端或 shell
 ./cyber-code serve                    # newline-delimited local SDK protocol
 ```
+
+交互模式支持 `/bug DESCRIPTION`，它只在状态目录的 `bug-reports/` 下生成限长、脱敏、私有权限的本地 Markdown 报告，不上传内容，也不自动打开浏览器。需要提交时请先人工检查报告，再访问 `https://github.com/maple-pwn/cyber-code/issues/new`。`version-check` 只有在本次调用显式传入 `--enable`、受信任的 HTTPS metadata URL 和 Ed25519 公钥时才联网；它只验证并报告新版本，不下载或安装二进制。
 
 MCP 配置通过 `mcp add` 持久化；启用插件从状态目录的 `plugins/<name>/plugin.json` 加载。Skills、LSP、Hooks、Compact 和审计也从统一状态目录接入，格式见 [docs/configuration.md](docs/configuration.md)。模型可调用 `task_run`、`task_status` 和 `task_cancel` 执行受父级 turn budget 与权限约束的子 Agent。
 

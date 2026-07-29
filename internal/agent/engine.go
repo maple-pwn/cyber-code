@@ -86,20 +86,22 @@ func (e *Engine) run(ctx context.Context, content []core.ContentBlock, output ch
 				return
 			}
 		}
-		if !plan.Budget.CompactExceeded {
-			e.compactAbove = false
-		}
 	}
 	if e.options.Compactor != nil {
 		managedThreshold := plan.Budget.ContextWindow > 0
-		shouldCompact := !managedThreshold || plan.Budget.CompactExceeded
-		attemptCompact := shouldCompact && (!managedThreshold || !e.compactAbove)
-		if managedThreshold && attemptCompact {
-			e.compactAbove = true
-		}
+		legacyThreshold := e.options.Compactor.ShouldCompact(ctx, preparedRequest, e.provider)
+		contextThreshold := plan.Budget.CompactExceeded && e.options.Compactor.CanCompact(preparedRequest)
+		shouldCompact := contextThreshold || legacyThreshold
+		attemptCompact := shouldCompact && !e.compactAbove
+		e.compactAbove = shouldCompact
 		if attemptCompact {
 			request := preparedRequest
-			result := e.options.Compactor.Compact(ctx, request, e.provider)
+			var result session.CompactResult
+			if contextThreshold {
+				result = e.options.Compactor.CompactNow(ctx, request, e.provider)
+			} else {
+				result = e.options.Compactor.Compact(ctx, request, e.provider)
+			}
 			if result.Warning != "" {
 				if !sendEvent(ctx, output, core.Event{Type: core.EventWarning, Text: result.Warning}) {
 					return
@@ -113,13 +115,20 @@ func (e *Engine) run(ctx context.Context, content []core.ContentBlock, output ch
 					return
 				}
 				if managedThreshold {
-					_, compactedPlan, planErr := e.requestPlan(ctx, messages, tools, true)
+					compactedRequest, compactedPlan, planErr := e.requestPlan(ctx, messages, tools, true)
 					if planErr != nil {
 						sendEvent(ctx, output, contextBuildError(planErr))
 						return
 					}
-					e.compactAbove = compactedPlan.Budget.CompactExceeded
+					e.compactAbove = compactedPlan.Budget.CompactExceeded || e.options.Compactor.ShouldCompact(ctx, compactedRequest, e.provider)
 					e.warningAbove = compactedPlan.Budget.WarningExceeded
+				} else {
+					compactedRequest, requestErr := e.request(ctx, messages, tools, true)
+					if requestErr != nil {
+						sendEvent(ctx, output, contextBuildError(requestErr))
+						return
+					}
+					e.compactAbove = e.options.Compactor.ShouldCompact(ctx, compactedRequest, e.provider)
 				}
 			}
 		}

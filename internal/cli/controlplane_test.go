@@ -150,6 +150,18 @@ func TestControlPlaneConfigReportsEffectiveSettingsWithoutSecrets(t *testing.T) 
 	}
 }
 
+func TestControlPlaneBugCreatesLocalReport(t *testing.T) {
+	var description string
+	registry := testControlPlane(t, ControlActions{CreateBugReport: func(_ context.Context, value string) (string, error) {
+		description = value
+		return "/tmp/cyber-code-bug.md", nil
+	}})
+	events, err := registry.Dispatch(context.Background(), "/bug streaming output stalls")
+	if err != nil || description != "streaming output stalls" || !strings.Contains(controlEventText(events), "/tmp/cyber-code-bug.md") {
+		t.Fatalf("events=%#v description=%q error=%v", events, description, err)
+	}
+}
+
 func testControlPlane(t *testing.T, actions ControlActions) *controlplane.Registry {
 	t.Helper()
 	registry, err := buildControlPlane(nil, t.TempDir(), "test", "test-model", permissions.PermissionModeDefault, nil, nil, nil, nil, nil, actions)
