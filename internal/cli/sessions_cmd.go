@@ -7,9 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/spf13/cobra"
 
 	configpkg "cyber-code/internal/config"
@@ -31,6 +33,7 @@ type sessionListEntry struct {
 	Updated      time.Time `json:"updated"`
 	LastSequence uint64    `json:"last_sequence"`
 	MessageCount int       `json:"message_count"`
+	Summary      string    `json:"summary,omitempty"`
 }
 
 func newSessionsCommand(environment *commandEnvironment) *cobra.Command {
@@ -41,34 +44,38 @@ func newSessionsCommand(environment *commandEnvironment) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		ids := make([]string, 0, len(entries))
-		for id := range entries {
-			ids = append(ids, id)
-		}
-		sort.Strings(ids)
 		store, err := session.NewStore(filepath.Join(environment.stateDir, "sessions"), session.StoreOptions{})
 		if err != nil {
 			return err
 		}
-		encoder := json.NewEncoder(environment.stdout)
-		for _, id := range ids {
-			metadata := entries[id]
+		items := make([]sessionListEntry, 0, len(entries))
+		for id, metadata := range entries {
 			item := sessionListEntry{ID: id, Profile: metadata.Profile, Model: metadata.Model, Updated: metadata.Updated}
-			if snapshot, resumeErr := store.Resume(environment.ctx, id); resumeErr == nil {
+			if snapshot, metadataErr := store.SnapshotMetadata(environment.ctx, id); metadataErr == nil {
 				item.LastSequence = snapshot.LastSequence
-				item.MessageCount = len(snapshot.History)
+				item.MessageCount = snapshot.MessageCount
+				item.Summary = snapshot.Summary
 				if !snapshot.UpdatedAt.IsZero() {
 					item.Updated = snapshot.UpdatedAt
 				}
 			}
+			items = append(items, item)
+		}
+		sort.Slice(items, func(left, right int) bool {
+			if items[left].Updated.Equal(items[right].Updated) {
+				return items[left].ID < items[right].ID
+			}
+			return items[left].Updated.After(items[right].Updated)
+		})
+		encoder := json.NewEncoder(environment.stdout)
+		for _, item := range items {
 			if jsonOutput {
 				if err := encoder.Encode(item); err != nil {
 					return err
 				}
 				continue
 			}
-			_, _ = fmt.Fprintf(environment.stdout, "%s\t%s\t%s\tmessages=%d\tsequence=%d\t%s\n",
-				item.ID, item.Profile, item.Model, item.MessageCount, item.LastSequence, item.Updated.Format(time.RFC3339))
+			writeSessionListItem(environment.stdout, item, terminalColumns())
 		}
 		return nil
 	}}
@@ -142,6 +149,23 @@ func newSessionsCommand(environment *commandEnvironment) *cobra.Command {
 		})
 	}})
 	return command
+}
+
+func terminalColumns() int {
+	if columns, err := strconv.Atoi(strings.TrimSpace(os.Getenv("COLUMNS"))); err == nil && columns > 0 {
+		return columns
+	}
+	return 120
+}
+
+func writeSessionListItem(writer interface{ Write([]byte) (int, error) }, item sessionListEntry, width int) {
+	width = max(width, 20)
+	line := fmt.Sprintf("%-24s  %-12s  %-20s  messages=%-4d  sequence=%-6d  %s",
+		item.ID, item.Profile, item.Model, item.MessageCount, item.LastSequence, item.Updated.Format(time.RFC3339))
+	_, _ = fmt.Fprintln(writer, ansi.Truncate(strings.TrimRight(line, " "), width, ""))
+	if item.Summary != "" {
+		_, _ = fmt.Fprintln(writer, ansi.Truncate("  summary: "+item.Summary, width, ""))
+	}
 }
 
 func configuredExportSecrets(configFile string) ([]string, error) {

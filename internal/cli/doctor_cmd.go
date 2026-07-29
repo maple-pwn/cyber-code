@@ -24,6 +24,9 @@ func newDoctorCommand(environment *commandEnvironment) *cobra.Command {
 			} else {
 				for _, check := range report.Checks {
 					_, _ = fmt.Fprintf(environment.stdout, "%s\t%s\t%s\n", check.Status, check.Name, check.Message)
+					if check.Remediation != "" {
+						_, _ = fmt.Fprintf(environment.stdout, "\tremediation: %s\n", check.Remediation)
+					}
 				}
 			}
 			if !report.Healthy {

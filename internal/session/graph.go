@@ -296,7 +296,7 @@ func (store *Store) writeJSONAtomically(path string, value any) error {
 }
 
 func cloneSnapshot(snapshot Snapshot) Snapshot {
-	return Snapshot{SessionID: snapshot.SessionID, LastSequence: snapshot.LastSequence, UpdatedAt: snapshot.UpdatedAt, History: cloneSessionMessages(snapshot.History)}
+	return Snapshot{SessionID: snapshot.SessionID, LastSequence: snapshot.LastSequence, UpdatedAt: snapshot.UpdatedAt, History: cloneSessionMessages(snapshot.History), Summary: snapshot.Summary}
 }
 
 func checkpointID(sessionID, name string, sequence uint64, created time.Time) string {

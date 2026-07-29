@@ -164,6 +164,10 @@ func (store *Store) snapshotPath(sessionID string) string {
 	return filepath.Join(store.sessionDir(sessionID), "snapshot.json")
 }
 
+func (store *Store) snapshotMetadataPath(sessionID string) string {
+	return filepath.Join(store.sessionDir(sessionID), "snapshot-metadata.json")
+}
+
 func validateSessionID(sessionID string) error {
 	if strings.TrimSpace(sessionID) == "" {
 		return fmt.Errorf("session ID is required")

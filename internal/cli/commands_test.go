@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"cyber-code/internal/core"
 	"cyber-code/internal/mcp"
 	"cyber-code/internal/session"
@@ -310,6 +312,67 @@ func TestExecuteSessionListIncludesSnapshotMetadataInTextAndJSON(t *testing.T) {
 	}
 }
 
+func TestExecuteSessionListNewestFirstBoundedSummaryAndStableWidth(t *testing.T) {
+	stateDir := t.TempDir()
+	store, err := session.NewStore(filepath.Join(stateDir, "sessions"), session.StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := "sk-list-secret"
+	entries := []struct {
+		id      string
+		updated time.Time
+		prompt  string
+	}{
+		{id: "older-session-with-a-long-id", updated: time.Unix(100, 0).UTC(), prompt: "older prompt"},
+		{id: "newer-session-with-a-long-id", updated: time.Unix(200, 0).UTC(), prompt: "Review api_key=" + secret + " " + strings.Repeat("details ", 30)},
+	}
+	for _, entry := range entries {
+		if err := store.SaveSnapshot(context.Background(), session.Snapshot{
+			SessionID: entry.id, LastSequence: 2, UpdatedAt: entry.updated,
+			History: []core.Message{{Role: core.RoleUser, Content: []core.ContentBlock{{Type: core.ContentText, Text: entry.prompt}}}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := recordSession(stateDir, sessionMetadata{ID: entry.id, Profile: "profile", Model: "model-with-a-long-name"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("COLUMNS", "72")
+	var textOutput bytes.Buffer
+	if code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &textOutput, io.Discard, []string{"sessions", "list"}, ExecuteOptions{StateDir: stateDir}); code != 0 {
+		t.Fatalf("text list code = %d", code)
+	}
+	text := textOutput.String()
+	if strings.Index(text, "newer-session") > strings.Index(text, "older-session") {
+		t.Fatalf("sessions are not newest-first: %q", text)
+	}
+	if strings.Contains(text, secret) || !strings.Contains(text, "[REDACTED]") {
+		t.Fatalf("session summary was not redacted: %q", text)
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
+		if width := ansi.StringWidth(line); width > 72 {
+			t.Fatalf("line width = %d, want <= 72: %q", width, line)
+		}
+	}
+
+	var jsonOutput bytes.Buffer
+	if code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &jsonOutput, io.Discard, []string{"sessions", "list", "--json"}, ExecuteOptions{StateDir: stateDir}); code != 0 {
+		t.Fatalf("JSON list code = %d", code)
+	}
+	decoder := json.NewDecoder(&jsonOutput)
+	var first, second sessionListEntry
+	if err := decoder.Decode(&first); err != nil {
+		t.Fatal(err)
+	}
+	if err := decoder.Decode(&second); err != nil {
+		t.Fatal(err)
+	}
+	if first.ID != entries[1].id || second.ID != entries[0].id || first.Summary == "" || strings.Contains(first.Summary, secret) {
+		t.Fatalf("JSONL entries = %#v / %#v", first, second)
+	}
+}
+
 func TestExecuteSessionExportRedactsConfiguredProviderCredential(t *testing.T) {
 	stateDir := t.TempDir()
 	configFile := filepath.Join(t.TempDir(), "config.yaml")
@@ -441,6 +504,19 @@ func TestExecuteDoctorJSONHasStableSchema(t *testing.T) {
 	checks, _ := report["checks"].([]any)
 	if report["schema_version"] != float64(1) || len(checks) == 0 {
 		t.Fatalf("report = %#v", report)
+	}
+}
+
+func TestExecuteDoctorTextIncludesRemediation(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &stdout, &stderr, []string{"doctor"}, ExecuteOptions{
+		ConfigFile: filepath.Join(t.TempDir(), "config.yaml"), StateDir: t.TempDir(),
+	})
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "remediation:") || !strings.Contains(stdout.String(), "cyber-code mcp") {
+		t.Fatalf("doctor output = %q", stdout.String())
 	}
 }
 
