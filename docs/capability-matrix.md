@@ -26,7 +26,8 @@
 | IDE 文件焦点/选择/诊断/diff 消息模型 | implemented | `cyber-code serve` 转发文件工具执行后的 canonical diff；协议和客户端测试 |
 | VS Code 扩展 | partial | 命令入口、托管进程、流式/取消/权限客户端测试，协议 diff 转发测试及只读预览实现通过 TypeScript 编译；尚未运行 Extension Host 原生 UI smoke |
 | Doctor 修复建议与会话摘要 | implemented | 结构化 remediation；会话 metadata sidecar、脱敏摘要、倒序与终端限宽测试 |
-| 可选版本检查 | implemented | 显式 opt-in、HTTPS + Ed25519 metadata、超时/大小上限；不自动下载或安装 |
+| 可选版本检查 | implemented | 显式 opt-in、HTTPS 单文件 Ed25519 envelope、平台 artifact SHA-256/size、超时/大小上限；不自动下载或安装 |
+| 可移植发行 bundle | implemented | `scripts/release-manifest`、手动 `release-bundle.yml`；生成三平台二进制和签名 bundle，不自动外传 |
 | 本地 bug report | implemented | `/bug` 写入限长、凭据脱敏、私有权限报告；默认不上传或打开浏览器 |
 | Terminal setup 指导 | implemented | Linux/Windows/macOS 平台检测；只输出建议，不修改 profile、注册表或终端配置 |
 | Claude Code 私有服务、账号和内部提示词 | out-of-scope | 不复制私有实现 |
@@ -36,9 +37,9 @@
 - `go test ./... -count=1`：通过
 - `go test -race ./internal/protocol ./internal/bridge ./internal/cli ./internal/ui ./tests/integration -count=1`：通过
 - `go vet ./...`、`git diff --check`：通过
-- `scripts/check-placeholders.sh`、`scripts/check-brand.sh`、`scripts/check-entrypoint-reachability.sh`：通过
+- `scripts/check-placeholders.sh`、`scripts/check-todos.sh`、`scripts/check-brand.sh`、`scripts/check-entrypoint-reachability.sh`：通过
 - `scripts/check-coverage.sh`：通过，`internal/security` 90.1%，所有设定门槛均满足
 - `npm test --prefix editors/vscode`、`npm run compile --prefix editors/vscode`：通过
-- Linux/Windows CLI 交叉构建：通过
+- Linux/Windows/macOS CLI 构建：通过
 
 macOS 原生 CLI smoke（config、doctor、marketplace、Print、sessions/resume、protocol）通过；经用户显式配置的 `deepseek-v4-pro` smoke 通过且未记录响应正文。Linux/Windows 原生 TUI、Windows 原生沙箱和 VS Code Extension Host UI 尚未在对应宿主运行，交叉构建不等同于原生验收。

@@ -141,7 +141,7 @@ func validatePayload(payload Payload) error {
 	if len(payload.Version) == 0 || len(payload.Version) > 64 {
 		return fmt.Errorf("validate release payload: version length is invalid")
 	}
-	if !validReleaseVersion(payload.Version) {
+	if !ValidReleaseVersion(payload.Version) {
 		return fmt.Errorf("validate release payload: version must use semantic version syntax")
 	}
 	if _, err := parseVersion(payload.Version); err != nil {
@@ -181,7 +181,8 @@ func validatePayload(payload Payload) error {
 	return nil
 }
 
-func validReleaseVersion(value string) bool {
+// ValidReleaseVersion reports whether value is a canonical semantic release version.
+func ValidReleaseVersion(value string) bool {
 	if value == "" || strings.HasPrefix(value, "v") || strings.Count(value, "+") > 1 {
 		return false
 	}

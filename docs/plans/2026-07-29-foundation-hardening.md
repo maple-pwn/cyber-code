@@ -121,7 +121,7 @@
 
 1. 写生成工具 RED 测试：解析 `goos/goarch=path` artifact、按平台排序、计算 SHA-256/大小、拼接 HTTPS base URL、读取 base64 Ed25519 seed/private key、输出 deterministic envelope，错误不得包含私钥。
 2. 运行 `go test ./scripts/release-manifest -count=1`，确认 RED。
-3. 实现仓库工具，支持 `manifest` 与 `public-key` 子命令；私钥只从指定文件或 `CYBER_CODE_UPDATE_SIGNING_KEY` 读取，默认 stdout 输出，不记录 secret。
+3. 实现仓库工具，支持 `validate`、`manifest` 与 `public-key` 子命令；私钥只从指定文件或 `CYBER_CODE_UPDATE_SIGNING_KEY` 读取，默认 stdout 输出，不记录 secret。
 4. 扩展入口检查，明确允许 `scripts/release-manifest` 作为开发工具，但继续保证唯一产品入口是 `cmd/cli`。
 5. 创建手动 `workflow_dispatch` 工作流，输入 version/base URL；从 GitHub secret 读取签名 key；构建 Linux/Windows/macOS amd64 artifact；注入 update URL/公钥；生成 `latest.json`；上传一个 bundle artifact。
 6. 工作流不得自动发布 Release、上传外部站点或打印私钥；权限保持 `contents: read`。

@@ -7,11 +7,11 @@
 统一支持 Anthropic 原生 API 与 OpenAI-compatible API，内置流式 TUI、安全工具链、可恢复会话和本机集成协议。
 
 [![Go](https://img.shields.io/badge/Go-1.26.5-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev/)
-![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows-4C8BF5?style=flat-square)
+![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20macOS-4C8BF5?style=flat-square)
 ![Provider](https://img.shields.io/badge/API-Anthropic%20%7C%20OpenAI--compatible-7B61FF?style=flat-square)
 ![Interface](https://img.shields.io/badge/Interface-TUI%20%7C%20Print%20%7C%20SDK-18A957?style=flat-square)
 
-[快速开始](#快速开始) · [配置模型](#配置模型) · [常用命令](#常用命令) · [安全边界](#安全边界) · [能力矩阵](docs/capability-matrix.md)
+[快速开始](#快速开始) · [配置模型](#配置模型) · [常用命令](#常用命令) · [安全边界](#安全边界) · [能力矩阵](docs/capability-matrix.md) · [发行指南](docs/releases.md)
 
 </div>
 
@@ -220,7 +220,7 @@ VS Code 扩展位于 `editors/vscode`。将设置 `cyber-code.executable` 指向
 ## 可选本地工具
 
 - `/bug DESCRIPTION` 在状态目录生成限长、脱敏、私有权限的 Markdown 报告，默认不上传，也不自动打开浏览器。
-- `version-check` 默认不联网；只有显式提供 `--enable`、受信任的 HTTPS metadata URL 和 Ed25519 公钥时才检查版本，且不会下载或安装二进制。
+- `version-check` 默认不联网；只有显式提供 `--enable` 才读取签名 JSON envelope。发行构建可注入受信任的 HTTPS metadata URL 与 Ed25519 公钥，flags 可显式覆盖；命令只报告 URL、SHA-256 和大小，不会下载或安装二进制。
 - `terminal-setup` 只检测平台并输出建议，不会静默修改系统设置。
 
 ## 开发与验证
@@ -231,6 +231,7 @@ go test -race ./...
 go vet ./...
 
 sh scripts/check-placeholders.sh
+sh scripts/check-todos.sh
 sh scripts/check-brand.sh
 sh scripts/check-entrypoint-reachability.sh
 sh scripts/check-coverage.sh

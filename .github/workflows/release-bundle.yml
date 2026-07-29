@@ -1,0 +1,94 @@
+name: Release bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version without a leading v
+        required: true
+        type: string
+      base_url:
+        description: HTTPS directory where the bundle will be hosted
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate release inputs
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_BASE_URL: ${{ inputs.base_url }}
+        run: |
+          set -eu
+          go run ./scripts/release-manifest validate \
+            --version "$RELEASE_VERSION" \
+            --base-url "$RELEASE_BASE_URL" > /dev/null
+
+      - name: Derive update public key
+        id: signing
+        env:
+          CYBER_CODE_UPDATE_SIGNING_KEY: ${{ secrets.CYBER_CODE_UPDATE_SIGNING_KEY }}
+        run: |
+          set -eu
+          test -n "$CYBER_CODE_UPDATE_SIGNING_KEY"
+          public_key=$(go run ./scripts/release-manifest public-key)
+          printf 'public_key=%s\n' "$public_key" >> "$GITHUB_OUTPUT"
+
+      - name: Build release binaries
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_BASE_URL: ${{ inputs.base_url }}
+          UPDATE_PUBLIC_KEY: ${{ steps.signing.outputs.public_key }}
+        run: |
+          set -eu
+          mkdir -p bundle
+          validated_base_url=$(go run ./scripts/release-manifest validate --version "$RELEASE_VERSION" --base-url "$RELEASE_BASE_URL")
+          metadata_url=$validated_base_url/latest.json
+          ldflags="-s -w -X cyber-code/internal/product.BuildVersion=$RELEASE_VERSION -X cyber-code/internal/product.UpdateMetadataURL=$metadata_url -X cyber-code/internal/product.UpdatePublicKeyB64=$UPDATE_PUBLIC_KEY"
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$ldflags" -o bundle/cyber-code-linux-amd64 ./cmd/cli
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$ldflags" -o bundle/cyber-code-windows-amd64.exe ./cmd/cli
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "$ldflags" -o bundle/cyber-code-darwin-amd64 ./cmd/cli
+
+      - name: Sign release manifest
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_BASE_URL: ${{ inputs.base_url }}
+          UPDATE_PUBLIC_KEY: ${{ steps.signing.outputs.public_key }}
+          CYBER_CODE_UPDATE_SIGNING_KEY: ${{ secrets.CYBER_CODE_UPDATE_SIGNING_KEY }}
+        run: |
+          set -eu
+          test -n "$CYBER_CODE_UPDATE_SIGNING_KEY"
+          validated_base_url=$(go run ./scripts/release-manifest validate --version "$RELEASE_VERSION" --base-url "$RELEASE_BASE_URL")
+          published_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+          go run ./scripts/release-manifest manifest \
+            --version "$RELEASE_VERSION" \
+            --published-at "$published_at" \
+            --base-url "$validated_base_url" \
+            --artifact linux/amd64=bundle/cyber-code-linux-amd64 \
+            --artifact windows/amd64=bundle/cyber-code-windows-amd64.exe \
+            --artifact darwin/amd64=bundle/cyber-code-darwin-amd64 \
+            > bundle/latest.json
+          printf '%s\n' "$UPDATE_PUBLIC_KEY" > bundle/update-public-key.txt
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyber-code-${{ inputs.version }}-bundle
+          path: bundle/
+          if-no-files-found: error
+          retention-days: 14
