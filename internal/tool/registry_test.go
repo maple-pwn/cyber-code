@@ -213,6 +213,28 @@ func TestRegistryCloneIsIndependent(t *testing.T) {
 	}
 }
 
+func TestRegistrySubsetCannotIntroduceUnknownTools(t *testing.T) {
+	registry := NewRegistry()
+	for _, name := range []string{"read_file", "shell"} {
+		if err := registry.Register(&fakeTool{spec: Spec{Name: name, Schema: json.RawMessage(`{"type":"object"}`)}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	subset, err := registry.Subset([]string{"read_file"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := subset.Get("read_file"); !ok {
+		t.Fatal("allowed tool missing")
+	}
+	if _, ok := subset.Get("shell"); ok {
+		t.Fatal("unrequested tool leaked")
+	}
+	if _, err := registry.Subset([]string{"missing"}); err == nil {
+		t.Fatal("unknown tool was accepted")
+	}
+}
+
 func TestRunnerTruncatesNestedToolResultContent(t *testing.T) {
 	registry := NewRegistry()
 	model := &fakeTool{

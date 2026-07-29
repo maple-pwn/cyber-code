@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"cyber-code/internal/agent"
+	"cyber-code/internal/collaboration"
 	configpkg "cyber-code/internal/config"
 	"cyber-code/internal/contextbuilder"
 	"cyber-code/internal/hooks"
@@ -135,6 +136,14 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 			return nil, err
 		}
 	}
+	agentLoader, err := collaboration.NewDefinitionLoader(options.StateDir, workspace)
+	if err != nil {
+		return nil, err
+	}
+	agentDefinitions, err := agentLoader.Load()
+	if err != nil {
+		return nil, fmt.Errorf("load agent definitions: %w", err)
+	}
 	hookRunner, err := configureHooks(options.StateDir, workspace, broker)
 	if err != nil {
 		return nil, err
@@ -189,10 +198,15 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 		return nil, err
 	}
 	childRegistry := registry.Clone()
+	coordinator, err := collaboration.NewCoordinator(filepath.Join(options.StateDir, "collaboration"))
+	if err != nil {
+		return nil, fmt.Errorf("configure agent collaboration: %w", err)
+	}
 	taskService, err := configureTaskService(taskCompositionOptions{
 		Provider: modelProvider, Registry: childRegistry, Broker: broker, Hooks: hookRunner,
 		Model: profile.Model, ContextBuilder: contextBuilder, SessionID: sessionID,
-		ParentMode: mode, ParentMaxTurns: maxTurns,
+		ParentMode: mode, ParentMaxTurns: maxTurns, Definitions: agentDefinitions,
+		Board: coordinator.Board, Coordinator: coordinator,
 	})
 	if err != nil {
 		return nil, err
@@ -208,7 +222,7 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 	}
 	agentOptions := agent.Options{
 		Model: profile.Model, ContextBuilder: contextBuilder, MaxTurns: maxTurns, Tools: registry,
-		ToolRunner: tool.NewRunner(registry, broker, tool.RunnerOptions{Hooks: hookRunner, SessionID: sessionID}),
+		ToolRunner: tool.NewRunner(registry, broker, tool.RunnerOptions{Hooks: hookRunner, SessionID: sessionID, Gate: collaborationExecutionGate(coordinator)}),
 		Compactor:  compactor, Hooks: hookRunner, SessionID: sessionID,
 	}
 	var built *runtimepkg.Runtime

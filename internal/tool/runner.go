@@ -26,7 +26,10 @@ type RunnerOptions struct {
 	MaxResultBytes int
 	Hooks          *hooks.Runner
 	SessionID      string
+	Gate           ExecutionGate
 }
+
+type ExecutionGate func(context.Context, permissions.Request, func() (core.ToolResult, error)) (core.ToolResult, error)
 
 type Runner struct {
 	registry   *Registry
@@ -34,6 +37,7 @@ type Runner struct {
 	maxBytes   int
 	hooks      *hooks.Runner
 	sessionID  string
+	gate       ExecutionGate
 }
 
 func NewRunner(registry *Registry, authorizer Authorizer, options RunnerOptions) *Runner {
@@ -42,7 +46,7 @@ func NewRunner(registry *Registry, authorizer Authorizer, options RunnerOptions)
 	}
 	return &Runner{
 		registry: registry, authorizer: authorizer, maxBytes: options.MaxResultBytes,
-		hooks: options.Hooks, sessionID: options.SessionID,
+		hooks: options.Hooks, sessionID: options.SessionID, gate: options.Gate,
 	}
 }
 
@@ -119,7 +123,13 @@ func (runner *Runner) Run(ctx context.Context, name string, arguments json.RawMe
 			}
 		}
 	}
-	result, err := registered.tool.Run(ctx, arguments)
+	run := func() (core.ToolResult, error) { return registered.tool.Run(ctx, arguments) }
+	var result core.ToolResult
+	if runner.gate != nil {
+		result, err = runner.gate(ctx, request, run)
+	} else {
+		result, err = run()
+	}
 	if err != nil {
 		runner.runFailureHook(ctx, name, arguments, err)
 		return core.ToolResult{}, fmt.Errorf("run %s: %w", name, err)

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"cyber-code/internal/filelock"
 )
 
 type Message struct {
@@ -32,6 +34,7 @@ type mailboxState struct {
 }
 type Mailbox struct {
 	path                      string
+	lockPath                  string
 	maxMessages, maxBodyBytes int
 	mu                        sync.Mutex
 }
@@ -49,7 +52,7 @@ func NewMailbox(directory string, options Options) (*Mailbox, error) {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return nil, err
 	}
-	return &Mailbox{path: filepath.Join(directory, "mailbox.json"), maxMessages: options.MaxMessages, maxBodyBytes: options.MaxBodyBytes}, nil
+	return &Mailbox{path: filepath.Join(directory, "mailbox.json"), lockPath: filepath.Join(directory, ".mailbox.lock"), maxMessages: options.MaxMessages, maxBodyBytes: options.MaxBodyBytes}, nil
 }
 func (box *Mailbox) Send(ctx context.Context, message Message) (Message, error) {
 	if err := ctx.Err(); err != nil {
@@ -64,6 +67,11 @@ func (box *Mailbox) Send(ctx context.Context, message Message) (Message, error) 
 	}
 	box.mu.Lock()
 	defer box.mu.Unlock()
+	release, err := filelock.Acquire(box.lockPath)
+	if err != nil {
+		return Message{}, err
+	}
+	defer release()
 	state, err := box.read()
 	if err != nil {
 		return Message{}, err
@@ -93,6 +101,11 @@ func (box *Mailbox) Poll(ctx context.Context, recipient string, after uint64, li
 	}
 	box.mu.Lock()
 	defer box.mu.Unlock()
+	release, err := filelock.Acquire(box.lockPath)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	state, err := box.read()
 	if err != nil {
 		return nil, err
@@ -114,6 +127,11 @@ func (box *Mailbox) Ack(ctx context.Context, recipient string, sequence uint64) 
 	}
 	box.mu.Lock()
 	defer box.mu.Unlock()
+	release, err := filelock.Acquire(box.lockPath)
+	if err != nil {
+		return err
+	}
+	defer release()
 	state, err := box.read()
 	if err != nil {
 		return err
@@ -166,5 +184,5 @@ func (box *Mailbox) write(state mailboxState) error {
 	if err := temp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(path, box.path)
+	return replaceBoardFile(path, box.path)
 }

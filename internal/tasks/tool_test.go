@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"cyber-code/internal/collaboration"
 	"cyber-code/internal/permissions"
 	toolpkg "cyber-code/internal/tool"
 )
@@ -125,5 +126,86 @@ func TestTaskRunRejectsChildEscalationBeforeExecution(t *testing.T) {
 	}
 	if called {
 		t.Fatal("unsafe child request reached executor")
+	}
+}
+
+func TestTaskRunAppliesNamedAgentDefinitionLimits(t *testing.T) {
+	var captured AgentRequest
+	service, err := NewToolService(ToolServiceOptions{
+		ParentMode: permissions.PermissionModeAcceptEdits, ParentMaxTurns: 8,
+		Definitions: []collaboration.Definition{{Name: "reviewer", MaxTurns: 3, PermissionMode: permissions.PermissionModePlan, Tools: []string{"read_file"}}},
+		Execute:     func(_ context.Context, request AgentRequest) (any, error) { captured = request; return "ok", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	result, err := service.run(context.Background(), json.RawMessage(`{"agent":"reviewer","prompt":"review"}`))
+	if err != nil || result.Status != TaskStatusCompleted {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if captured.Definition == nil || captured.MaxTurns != 3 || captured.Mode != permissions.PermissionModePlan || len(captured.Definition.Tools) != 1 {
+		t.Fatalf("request=%#v", captured)
+	}
+	if _, err := service.parseRun(json.RawMessage(`{"agent":"reviewer","prompt":"review","max_turns":4}`)); err == nil {
+		t.Fatal("definition budget escalation accepted")
+	}
+}
+
+func TestTaskRunPersistsLifecycleToCollaborationBoard(t *testing.T) {
+	board, err := collaboration.NewBoard(t.TempDir(), collaboration.BoardOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewToolService(ToolServiceOptions{
+		ParentMode: permissions.PermissionModeDefault, ParentMaxTurns: 2, Board: board,
+		Execute: func(context.Context, AgentRequest) (any, error) { return "done", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	result, err := service.run(context.Background(), json.RawMessage(`{"prompt":"work"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, ok, err := board.Get(context.Background(), result.ID)
+	if err != nil || !ok || stored.Status != collaboration.TaskCompleted {
+		t.Fatalf("stored=%#v ok=%v err=%v", stored, ok, err)
+	}
+}
+
+func TestTaskCancelPersistsCancelledBoardState(t *testing.T) {
+	board, err := collaboration.NewBoard(t.TempDir(), collaboration.BoardOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	service, err := NewToolService(ToolServiceOptions{
+		ParentMode: permissions.PermissionModeDefault, ParentMaxTurns: 2, Board: board,
+		Execute: func(ctx context.Context, _ AgentRequest) (any, error) {
+			close(started)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	result, err := service.run(context.Background(), json.RawMessage(`{"prompt":"wait","background":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	if err := service.manager.KillTask(result.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := board.Transition(context.Background(), result.ID, collaboration.TaskCancelled, "cancelled by parent"); err != nil {
+		t.Fatal(err)
+	}
+	task, ok, err := board.Get(context.Background(), result.ID)
+	if err != nil || !ok || task.Status != collaboration.TaskCancelled {
+		t.Fatalf("task=%#v ok=%v err=%v", task, ok, err)
 	}
 }

@@ -32,6 +32,27 @@ func TestRunnerWithAuthorizerPreservesConfigurationAndRebindsPermissions(t *test
 	}
 }
 
+func TestRunnerExecutionGateWrapsAuthorizedTool(t *testing.T) {
+	registry := NewRegistry()
+	if err := registry.Register(runnerTestTool{}); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	runner := NewRunner(registry, runnerTestAuthorizer{allow: true}, RunnerOptions{Gate: func(_ context.Context, request permissions.Request, action func() (core.ToolResult, error)) (core.ToolResult, error) {
+		called = true
+		if request.Action != permissions.ActionRead {
+			t.Fatalf("request = %#v", request)
+		}
+		return action()
+	}})
+	if _, err := runner.Run(context.Background(), "test", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("execution gate was not invoked")
+	}
+}
+
 type runnerTestAuthorizer struct{ allow bool }
 
 func (a runnerTestAuthorizer) Decide(context.Context, permissions.Request) (permissions.Decision, error) {

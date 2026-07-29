@@ -39,6 +39,35 @@ func (registry *Registry) Clone() *Registry {
 	return cloned
 }
 
+// Subset returns an independent registry containing exactly the requested
+// tools. It rejects unknown names so a child cannot silently widen later.
+func (registry *Registry) Subset(names []string) (*Registry, error) {
+	result := NewRegistry()
+	if registry == nil {
+		if len(names) == 0 {
+			return result, nil
+		}
+		return nil, fmt.Errorf("tool registry is nil")
+	}
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if _, duplicate := seen[name]; duplicate {
+			return nil, fmt.Errorf("tool %q is duplicated", name)
+		}
+		registered, ok := registry.tools[name]
+		if !ok {
+			return nil, fmt.Errorf("tool %q is not registered", name)
+		}
+		seen[name] = struct{}{}
+		registered.spec.Schema = append(json.RawMessage(nil), registered.spec.Schema...)
+		result.tools[name] = registered
+	}
+	return result, nil
+}
+
 func (registry *Registry) Register(tool Tool) error {
 	if tool == nil {
 		return fmt.Errorf("tool is nil")

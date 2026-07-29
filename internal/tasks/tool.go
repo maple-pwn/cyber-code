@@ -3,10 +3,12 @@ package tasks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"cyber-code/internal/collaboration"
 	"cyber-code/internal/core"
 	"cyber-code/internal/permissions"
 	toolpkg "cyber-code/internal/tool"
@@ -18,6 +20,7 @@ type AgentRequest struct {
 	Description string
 	MaxTurns    int
 	Mode        permissions.PermissionMode
+	Definition  *collaboration.Definition
 }
 
 type AgentExecuteFunc func(context.Context, AgentRequest) (any, error)
@@ -27,6 +30,8 @@ type ToolServiceOptions struct {
 	Execute        AgentExecuteFunc
 	ParentMode     permissions.PermissionMode
 	ParentMaxTurns int
+	Definitions    []collaboration.Definition
+	Board          *collaboration.Board
 }
 
 type ToolService struct {
@@ -34,11 +39,14 @@ type ToolService struct {
 	execute        AgentExecuteFunc
 	parentMode     permissions.PermissionMode
 	parentMaxTurns int
+	definitions    map[string]collaboration.Definition
+	board          *collaboration.Board
 	ctx            context.Context
 	cancel         context.CancelFunc
 }
 
 type taskRunInput struct {
+	Agent          string                     `json:"agent"`
 	Prompt         string                     `json:"prompt"`
 	Description    string                     `json:"description"`
 	MaxTurns       int                        `json:"max_turns"`
@@ -69,9 +77,18 @@ func NewToolService(options ToolServiceOptions) (*ToolService, error) {
 		return nil, fmt.Errorf("unsupported parent permission mode %q", parentMode)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	definitions := make(map[string]collaboration.Definition, len(options.Definitions))
+	for _, definition := range options.Definitions {
+		if _, exists := definitions[definition.Name]; exists {
+			cancel()
+			return nil, fmt.Errorf("agent definition %q is duplicated", definition.Name)
+		}
+		definition.Tools = append([]string(nil), definition.Tools...)
+		definitions[definition.Name] = definition
+	}
 	return &ToolService{
 		manager: options.Manager, execute: options.Execute, parentMode: parentMode,
-		parentMaxTurns: normalizedTurns(options.ParentMaxTurns), ctx: ctx, cancel: cancel,
+		parentMaxTurns: normalizedTurns(options.ParentMaxTurns), definitions: definitions, board: options.Board, ctx: ctx, cancel: cancel,
 	}, nil
 }
 
@@ -88,7 +105,7 @@ func RegisterTools(registry *toolpkg.Registry, service *ToolService) error {
 		return fmt.Errorf("task tool registry and service are required")
 	}
 	for _, model := range []*taskTool{
-		{name: "task_run", description: "Run a bounded sub-agent task", service: service, schema: json.RawMessage(`{"type":"object","required":["prompt"],"properties":{"prompt":{"type":"string"},"description":{"type":"string"},"max_turns":{"type":"integer"},"permission_mode":{"type":"string"},"background":{"type":"boolean"}},"additionalProperties":false}`)},
+		{name: "task_run", description: "Run a bounded sub-agent task", service: service, schema: json.RawMessage(`{"type":"object","required":["prompt"],"properties":{"agent":{"type":"string"},"prompt":{"type":"string"},"description":{"type":"string"},"max_turns":{"type":"integer"},"permission_mode":{"type":"string"},"background":{"type":"boolean"}},"additionalProperties":false}`)},
 		{name: "task_status", description: "Read a sub-agent task status and result", service: service, readOnly: true, schema: taskIDSchema()},
 		{name: "task_cancel", description: "Cancel a running sub-agent task", service: service, schema: taskIDSchema()},
 	} {
@@ -153,6 +170,9 @@ func (model *taskTool) Run(ctx context.Context, arguments json.RawMessage) (core
 		if err == nil {
 			err = model.service.manager.KillTask(input.ID)
 		}
+		if err == nil && model.service.board != nil {
+			err = model.service.board.Transition(ctx, input.ID, collaboration.TaskCancelled, "cancelled by parent")
+		}
 		if err == nil {
 			result, err = model.service.result(input.ID)
 		}
@@ -177,6 +197,7 @@ func (service *ToolService) parseRun(arguments json.RawMessage) (taskRunInput, e
 		return input, err
 	}
 	input.Prompt = strings.TrimSpace(input.Prompt)
+	input.Agent = strings.TrimSpace(input.Agent)
 	input.Description = strings.TrimSpace(input.Description)
 	if input.Prompt == "" {
 		return input, fmt.Errorf("task prompt is required")
@@ -184,17 +205,31 @@ func (service *ToolService) parseRun(arguments json.RawMessage) (taskRunInput, e
 	if input.Description == "" {
 		input.Description = input.Prompt
 	}
-	if input.MaxTurns == 0 {
-		input.MaxTurns = service.parentMaxTurns
+	turnLimit := service.parentMaxTurns
+	modeLimit := service.parentMode
+	if input.Agent != "" {
+		definition, exists := service.definitions[input.Agent]
+		if !exists {
+			return input, fmt.Errorf("agent definition %q was not found", input.Agent)
+		}
+		if definition.MaxTurns < turnLimit {
+			turnLimit = definition.MaxTurns
+		}
+		if modePrivilege(definition.PermissionMode) < modePrivilege(modeLimit) {
+			modeLimit = definition.PermissionMode
+		}
 	}
-	if input.MaxTurns < 1 || input.MaxTurns > service.parentMaxTurns {
-		return input, fmt.Errorf("%w: child %d, parent %d", ErrBudgetExceeded, input.MaxTurns, service.parentMaxTurns)
+	if input.MaxTurns == 0 {
+		input.MaxTurns = turnLimit
+	}
+	if input.MaxTurns < 1 || input.MaxTurns > turnLimit {
+		return input, fmt.Errorf("%w: child %d, limit %d", ErrBudgetExceeded, input.MaxTurns, turnLimit)
 	}
 	if input.PermissionMode == "" {
-		input.PermissionMode = service.parentMode
+		input.PermissionMode = modeLimit
 	}
-	if modePrivilege(input.PermissionMode) > modePrivilege(service.parentMode) {
-		return input, fmt.Errorf("%w: child %s, parent %s", ErrPermissionEscalation, input.PermissionMode, service.parentMode)
+	if modePrivilege(input.PermissionMode) > modePrivilege(modeLimit) {
+		return input, fmt.Errorf("%w: child %s, limit %s", ErrPermissionEscalation, input.PermissionMode, modeLimit)
 	}
 	return input, nil
 }
@@ -208,14 +243,46 @@ func (service *ToolService) run(ctx context.Context, arguments json.RawMessage) 
 	if err != nil {
 		return taskToolResult{}, err
 	}
+	if service.board != nil {
+		if err := service.board.Create(ctx, collaboration.Task{ID: task.ID, Agent: input.Agent, Description: input.Description}); err != nil {
+			service.manager.registry.Unregister(task.ID)
+			return taskToolResult{}, err
+		}
+	}
 	request := AgentRequest{TaskID: task.ID, Prompt: input.Prompt, Description: input.Description, MaxTurns: input.MaxTurns, Mode: input.PermissionMode}
+	if input.Agent != "" {
+		definition := service.definitions[input.Agent]
+		definition.Tools = append([]string(nil), definition.Tools...)
+		request.Definition = &definition
+	}
 	executionCtx := ctx
 	if input.Background {
 		executionCtx = service.ctx
 	}
 	if err := service.manager.StartExecution(executionCtx, task.ID, func(ctx context.Context, _ *LocalAgentTaskState) (any, error) {
-		return service.execute(ctx, request)
+		if service.board != nil {
+			if err := service.board.Transition(ctx, request.TaskID, collaboration.TaskRunning, ""); err != nil {
+				return nil, err
+			}
+		}
+		result, executeErr := service.execute(ctx, request)
+		if service.board != nil {
+			status, message := collaboration.TaskCompleted, ""
+			if executeErr != nil {
+				status, message = collaboration.TaskFailed, executeErr.Error()
+				if errors.Is(executeErr, context.Canceled) {
+					status = collaboration.TaskCancelled
+				}
+			}
+			if transitionErr := service.board.Transition(context.Background(), request.TaskID, status, message); transitionErr != nil && executeErr == nil {
+				return nil, transitionErr
+			}
+		}
+		return result, executeErr
 	}); err != nil {
+		if service.board != nil {
+			_ = service.board.Transition(context.Background(), task.ID, collaboration.TaskCancelled, err.Error())
+		}
 		return taskToolResult{}, err
 	}
 	if input.Background {

@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"cyber-code/internal/filelock"
 )
 
 type Scope string
@@ -42,6 +44,7 @@ type Options struct {
 }
 type Store struct {
 	path                        string
+	lockPath                    string
 	maxEntries, maxContentBytes int
 	mu                          sync.Mutex
 }
@@ -59,7 +62,7 @@ func NewStore(directory string, options Options) (*Store, error) {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return nil, err
 	}
-	return &Store{path: filepath.Join(directory, "memory.json"), maxEntries: options.MaxEntries, maxContentBytes: options.MaxContentBytes}, nil
+	return &Store{path: filepath.Join(directory, "memory.json"), lockPath: filepath.Join(directory, ".memory.lock"), maxEntries: options.MaxEntries, maxContentBytes: options.MaxContentBytes}, nil
 }
 
 func (store *Store) Add(ctx context.Context, entry Entry) error {
@@ -88,6 +91,11 @@ func (store *Store) Add(ctx context.Context, entry Entry) error {
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	release, err := filelock.Acquire(store.lockPath)
+	if err != nil {
+		return err
+	}
+	defer release()
 	entries, err := store.read()
 	if err != nil {
 		return err
@@ -110,6 +118,11 @@ func (store *Store) Remove(ctx context.Context, id string) error {
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	release, err := filelock.Acquire(store.lockPath)
+	if err != nil {
+		return err
+	}
+	defer release()
 	entries, err := store.read()
 	if err != nil {
 		return err
@@ -135,6 +148,11 @@ func (store *Store) List(ctx context.Context, scope Scope) ([]Entry, error) {
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	release, err := filelock.Acquire(store.lockPath)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	entries, err := store.read()
 	if err != nil {
 		return nil, err
@@ -236,7 +254,7 @@ func (store *Store) write(entries []Entry) error {
 	if err := temp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tempPath, store.path)
+	return replaceMemoryFile(tempPath, store.path)
 }
 func validScope(scope Scope) bool {
 	switch scope {
