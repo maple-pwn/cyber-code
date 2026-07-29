@@ -17,3 +17,9 @@ const (
 
 // BuildVersion is the single product version injected by release builds.
 var BuildVersion = "2.1.88"
+
+// Update defaults are empty in development builds and injected by releases.
+var (
+	UpdateMetadataURL  string
+	UpdatePublicKeyB64 string
+)

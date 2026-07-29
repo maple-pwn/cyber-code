@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/base64"
 	"io"
 	"net/http"
 	"strings"
@@ -36,29 +35,36 @@ func TestCheckRequiresHTTPSAndValidSignedMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	publicKey := privateKey.Public().(ed25519.PublicKey)
-	body := `{"version":"2.2.0","download_url":"https://example.test/cyber-code"}`
-	signature := base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, []byte(body)))
+	body, err := BuildEnvelope(Payload{
+		SchemaVersion: ManifestSchemaVersion, Product: "cyber-code", Version: "2.2.0", PublishedAt: "2026-07-29T00:00:00Z",
+		Artifacts: []Artifact{{GOOS: "linux", GOARCH: "amd64", URL: "https://example.test/cyber-code", SHA256: strings.Repeat("a", 64), Size: 123}},
+	}, privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		if request.URL.Scheme != "https" {
 			t.Fatalf("request URL = %s", request.URL)
 		}
-		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{SignatureHeader: []string{signature}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(body)))}, nil
 	})}
 	result, err := Check(context.Background(), Options{
 		Enabled: true, CurrentVersion: "2.1.88", MetadataURL: "https://updates.example.test/latest.json",
-		PublicKey: publicKey, Client: client, Timeout: time.Second,
+		PublicKey: publicKey, Client: client, Timeout: time.Second, GOOS: "linux", GOARCH: "amd64",
 	})
-	if err != nil || !result.Checked || !result.UpdateAvailable || result.LatestVersion != "2.2.0" || result.DownloadURL == "" {
+	if err != nil || !result.Checked || !result.UpdateAvailable || result.LatestVersion != "2.2.0" || result.DownloadURL == "" || result.ArtifactSHA256 != strings.Repeat("a", 64) || result.ArtifactSize != 123 {
 		t.Fatalf("result=%#v error=%v", result, err)
 	}
 	if _, err := Check(context.Background(), Options{Enabled: true, CurrentVersion: "2.1.88", MetadataURL: "http://updates.example.test/latest.json", PublicKey: publicKey, Client: client}); err == nil {
 		t.Fatal("insecure metadata URL was accepted")
 	}
+	tampered := append([]byte(nil), body...)
+	tampered[len(tampered)/2] ^= 1
 	badClient := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{SignatureHeader: []string{base64.StdEncoding.EncodeToString(make([]byte, ed25519.SignatureSize))}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(tampered)))}, nil
 	})}
-	if _, err := Check(context.Background(), Options{Enabled: true, CurrentVersion: "2.1.88", MetadataURL: "https://updates.example.test/latest.json", PublicKey: publicKey, Client: badClient}); err == nil {
-		t.Fatal("invalid metadata signature was accepted")
+	if _, err := Check(context.Background(), Options{Enabled: true, CurrentVersion: "2.1.88", MetadataURL: "https://updates.example.test/latest.json", PublicKey: publicKey, Client: badClient, GOOS: "linux", GOARCH: "amd64"}); err == nil {
+		t.Fatal("tampered metadata envelope was accepted")
 	}
 }
 
@@ -94,7 +100,7 @@ func TestCheckBoundsRequestTimeout(t *testing.T) {
 	started := time.Now()
 	_, err = Check(context.Background(), Options{
 		Enabled: true, CurrentVersion: "1.0.0", MetadataURL: "https://updates.example.test/latest.json",
-		PublicKey: privateKey.Public().(ed25519.PublicKey), Client: client, Timeout: 20 * time.Millisecond,
+		PublicKey: privateKey.Public().(ed25519.PublicKey), Client: client, Timeout: 20 * time.Millisecond, GOOS: "linux", GOARCH: "amd64",
 	})
 	if err == nil || time.Since(started) > time.Second {
 		t.Fatalf("bounded timeout error=%v elapsed=%s", err, time.Since(started))

@@ -29,6 +29,12 @@ func newVersionCheckCommand(environment *commandEnvironment) *cobra.Command {
 				return err
 			}
 			if strings.TrimSpace(metadataURL) == "" {
+				metadataURL = environment.options.UpdateMetadataURL
+			}
+			if strings.TrimSpace(publicKeyText) == "" {
+				publicKeyText = environment.options.UpdatePublicKeyB64
+			}
+			if strings.TrimSpace(metadataURL) == "" {
 				return fmt.Errorf("--metadata-url is required when version checking is enabled")
 			}
 			if strings.TrimSpace(publicKeyText) == "" {
@@ -40,7 +46,8 @@ func newVersionCheckCommand(environment *commandEnvironment) *cobra.Command {
 			}
 			result, err := updatepkg.Check(environment.ctx, updatepkg.Options{
 				Enabled: true, CurrentVersion: environment.options.Version, MetadataURL: metadataURL,
-				PublicKey: ed25519.PublicKey(publicKey), Timeout: timeout,
+				PublicKey: ed25519.PublicKey(publicKey), Timeout: timeout, Client: environment.options.UpdateHTTPClient,
+				GOOS: runtime.GOOS, GOARCH: runtime.GOARCH,
 			})
 			if err != nil {
 				return err
@@ -49,7 +56,7 @@ func newVersionCheckCommand(environment *commandEnvironment) *cobra.Command {
 				_, err = fmt.Fprintf(environment.stdout, "cyber-code %s is current (latest %s)\n", result.CurrentVersion, result.LatestVersion)
 				return err
 			}
-			_, err = fmt.Fprintf(environment.stdout, "cyber-code %s is available: %s\nNo files were downloaded or installed.\n", result.LatestVersion, result.DownloadURL)
+			_, err = fmt.Fprintf(environment.stdout, "cyber-code %s is available: %s\nSHA-256: %s\nSize: %d bytes\nNo files were downloaded or installed.\n", result.LatestVersion, result.DownloadURL, result.ArtifactSHA256, result.ArtifactSize)
 			return err
 		},
 	}

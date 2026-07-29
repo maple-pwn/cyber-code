@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,6 +22,7 @@ import (
 	"cyber-code/internal/core"
 	"cyber-code/internal/mcp"
 	"cyber-code/internal/session"
+	updatepkg "cyber-code/internal/update"
 )
 
 func TestExecuteConfigSetGetListAndValidate(t *testing.T) {
@@ -546,6 +549,68 @@ func TestExecuteVersionCheckRequiresExplicitConfigurationWhenEnabled(t *testing.
 	if strings.Contains(stderr.String(), "releases.cyber-code.dev") {
 		t.Fatalf("placeholder release infrastructure leaked into the product: %q", stderr.String())
 	}
+}
+
+func TestExecuteVersionCheckUsesInjectedDefaultsAndReportsVerifiedArtifact(t *testing.T) {
+	server, publicKey, digest := versionManifestServer(t)
+	defer server.Close()
+	stateDir := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &stdout, &stderr,
+		[]string{"version-check", "--enable"}, ExecuteOptions{
+			Version: "2.1.88", StateDir: stateDir, UpdateMetadataURL: server.URL,
+			UpdatePublicKeyB64: base64.StdEncoding.EncodeToString(publicKey), UpdateHTTPClient: server.Client(),
+		})
+	if code != 0 || stderr.Len() != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"2.2.0", server.URL + "/cyber-code", digest, "123 bytes", "No files were downloaded or installed"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("version-check output missing %q: %q", want, stdout.String())
+		}
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "cyber-code")); !os.IsNotExist(err) {
+		t.Fatalf("version-check created an artifact file: %v", err)
+	}
+}
+
+func TestExecuteVersionCheckFlagsOverrideInjectedDefaults(t *testing.T) {
+	server, publicKey, _ := versionManifestServer(t)
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &stdout, &stderr,
+		[]string{"version-check", "--enable", "--metadata-url", server.URL, "--public-key", base64.StdEncoding.EncodeToString(publicKey)},
+		ExecuteOptions{
+			Version: "2.1.88", StateDir: t.TempDir(), UpdateMetadataURL: "https://invalid.example.test/latest.json",
+			UpdatePublicKeyB64: "invalid", UpdateHTTPClient: server.Client(),
+		})
+	if code != 0 || stderr.Len() != 0 || !strings.Contains(stdout.String(), "2.2.0") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func versionManifestServer(t *testing.T) (*httptest.Server, ed25519.PublicKey, string) {
+	t.Helper()
+	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{9}, ed25519.SeedSize))
+	digest := strings.Repeat("c", 64)
+	var document []byte
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/" {
+			t.Errorf("metadata path = %q", request.URL.Path)
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write(document)
+	}))
+	var err error
+	document, err = updatepkg.BuildEnvelope(updatepkg.Payload{
+		SchemaVersion: updatepkg.ManifestSchemaVersion, Product: "cyber-code", Version: "2.2.0", PublishedAt: "2026-07-29T00:00:00Z",
+		Artifacts: []updatepkg.Artifact{{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, URL: server.URL + "/cyber-code", SHA256: digest, Size: 123}},
+	}, privateKey)
+	if err != nil {
+		server.Close()
+		t.Fatal(err)
+	}
+	return server, privateKey.Public().(ed25519.PublicKey), digest
 }
 
 func TestMCPAuthLoginExposesExplicitBrowserFlag(t *testing.T) {

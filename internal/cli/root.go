@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,10 +25,13 @@ import (
 )
 
 type ExecuteOptions struct {
-	Runner     frontend.Runner
-	Version    string
-	ConfigFile string
-	StateDir   string
+	Runner             frontend.Runner
+	Version            string
+	ConfigFile         string
+	StateDir           string
+	UpdateMetadataURL  string
+	UpdatePublicKeyB64 string
+	UpdateHTTPClient   *http.Client
 }
 
 type commandEnvironment struct {

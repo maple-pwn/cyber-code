@@ -4,19 +4,17 @@ package update
 import (
 	"context"
 	"crypto/ed25519"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	SignatureHeader  = "X-Cyber-Code-Signature"
 	maxMetadataBytes = 64 << 10
 	defaultTimeout   = 3 * time.Second
 	maximumTimeout   = 10 * time.Second
@@ -29,6 +27,8 @@ type Options struct {
 	PublicKey      ed25519.PublicKey
 	Client         *http.Client
 	Timeout        time.Duration
+	GOOS           string
+	GOARCH         string
 }
 
 type Result struct {
@@ -37,11 +37,8 @@ type Result struct {
 	CurrentVersion  string `json:"current_version"`
 	LatestVersion   string `json:"latest_version,omitempty"`
 	DownloadURL     string `json:"download_url,omitempty"`
-}
-
-type metadata struct {
-	Version     string `json:"version"`
-	DownloadURL string `json:"download_url"`
+	ArtifactSHA256  string `json:"artifact_sha256,omitempty"`
+	ArtifactSize    int64  `json:"artifact_size,omitempty"`
 }
 
 func Check(ctx context.Context, options Options) (Result, error) {
@@ -108,29 +105,28 @@ func Check(ctx context.Context, options Options) (Result, error) {
 	if len(body) > maxMetadataBytes {
 		return result, fmt.Errorf("read update metadata: response exceeds %d bytes", maxMetadataBytes)
 	}
-	signature, err := base64.StdEncoding.DecodeString(strings.TrimSpace(response.Header.Get(SignatureHeader)))
-	if err != nil || !ed25519.Verify(options.PublicKey, body, signature) {
-		return result, fmt.Errorf("verify update metadata signature: invalid signature")
+	goos, goarch := options.GOOS, options.GOARCH
+	if goos == "" {
+		goos = runtime.GOOS
 	}
-	decoder := json.NewDecoder(strings.NewReader(string(body)))
-	decoder.DisallowUnknownFields()
-	var document metadata
-	if err := decoder.Decode(&document); err != nil {
-		return result, fmt.Errorf("decode update metadata: %w", err)
+	if goarch == "" {
+		goarch = runtime.GOARCH
 	}
-	downloadURL, err := secureURL(document.DownloadURL)
+	payload, artifact, err := VerifyEnvelope(body, options.PublicKey, goos, goarch)
 	if err != nil {
-		return result, fmt.Errorf("validate update download URL: %w", err)
+		return result, fmt.Errorf("verify update metadata: %w", err)
 	}
-	newer, err := NewerVersion(options.CurrentVersion, document.Version)
+	newer, err := NewerVersion(options.CurrentVersion, payload.Version)
 	if err != nil {
 		return result, err
 	}
 	result.Checked = true
 	result.UpdateAvailable = newer
-	result.LatestVersion = document.Version
+	result.LatestVersion = payload.Version
 	if newer {
-		result.DownloadURL = downloadURL.String()
+		result.DownloadURL = artifact.URL
+		result.ArtifactSHA256 = artifact.SHA256
+		result.ArtifactSize = artifact.Size
 	}
 	return result, nil
 }
