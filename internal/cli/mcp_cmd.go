@@ -16,15 +16,17 @@ import (
 )
 
 type mcpEntry struct {
-	Name                 string            `json:"name"`
-	Command              string            `json:"command,omitempty"`
-	Args                 []string          `json:"args,omitempty"`
-	URL                  string            `json:"url,omitempty"`
-	HeaderEnv            map[string]string `json:"header_env,omitempty"`
-	Disabled             bool              `json:"disabled,omitempty"`
-	OAuthTokenURL        string            `json:"oauth_token_url,omitempty"`
-	OAuthClientID        string            `json:"oauth_client_id,omitempty"`
-	OAuthClientSecretEnv string            `json:"oauth_client_secret_env,omitempty"`
+	Name                  string            `json:"name"`
+	Command               string            `json:"command,omitempty"`
+	Args                  []string          `json:"args,omitempty"`
+	URL                   string            `json:"url,omitempty"`
+	HeaderEnv             map[string]string `json:"header_env,omitempty"`
+	Disabled              bool              `json:"disabled,omitempty"`
+	OAuthTokenURL         string            `json:"oauth_token_url,omitempty"`
+	OAuthAuthorizationURL string            `json:"oauth_authorization_url,omitempty"`
+	OAuthClientID         string            `json:"oauth_client_id,omitempty"`
+	OAuthClientSecretEnv  string            `json:"oauth_client_secret_env,omitempty"`
+	OAuthScopes           []string          `json:"oauth_scopes,omitempty"`
 }
 
 func newMCPCommand(environment *commandEnvironment) *cobra.Command {
@@ -45,9 +47,10 @@ func newMCPCommand(environment *commandEnvironment) *cobra.Command {
 		}
 		return nil
 	}})
-	var serverCommand, serverURL, oauthTokenURL, oauthClientID, oauthClientSecretEnv string
+	var serverCommand, serverURL, oauthTokenURL, oauthAuthorizationURL, oauthClientID, oauthClientSecretEnv string
 	var serverArgs []string
 	var serverHeaderEnv []string
+	var oauthScopes []string
 	add := &cobra.Command{Use: "add <name>", Args: cobra.ExactArgs(1), RunE: func(_ *cobra.Command, args []string) error {
 		if (serverCommand == "") == (serverURL == "") {
 			return fmt.Errorf("exactly one of --command or --url is required")
@@ -69,7 +72,7 @@ func newMCPCommand(environment *commandEnvironment) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			entries[args[0]] = mcpEntry{Name: args[0], Command: serverCommand, Args: append([]string(nil), serverArgs...), URL: serverURL, HeaderEnv: headerEnv, OAuthTokenURL: oauthTokenURL, OAuthClientID: oauthClientID, OAuthClientSecretEnv: oauthClientSecretEnv}
+			entries[args[0]] = mcpEntry{Name: args[0], Command: serverCommand, Args: append([]string(nil), serverArgs...), URL: serverURL, HeaderEnv: headerEnv, OAuthTokenURL: oauthTokenURL, OAuthAuthorizationURL: oauthAuthorizationURL, OAuthClientID: oauthClientID, OAuthClientSecretEnv: oauthClientSecretEnv, OAuthScopes: append([]string(nil), oauthScopes...)}
 			return writeStateFile(path, entries)
 		}); err != nil {
 			return err
@@ -82,8 +85,10 @@ func newMCPCommand(environment *commandEnvironment) *cobra.Command {
 	add.Flags().StringVar(&serverURL, "url", "", "HTTP server URL")
 	add.Flags().StringSliceVar(&serverHeaderEnv, "header-env", nil, "HTTP header mapped to an environment variable (Header=ENV_VAR)")
 	add.Flags().StringVar(&oauthTokenURL, "oauth-token-url", "", "OAuth token refresh endpoint")
+	add.Flags().StringVar(&oauthAuthorizationURL, "oauth-authorization-url", "", "OAuth browser authorization endpoint")
 	add.Flags().StringVar(&oauthClientID, "oauth-client-id", "", "OAuth client ID")
 	add.Flags().StringVar(&oauthClientSecretEnv, "oauth-client-secret-env", "", "environment variable containing OAuth client secret")
+	add.Flags().StringSliceVar(&oauthScopes, "oauth-scope", nil, "OAuth scope")
 	command.AddCommand(add)
 	command.AddCommand(&cobra.Command{Use: "remove <name>", Args: cobra.ExactArgs(1), RunE: func(_ *cobra.Command, args []string) error {
 		return withStateFileLock(path, func() error {
@@ -201,6 +206,44 @@ func newMCPCommand(environment *commandEnvironment) *cobra.Command {
 		set.Flags().StringVar(&tokenType, "token-type", "Bearer", "authorization token type")
 		set.Flags().Int64Var(&expiresAt, "expires-at", 0, "Unix access token expiry")
 		auth.AddCommand(set)
+		auth.AddCommand(&cobra.Command{Use: "login <name>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+			entries, loadErr := loadMCPEntries(path)
+			if loadErr != nil {
+				return loadErr
+			}
+			entry, ok := entries[args[0]]
+			if !ok {
+				return fmt.Errorf("MCP server %q does not exist", args[0])
+			}
+			secret := ""
+			if entry.OAuthClientSecretEnv != "" {
+				var exists bool
+				secret, exists = os.LookupEnv(entry.OAuthClientSecretEnv)
+				if !exists {
+					return fmt.Errorf("MCP OAuth client secret environment variable %s is not set", entry.OAuthClientSecretEnv)
+				}
+			}
+			flow, flowErr := mcp.NewOAuthAuthorizationFlow(mcp.OAuthAuthorizationOptions{AuthorizationURL: entry.OAuthAuthorizationURL, TokenURL: entry.OAuthTokenURL, ClientID: entry.OAuthClientID, ClientSecret: secret, Scopes: entry.OAuthScopes})
+			if flowErr != nil {
+				return flowErr
+			}
+			login, startErr := flow.Start(cmd.Context())
+			if startErr != nil {
+				return startErr
+			}
+			if _, printErr := fmt.Fprintln(environment.stdout, login.AuthorizationURL); printErr != nil {
+				return printErr
+			}
+			value, waitErr := flow.Wait(cmd.Context())
+			if waitErr != nil {
+				return waitErr
+			}
+			if putErr := credentialStore.Put(cmd.Context(), args[0], value); putErr != nil {
+				return putErr
+			}
+			_, printErr := fmt.Fprintln(environment.stdout, "authorization complete")
+			return printErr
+		}})
 		auth.AddCommand(&cobra.Command{Use: "remove <name>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return credentialStore.Delete(cmd.Context(), args[0]) }})
 		command.AddCommand(auth)
 	}

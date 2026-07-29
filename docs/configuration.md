@@ -115,6 +115,7 @@ cyber-code mcp add remote --url https://example.com/mcp \
   --oauth-client-secret-env MCP_CLIENT_SECRET
 cyber-code mcp auth set remote --access-token-env MCP_ACCESS_TOKEN \
   --refresh-token-env MCP_REFRESH_TOKEN --expires-at UNIX_TIMESTAMP
+cyber-code mcp auth login remote
 cyber-code mcp status remote
 cyber-code mcp disable remote
 cyber-code mcp enable remote
