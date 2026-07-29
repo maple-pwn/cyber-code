@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"cyber-code/internal/config"
 	"cyber-code/internal/platform"
@@ -88,8 +89,12 @@ func Run(ctx context.Context, options Options) Report {
 	} else {
 		add(Check{Name: "state_directory", Status: StatusPass, Required: true, Message: "state directory is writable"})
 	}
-	capability := platform.NewRunner(platform.Options{SandboxMode: sandboxMode, LookPath: options.LookPath}).SandboxCapability()
-	sandboxCheck := Check{Name: "sandbox", Status: StatusWarn, Message: fmt.Sprintf("backend=%s filesystem=%t network=%t process_tree=%t", capability.Backend, capability.Filesystem, capability.Network, capability.ProcessTree)}
+	capability := platform.NewRunner(platform.Options{SandboxMode: sandboxMode, LookPath: options.LookPath}).ProbeSandboxCapability(ctx, 2*time.Second)
+	sandboxMsg := fmt.Sprintf("backend=%s filesystem=%t network=%t process_tree=%t", capability.Backend, capability.Filesystem, capability.Network, capability.ProcessTree)
+	if capability.DegradedReason != "" {
+		sandboxMsg += "; " + capability.DegradedReason
+	}
+	sandboxCheck := Check{Name: "sandbox", Status: StatusWarn, Message: sandboxMsg}
 	if capability.Strong || sandboxMode == platform.SandboxOff {
 		sandboxCheck.Status = StatusPass
 	}
@@ -97,7 +102,6 @@ func Run(ctx context.Context, options Options) Report {
 		sandboxCheck.Required = true
 		if !capability.Strong {
 			sandboxCheck.Status = StatusFail
-			sandboxCheck.Message += "; " + capability.DegradedReason
 		}
 	}
 	if sandboxCheck.Status != StatusPass {

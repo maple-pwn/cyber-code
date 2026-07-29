@@ -206,7 +206,8 @@ func newMCPCommand(environment *commandEnvironment) *cobra.Command {
 		set.Flags().StringVar(&tokenType, "token-type", "Bearer", "authorization token type")
 		set.Flags().Int64Var(&expiresAt, "expires-at", 0, "Unix access token expiry")
 		auth.AddCommand(set)
-		auth.AddCommand(&cobra.Command{Use: "login <name>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		var openBrowser bool
+		loginCommand := &cobra.Command{Use: "login <name>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 			entries, loadErr := loadMCPEntries(path)
 			if loadErr != nil {
 				return loadErr
@@ -223,7 +224,7 @@ func newMCPCommand(environment *commandEnvironment) *cobra.Command {
 					return fmt.Errorf("MCP OAuth client secret environment variable %s is not set", entry.OAuthClientSecretEnv)
 				}
 			}
-			flow, flowErr := mcp.NewOAuthAuthorizationFlow(mcp.OAuthAuthorizationOptions{AuthorizationURL: entry.OAuthAuthorizationURL, TokenURL: entry.OAuthTokenURL, ClientID: entry.OAuthClientID, ClientSecret: secret, Scopes: entry.OAuthScopes})
+			flow, flowErr := mcp.NewOAuthAuthorizationFlow(mcp.OAuthAuthorizationOptions{AuthorizationURL: entry.OAuthAuthorizationURL, TokenURL: entry.OAuthTokenURL, ClientID: entry.OAuthClientID, ClientSecret: secret, Scopes: entry.OAuthScopes, OpenBrowser: openBrowser})
 			if flowErr != nil {
 				return flowErr
 			}
@@ -243,7 +244,9 @@ func newMCPCommand(environment *commandEnvironment) *cobra.Command {
 			}
 			_, printErr := fmt.Fprintln(environment.stdout, "authorization complete")
 			return printErr
-		}})
+		}}
+		loginCommand.Flags().BoolVar(&openBrowser, "open-browser", false, "open the authorization URL in the system browser")
+		auth.AddCommand(loginCommand)
 		auth.AddCommand(&cobra.Command{Use: "remove <name>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return credentialStore.Delete(cmd.Context(), args[0]) }})
 		command.AddCommand(auth)
 	}

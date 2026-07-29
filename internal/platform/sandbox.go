@@ -1,6 +1,10 @@
 package platform
 
-import "errors"
+import (
+	"context"
+	"errors"
+	"time"
+)
 
 type SandboxMode string
 
@@ -34,4 +38,22 @@ func (runner *Runner) SandboxCapability() SandboxCapability {
 		return SandboxCapability{Mode: SandboxBestEffort, DegradedReason: "process runner is unavailable"}
 	}
 	return detectSandboxCapability(runner.sandboxMode, runner.lookPath)
+}
+
+// ProbeSandboxCapability performs the platform-specific functional check used
+// by explicit diagnostics. Normal runtime capability detection remains
+// side-effect free.
+func (runner *Runner) ProbeSandboxCapability(ctx context.Context, timeout time.Duration) SandboxCapability {
+	if runner == nil {
+		return SandboxCapability{Mode: SandboxBestEffort, DegradedReason: "process runner is unavailable"}
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if timeout <= 0 || timeout > 5*time.Second {
+		timeout = 2 * time.Second
+	}
+	probeContext, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return probeSandboxCapability(probeContext, runner.sandboxMode, runner.lookPath)
 }

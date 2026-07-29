@@ -322,6 +322,7 @@ func registerWorkspaceTools(registry *tool.Registry, workspace string, executor 
 		builtin.NewSearchFiles(workspace), builtin.NewGrepFiles(workspace), builtin.NewGlobFiles(workspace),
 		builtin.NewShell(workspace, executor), builtin.NewAskUser(questioner), builtin.NewWebFetch(nil),
 		builtin.NewWebSearch(builtin.NewDuckDuckGoSearch(nil)), builtin.NewNotebookEdit(workspace),
+		builtin.NewSemanticSearch(workspace),
 	} {
 		if err := registry.Register(registered); err != nil {
 			return err

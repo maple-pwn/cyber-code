@@ -28,6 +28,12 @@ func newVersionCheckCommand(environment *commandEnvironment) *cobra.Command {
 				_, err := fmt.Fprintln(environment.stdout, "version checking is disabled; pass --enable with a trusted HTTPS metadata URL and Ed25519 public key")
 				return err
 			}
+			if strings.TrimSpace(metadataURL) == "" {
+				return fmt.Errorf("--metadata-url is required when version checking is enabled")
+			}
+			if strings.TrimSpace(publicKeyText) == "" {
+				return fmt.Errorf("--public-key is required when version checking is enabled")
+			}
 			publicKey, err := base64.StdEncoding.DecodeString(strings.TrimSpace(publicKeyText))
 			if err != nil || len(publicKey) != ed25519.PublicKeySize {
 				return fmt.Errorf("--public-key must be a base64 Ed25519 public key")

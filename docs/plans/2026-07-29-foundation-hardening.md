@@ -10,6 +10,31 @@
 
 ---
 
+### Task 41A：安全接纳并发候选实现
+
+**文件：**
+- 创建：`internal/tool/builtin/semantic_search_test.go`
+- 修改：`internal/tool/builtin/semantic_search.go`
+- 修改：`internal/cli/runtime_builder.go`
+- 修改：`internal/mcp/oauth_callback.go`
+- 修改：`internal/mcp/oauth_callback_test.go`
+- 修改：`internal/platform/sandbox_linux.go`
+- 修改：`internal/platform/sandbox_windows.go`
+- 修改：`internal/platform/exec_windows.go`
+- 修改：`internal/doctor/doctor.go`
+- 修改：`internal/update/checker.go`
+- 修改：`internal/cli/utilities_cmd.go`
+
+1. 给本地相关性搜索写失败测试：拒绝 workspace 与符号链接逃逸，限制文件数、单文件大小、总读取字节和输出数量，响应取消，排序稳定，并且不得标记为并发安全。
+2. 将候选“semantic”描述校正为离线 TF-IDF 本地相关性搜索；路径统一相对 workspace 解析，限制资源使用，不声称使用 Embedding。
+3. 给 MCP OAuth 写失败测试：PKCE、显式且可注入的浏览器打开器、默认不打开、state 拒绝、错误脱敏和限长、取消后关闭回调服务。
+4. 保留 localhost callback/PKCE/state；禁止通过 shell 打开浏览器；token endpoint 错误只返回有界且脱敏的摘要。
+5. Linux 常规 capability 检测不得执行 `bwrap`；仅 Doctor 显式诊断允许执行有短超时的功能探测。
+6. Windows capability 只声明 Job Object 进程树管理；删除伪 elevation 诊断和未配置的固定进程/内存上限。
+7. 删除 updater 中不存在的 metadata URL 和零公钥；启用检查但没有 flags/编译默认值时返回明确配置错误，真实 linker 默认值留给 Task 44。
+8. 运行 focused tests、affected packages `go vet`、Linux/Windows 交叉构建与 `git diff --check`。
+9. 提交：`feat: safely integrate local hardening candidates`。
+
 ### Task 42：固化 Compact 独立触发器语义
 
 **文件：**

@@ -536,6 +536,27 @@ func TestExecuteOptionalUtilityCommandsAreLocalByDefault(t *testing.T) {
 	}
 }
 
+func TestExecuteVersionCheckRequiresExplicitConfigurationWhenEnabled(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &stdout, &stderr,
+		[]string{"version-check", "--enable"}, ExecuteOptions{Version: "2.1.88", StateDir: t.TempDir()})
+	if code == 0 || !strings.Contains(stderr.String(), "--metadata-url is required") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stderr.String(), "releases.cyber-code.dev") {
+		t.Fatalf("placeholder release infrastructure leaked into the product: %q", stderr.String())
+	}
+}
+
+func TestMCPAuthLoginExposesExplicitBrowserFlag(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &stdout, &stderr,
+		[]string{"mcp", "auth", "login", "--help"}, ExecuteOptions{StateDir: t.TempDir()})
+	if code != 0 || !strings.Contains(stdout.String(), "--open-browser") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestExecutePrintUsesInjectedCanonicalRunner(t *testing.T) {
 	runner := &commandTestRunner{events: []core.Event{
 		{Type: core.EventTextDelta, Text: "hello"},
