@@ -35,7 +35,7 @@
 
 位置使用从零开始的行号和字符号。上下文受协议单帧上限约束；服务端对旧 Runtime 使用额外的字段数量和文本长度限制，并明确把内容标记为不可信编辑器数据。实现 `protocol.IDERuntime` 的宿主可以直接接收结构化上下文。新增字段均为可选，旧版 v1 客户端和 Runtime 保持兼容。
 
-服务端先返回 `accepted`，随后以相同 `id` 返回 `event` 消息；文件工具成功修改后还会发送 `diff`，其中包含工作区相对路径及完整的 `old_text`/`new_text`。diff 是 Runtime 已授权并执行修改后的只读通知，不授予客户端写权限；超过协议单帧上限时省略 diff，但 turn 继续完成。turn 结束时返回 `turn_finished`，取消完成时包含 `canceled: true`。权限请求通过 `permission` 消息发送，`request` 使用稳定的小写字段 `tool`、`action`、`workspace`、`command`、`paths`、`network`；响应必须匹配当前连接中的待处理 ID，断线会默认拒绝。
+服务端确认 `accepted` 已写出后才启动 Runtime，随后以相同 `id` 返回 `event` 消息；文件及 notebook 工具成功修改后还会发送 `diff`，其中包含工作区相对路径及完整的 `old_text`/`new_text`。diff 是 Runtime 已授权并执行修改后的只读通知，不授予客户端写权限；超过协议单帧上限时省略 diff，但 turn 继续完成。turn 结束时返回 `turn_finished`，取消完成时包含 `canceled: true`。权限请求通过 `permission` 消息发送，`request` 使用稳定的小写字段 `tool`、`action`、`workspace`、`command`、`paths`、`network`；响应必须匹配当前连接中的待处理 ID，断线会默认拒绝。
 
 输出使用有界队列。客户端持续不读取时，服务端返回 slow-consumer 错误并取消当前 turn，避免无界内存增长。断开连接后，同一 Server 可以接受新连接。
 

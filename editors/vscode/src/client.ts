@@ -83,6 +83,10 @@ export class ProtocolClient extends EventEmitter {
     this.buffer = "";
     process.stdout.on("data", (chunk: Buffer | string) => this.handleData(chunk.toString()));
     process.stderr.on("data", (chunk: Buffer | string) => this.emit("stderr", chunk.toString()));
+    process.stdin.on("error", (error: Error) => {
+      this.handleDisconnect(process, error);
+      process.kill();
+    });
     process.once("error", (error: Error) => this.handleDisconnect(process, error));
     process.once("exit", (code: number | null, signal: NodeJS.Signals | null) => {
       this.handleDisconnect(process, new Error(`cyber-code serve exited (code=${String(code)}, signal=${String(signal)})`));
@@ -145,21 +149,14 @@ export class ProtocolClient extends EventEmitter {
 }
 
 export function permissionDetail(request: PermissionPrompt["request"]): string {
-  const target = request.paths?.[0] ?? request.network?.[0] ?? commandExecutable(request.command);
-  return [request.tool, request.action, target].filter(Boolean).join(" · ");
-}
-
-function commandExecutable(command?: string): string | undefined {
-  const trimmed = command?.trim();
-  if (!trimmed) return undefined;
-  let executable: string;
-  const quote = trimmed[0];
-  if (quote === '"' || quote === "'") {
-    const end = trimmed.indexOf(quote, 1);
-    executable = end > 1 ? trimmed.slice(1, end) : trimmed.slice(1);
-  } else {
-    executable = trimmed.split(/\s+/, 1)[0];
-  }
-  const normalized = executable.replaceAll("\\", "/");
-  return normalized.slice(normalized.lastIndexOf("/") + 1) || undefined;
+  const command = request.command?.trim();
+  const paths = request.paths?.filter(Boolean);
+  const network = request.network?.filter(Boolean);
+  return [
+    request.tool,
+    request.action,
+    command ? `command: ${command}` : undefined,
+    paths?.length ? `paths: ${paths.join(", ")}` : undefined,
+    network?.length ? `network: ${network.join(", ")}` : undefined
+  ].filter(Boolean).join(" · ");
 }

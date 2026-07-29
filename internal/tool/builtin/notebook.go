@@ -59,6 +59,10 @@ func (notebook *notebookEditTool) Run(ctx context.Context, arguments json.RawMes
 	if err != nil {
 		return core.ToolResult{}, err
 	}
+	diffPath, err := relativeDiffPath(notebook.workspace, path)
+	if err != nil {
+		return core.ToolResult{}, err
+	}
 	content, err := readLimitedFile(path)
 	if err != nil {
 		return core.ToolResult{}, err
@@ -114,10 +118,11 @@ func (notebook *notebookEditTool) Run(ctx context.Context, arguments json.RawMes
 	if err != nil {
 		return core.ToolResult{}, err
 	}
-	if err := atomicWrite(ctx, path, append(encoded, '\n')); err != nil {
+	updated := append(encoded, '\n')
+	if err := atomicWrite(ctx, path, updated); err != nil {
 		return core.ToolResult{}, err
 	}
-	return textResult("notebook updated"), nil
+	return fileResult("notebook updated", diffPath, string(content), string(updated)), nil
 }
 
 func validateNotebookCell(raw json.RawMessage) error {

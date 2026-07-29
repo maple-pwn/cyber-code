@@ -29,6 +29,69 @@ func (runtime *fakeRuntime) Run(ctx context.Context, prompt string) <-chan core.
 func (runtime *fakeRuntime) SessionID() string       { return "session-1" }
 func (runtime *fakeRuntime) History() []core.Message { return []core.Message{{Role: core.RoleUser}} }
 
+type blockingReader struct{ release <-chan struct{} }
+
+func (reader blockingReader) Read([]byte) (int, error) {
+	<-reader.release
+	return 0, io.EOF
+}
+
+func TestServerContextCancellationUnblocksNonCloserInput(t *testing.T) {
+	release := make(chan struct{})
+	server, err := NewServer(&fakeRuntime{}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(ctx, blockingReader{release: release}, io.Discard) }()
+	cancel()
+	select {
+	case err := <-done:
+		close(release)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("serve error = %v", err)
+		}
+	case <-time.After(100 * time.Millisecond):
+		close(release)
+		<-done
+		t.Fatal("non-closer input prevented context cancellation")
+	}
+}
+
+type recordingRuntime struct{ started chan struct{} }
+
+func (runtime *recordingRuntime) Run(context.Context, string) <-chan core.Event {
+	close(runtime.started)
+	output := make(chan core.Event)
+	close(output)
+	return output
+}
+func (*recordingRuntime) SessionID() string       { return "recording" }
+func (*recordingRuntime) History() []core.Message { return nil }
+
+type failingWriter struct{ err error }
+
+func (writer failingWriter) Write([]byte) (int, error) { return 0, writer.err }
+
+func TestServerDoesNotStartTurnWhenAcceptedCannotBeWritten(t *testing.T) {
+	runtime := &recordingRuntime{started: make(chan struct{})}
+	server, err := NewServer(runtime, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeErr := errors.New("client disconnected")
+	input := bytes.NewBufferString(`{"version":1,"id":"turn","type":"start","prompt":"edit"}` + "\n")
+	if err := server.Serve(context.Background(), input, failingWriter{err: writeErr}); !errors.Is(err, writeErr) {
+		t.Fatalf("serve error = %v, want %v", err, writeErr)
+	}
+	select {
+	case <-runtime.started:
+		t.Fatal("runtime started before accepted was delivered")
+	default:
+	}
+}
+
 type ideRuntime struct {
 	fakeRuntime
 	ide *IDEContext
@@ -203,6 +266,13 @@ func TestServerSkipsDiffThatExceedsProtocolFrame(t *testing.T) {
 	}
 	if strings.Contains(output.String(), `"type":"diff"`) || !strings.Contains(output.String(), `"type":"turn_finished"`) {
 		t.Fatalf("oversized diff disrupted protocol: %s", output.String())
+	}
+}
+
+func TestDiffMayFitFrameRejectsRawPayloadAboveLimit(t *testing.T) {
+	diff := &core.FileDiff{Path: "large.txt", OldText: strings.Repeat("x", MaxMessageBytes), NewText: "new"}
+	if diffMayFitFrame(diff, MaxMessageBytes) {
+		t.Fatal("raw diff above the frame limit was considered encodable")
 	}
 }
 

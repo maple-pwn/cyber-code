@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter, once } from "node:events";
-import { PassThrough } from "node:stream";
+import { PassThrough, Writable } from "node:stream";
 import test from "node:test";
 
 import { ProtocolClient, permissionDetail, type ManagedProcess } from "./client.js";
@@ -113,8 +113,26 @@ test("registers a turn before a synchronous child response", async () => {
   client.dispose();
 });
 
+test("rejects a pending turn when stdin reports an asynchronous write error", async () => {
+  const process = new FakeProcess();
+  Object.defineProperty(process, "stdin", {
+    value: new Writable({
+      write(_chunk, _encoding, callback) {
+        queueMicrotask(() => callback(new Error("broken pipe")));
+      }
+    })
+  });
+  const client = new ProtocolClient(() => process);
+  await assert.rejects(client.start("fail"), /broken pipe/);
+  client.dispose();
+});
+
 test("formats stable permission target fields", () => {
-  assert.equal(permissionDetail({ tool: "shell", action: "execute", command: "go test ./..." }), "shell · execute · go");
-  assert.equal(permissionDetail({ tool: "read_file", action: "read", paths: ["main.go"] }), "read_file · read · main.go");
-  assert.equal(permissionDetail({ tool: "web", action: "network", network: ["example.test"] }), "web · network · example.test");
+  assert.equal(permissionDetail({ tool: "shell", action: "execute", command: "go test ./..." }), "shell · execute · command: go test ./...");
+  assert.equal(permissionDetail({ tool: "read_file", action: "read", paths: ["main.go", "go.mod"] }), "read_file · read · paths: main.go, go.mod");
+  assert.equal(permissionDetail({ tool: "web", action: "network", network: ["example.test", "cdn.example.test"] }), "web · network · network: example.test, cdn.example.test");
+  assert.equal(
+    permissionDetail({ tool: "shell", action: "execute", command: "dangerous-command > build.log", paths: ["build.log"] }),
+    "shell · execute · command: dangerous-command > build.log · paths: build.log"
+  );
 });

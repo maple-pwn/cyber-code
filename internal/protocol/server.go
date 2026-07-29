@@ -48,18 +48,13 @@ func (server *Server) Serve(ctx context.Context, input io.Reader, output io.Writ
 	reader := bufio.NewReader(input)
 	responses := newConnectionOutput(output, server.codec, 64)
 	connectionCtx, disconnect := context.WithCancel(ctx)
-	stopInputWatcher := make(chan struct{})
 	if closer, ok := input.(io.Closer); ok {
 		go func() {
-			select {
-			case <-ctx.Done():
-				_ = closer.Close()
-			case <-stopInputWatcher:
-			}
+			<-connectionCtx.Done()
+			_ = closer.Close()
 		}()
 	}
 	defer func() {
-		close(stopInputWatcher)
 		disconnect()
 		server.cancelActive()
 		if server.permissions != nil {
@@ -71,9 +66,39 @@ func (server *Server) Serve(ctx context.Context, input io.Reader, output io.Writ
 	if server.permissions != nil {
 		go server.forwardPermissions(connectionCtx, responses)
 	}
+	type decodeResult struct {
+		request Request
+		err     error
+	}
+	decoded := make(chan decodeResult)
+	go func() {
+		defer close(decoded)
+		for {
+			var request Request
+			err := server.codec.Decode(reader, &request)
+			select {
+			case decoded <- decodeResult{request: request, err: err}:
+			case <-connectionCtx.Done():
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
 	for {
-		var request Request
-		if err := server.codec.Decode(reader, &request); err != nil {
+		var result decodeResult
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case next, ok := <-decoded:
+			if !ok {
+				return nil
+			}
+			result = next
+		}
+		request := result.request
+		if err := result.err; err != nil {
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
@@ -90,7 +115,9 @@ func (server *Server) Serve(ctx context.Context, input io.Reader, output io.Writ
 		default:
 		}
 		if err := server.handle(connectionCtx, responses, request); err != nil {
-			_ = responses.Send(Response{ID: request.ID, Type: "error", Error: err.Error()})
+			if sendErr := responses.Send(Response{ID: request.ID, Type: "error", Error: err.Error()}); sendErr != nil {
+				return sendErr
+			}
 		}
 	}
 }
@@ -117,7 +144,7 @@ func (server *Server) handle(parent context.Context, output *connectionOutput, r
 		turnCtx, cancel := context.WithCancel(parent)
 		server.cancel, server.running = cancel, true
 		server.mu.Unlock()
-		if err := output.Send(Response{ID: request.ID, Type: "accepted"}); err != nil {
+		if err := output.SendAndWait(Response{ID: request.ID, Type: "accepted"}); err != nil {
 			cancel()
 			server.mu.Lock()
 			server.cancel, server.running = nil, false
@@ -186,14 +213,16 @@ func (server *Server) forwardEvents(output *connectionOutput, id string, ctx con
 		if event.Type == core.EventToolResult && event.ToolResult != nil && event.ToolResult.Diff != nil {
 			diff := event.ToolResult.Diff
 			response := Response{ID: id, Type: "diff", Diff: &IDEDiff{Path: diff.Path, OldText: diff.OldText, NewText: diff.NewText}}
-			if err := server.codec.Encode(io.Discard, response); err == nil {
-				if err := output.Send(response); err != nil {
+			if diffMayFitFrame(diff, server.codec.maxBytes) {
+				if err := server.codec.Encode(io.Discard, response); err == nil {
+					if err := output.Send(response); err != nil {
+						server.cancelActive()
+						return
+					}
+				} else if !errors.Is(err, ErrMessageTooLarge) {
 					server.cancelActive()
 					return
 				}
-			} else if !errors.Is(err, ErrMessageTooLarge) {
-				server.cancelActive()
-				return
 			}
 			result := *event.ToolResult
 			result.Diff = nil
@@ -205,6 +234,20 @@ func (server *Server) forwardEvents(output *connectionOutput, id string, ctx con
 		}
 	}
 	_ = output.Send(Response{ID: id, Type: "turn_finished", Canceled: ctx.Err() != nil})
+}
+
+func diffMayFitFrame(diff *core.FileDiff, maxBytes int) bool {
+	if diff == nil || maxBytes <= 0 {
+		return false
+	}
+	remaining := maxBytes
+	for _, size := range []int{len(diff.Path), len(diff.OldText), len(diff.NewText)} {
+		if size >= remaining {
+			return false
+		}
+		remaining -= size
+	}
+	return true
 }
 
 func promptWithIDEContext(prompt string, ide *IDEContext) string {

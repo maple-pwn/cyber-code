@@ -26,6 +26,9 @@ func TestNotebookEditReplacesCellByIDAtomically(t *testing.T) {
 	if err != nil || !strings.Contains(string(content), "print(2)") || strings.Contains(string(content), "print(1)") {
 		t.Fatalf("notebook=%s err=%v", content, err)
 	}
+	if result.Diff == nil || result.Diff.Path != "demo.ipynb" || result.Diff.OldText != notebook || result.Diff.NewText != string(content) {
+		t.Fatalf("notebook diff = %#v", result.Diff)
+	}
 }
 
 func TestNotebookEditSupportsInsertAndDeleteAndRejectsInvalidNotebook(t *testing.T) {
