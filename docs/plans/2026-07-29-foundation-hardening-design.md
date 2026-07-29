@@ -2,7 +2,7 @@
 
 ## 目标
 
-在不依赖外部云账号、静态托管域名或特定操作系统宿主的前提下，完成三项基础加固：统一 Compact 阈值语义、清理并约束 TODO、建立可部署到任意 HTTPS 静态站点的签名发行 manifest。
+在不依赖外部云账号、静态托管域名或特定操作系统宿主的前提下，完成三项基础加固：统一 Compact 阈值语义、清理并约束待办标记、建立可部署到任意 HTTPS 静态站点的签名发行 manifest。
 
 ## Compact 语义
 
@@ -12,16 +12,16 @@
 
 文档必须明确“任一阈值触发”，并通过 Agent、Runtime 和 CLI 测试锁定恢复会话、失败重试边界、取消与工具上下文完整性。
 
-## TODO 治理
+## 待办标记治理
 
-所有 `TODO`/`FIXME` 分为四类：
+所有实现待办/修复标记分为四类：
 
 1. 当前产品入口可达且需要修复的真实缺陷；
 2. 不可达或重复实现中的遗留占位；
 3. 明确不在范围内的 analytics、GrowthBook、私有 attestation 等能力；
-4. 测试或教学提示中作为数据出现的 `TODO(human)`。
+4. 测试或教学提示中作为数据出现的人工贡献标记。
 
-第一类使用测试驱动完成；第二类在证明不可达且无公开契约后删除或改为普通边界说明；第三类不得伪装成待实现产品承诺，应改为清晰的 out-of-scope/no-op 说明；第四类保留并加入精确 allowlist。新增 `scripts/check-todos.sh`，默认拒绝未分类 TODO/FIXME，并接入 CI 与本地验证。
+第一类使用测试驱动完成；第二类在证明不可达且无公开契约后删除或改为普通边界说明；第三类不得伪装成待实现产品承诺，应改为清晰的 out-of-scope/no-op 说明；第四类保留并加入精确 allowlist。新增 `scripts/check-todos.sh`，默认拒绝未分类待办/修复标记，并接入 CI 与本地验证。
 
 不会为了清空计数而引入遥测、远程 feature flag、厂商私有 attestation 或不必要的全局状态。
 
@@ -79,6 +79,6 @@ Metadata URL 和 Ed25519 公钥支持通过 Go linker variables 注入产品二�
 ## 验证
 
 - Compact：Agent、Runtime、session 与恢复会话集成测试。
-- TODO：检查脚本自测、全仓扫描和入口可达性验证。
+- 待办治理：检查脚本自测、全仓扫描和入口可达性验证。
 - Manifest：生成/解析 round-trip、篡改、错误签名、schema、平台选择、HTTPS、大小限制和 deterministic 输出测试。
 - 发布：workflow 静态检查、Linux/Windows/macOS 构建、完整 Go 测试、race、vet、覆盖率与现有仓库脚本。

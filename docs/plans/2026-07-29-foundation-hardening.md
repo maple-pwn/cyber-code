@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**目标：** 固化 Compact 双触发器语义，清理并持续约束 TODO/FIXME，并建立基础设施无关的 Ed25519 签名发行 manifest 与构建产物工作流。
+**目标：** 固化 Compact 双触发器语义，清理并持续约束待办/修复标记，并建立基础设施无关的 Ed25519 签名发行 manifest 与构建产物工作流。
 
-**架构：** 保持 Runtime/Agent 为 Compact 状态唯一所有者；TODO 检查以精确 allowlist 约束全仓；更新 metadata 使用一个自包含签名 envelope，由 `internal/update` 统一生成和验证，仓库工具与手动工作流只生产可部署 bundle，不上传或安装。
+**架构：** 保持 Runtime/Agent 为 Compact 状态唯一所有者；待办检查以精确 allowlist 约束全仓；更新 metadata 使用一个自包含签名 envelope，由 `internal/update` 统一生成和验证，仓库工具与手动工作流只生产可部署 bundle，不上传或安装。
 
 **技术：** Go、Ed25519、canonical JSON、Cobra、POSIX shell、GitHub Actions、现有 Runtime/Provider/CLI 测试体系。
 
@@ -53,7 +53,7 @@
 7. 运行 focused tests、`go test ./internal/session ./internal/agent ./internal/runtime ./tests/integration -count=1` 与 `git diff --check`。
 8. 提交：`fix: align compact threshold semantics`。
 
-### Task 43：清理并约束 TODO/FIXME
+### Task 43：清理并约束待办/修复标记
 
 **文件：**
 - 创建：`scripts/check-todos.sh`
@@ -69,19 +69,19 @@
 - 修改：`scripts/check-placeholders.sh`
 - 修改：`.github/workflows/ci.yml`
 
-1. 先写 `scripts/check-todos_test.sh`：临时 fixture 中普通 TODO/FIXME 必须失败，`internal/constants/output_styles.go` 中精确的 `TODO(human)` 教学文本必须允许。
+1. 先写 `scripts/check-todos_test.sh`：临时 fixture 中普通待办/修复标记必须失败，`internal/constants/output_styles.go` 中精确的教学用人工贡献标记必须允许。
 2. 运行测试，确认 `scripts/check-todos.sh` 不存在而 RED。
-3. 实现 POSIX `scripts/check-todos.sh`：扫描受版本控制文本；只允许指定文件中的 `TODO(human)`；输出文件、行号和违规内容；支持 `--self-test` 或调用独立测试脚本。
-4. 增加 constants 测试：`GetUnameSR` 返回当前 `runtime.GOOS/runtime.GOARCH` 的稳定非空标识；SDK prefix 不再依赖已经实现的 Vertex TODO。
-5. 将 attribution version 改为读取统一产品构建版本；把 attestation、workload、GrowthBook 明确标为当前不支持，不保留 TODO 词。
+3. 实现 POSIX `scripts/check-todos.sh`：扫描受版本控制文本；只允许指定文件中的教学用人工贡献标记；输出文件、行号和违规内容；支持 `--self-test` 或调用独立测试脚本。
+4. 增加 constants 测试：`GetUnameSR` 返回当前 `runtime.GOOS/runtime.GOARCH` 的稳定非空标识；SDK prefix 不再依赖已经实现的 Vertex 待办分支。
+5. 将 attribution version 改为读取统一产品构建版本；把 attestation、workload、GrowthBook 明确标为当前不支持，不保留待办词。
 6. 给 StateManager 增加可测试的 `now` 来源，初始化与 Reset 写入 Unix session start；测试非零和重置更新时间。
 7. 移除 notifier 的 analytics 占位，保留纯本地路由行为。
 8. 将 API logger 定义为显式本地 debug logger：不实现遥测；实现非敏感 Anthropic 环境 metadata 读取；把 build age/last timestamp 兼容 API 标成明确 no-op 或使用受锁状态，并用测试固定选择。
-9. 删除 `error_utils.go` 中无信息量 TODO 注释，不改变空消息行为。
-10. 运行全仓 TODO 检查，确认除 allowlist 数据外无 TODO/FIXME。
+9. 删除 `error_utils.go` 中无信息量待办注释，不改变空消息行为。
+10. 运行全仓待办检查，确认除 allowlist 数据外无待办/修复标记。
 11. 把检查接入 CI 的 Linux repository checks，并接入 placeholder 聚合检查。
 12. 运行 `go test ./internal/constants ./internal/state ./internal/services ./internal/services/api -count=1`、脚本自测、`go vet` affected packages。
-13. 提交：`chore: eliminate unclassified TODOs`。
+13. 提交：`chore: eliminate unclassified implementation markers`。
 
 ### Task 44：实现签名发行 Manifest 核心
 

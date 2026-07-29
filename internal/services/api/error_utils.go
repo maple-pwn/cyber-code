@@ -116,8 +116,6 @@ func sanitizeMessageHTML(message string) string {
 func SanitizeAPIError(apiErr *APIError) string {
 	message := apiErr.Message
 	if message == "" {
-		// Sometimes message is undefined
-		// TODO: figure out why
 		return ""
 	}
 	return sanitizeMessageHTML(message)

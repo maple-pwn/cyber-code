@@ -7,15 +7,14 @@ import (
 	"syscall"
 
 	"cyber-code/internal/cli"
+	"cyber-code/internal/product"
 )
-
-const version = "2.1.88"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	os.Exit(cli.ExecuteWithOptions(
 		ctx, os.Stdin, os.Stdout, os.Stderr, os.Args[1:],
-		cli.ExecuteOptions{Version: version},
+		cli.ExecuteOptions{Version: product.BuildVersion},
 	))
 }

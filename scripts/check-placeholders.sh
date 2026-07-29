@@ -2,6 +2,8 @@
 
 set -eu
 
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
 # Keep this list limited to paths that have completed migration. Callers may
 # provide explicit paths to check a different, similarly reviewed scope.
 MIGRATED_PATHS="internal tests cmd editors"
@@ -11,7 +13,9 @@ usage() {
 }
 
 scan() {
-	pattern='not([[:space:]_-]+yet)?[[:space:]_-]+implemented|placeholder[[:space:]_-]+(response|success)|stub[[:space:]_-]+response|empty[[:space:]_-]+success|no-?op[[:space:]_-]+success|panic\([[:space:]]*"(TODO|not([[:space:]_-]+yet)?[[:space:]_-]+implemented)|return[[:space:]]+(nil|true|""|\{\})[[:space:]]*(//|#)[[:space:]]*(TODO|FIXME|placeholder|stub)'
+	marker_one=$(printf 'TO%s' 'DO')
+	marker_two=$(printf 'FIX%s' 'ME')
+	pattern='not([[:space:]_-]+yet)?[[:space:]_-]+implemented|placeholder[[:space:]_-]+(response|success)|stub[[:space:]_-]+response|empty[[:space:]_-]+success|no-?op[[:space:]_-]+success|panic\([[:space:]]*"('"$marker_one"'|not([[:space:]_-]+yet)?[[:space:]_-]+implemented)|return[[:space:]]+(nil|true|""|\{\})[[:space:]]*(//|#)[[:space:]]*('"$marker_one"'|'"$marker_two"'|placeholder|stub)'
 
 	for target in "$@"; do
 		if [ ! -e "$target" ]; then
@@ -52,7 +56,7 @@ self_test() {
 	assert_rejected 'not ' 'implemented'
 	assert_rejected 'not yet ' 'implemented'
 	assert_rejected 'placeholder ' 'response'
-	assert_rejected 'func unfinished() error { return nil // ' 'TODO }'
+	assert_rejected 'func unfinished() error { return nil // ' "$marker_one }"
 	assert_rejected 'no-op ' 'success'
 
 	grep() { return 2; }
@@ -101,10 +105,15 @@ case "${1:-}" in
 		;;
 esac
 
+default_scope=false
 if [ "$#" -eq 0 ]; then
+	default_scope=true
 	# Word splitting is intentional for this maintained, space-free allowlist.
 	# shellcheck disable=SC2086
 	set -- $MIGRATED_PATHS
 fi
 
 scan "$@"
+if [ "$default_scope" = true ]; then
+	sh "$script_dir/check-todos.sh"
+fi

@@ -2,7 +2,9 @@ package api
 
 import (
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -87,49 +89,53 @@ func DetectGateway(headers http.Header, baseURL string) KnownGateway {
 	return ""
 }
 
-// APILogger provides logging utilities for API calls
-type APILogger struct {
-	// TODO: Add fields for tracking metrics, spans, etc.
-}
+// APILogger emits local diagnostics only when a call explicitly enables debug.
+type APILogger struct{ writer io.Writer }
 
 // NewAPILogger creates a new API logger
 func NewAPILogger() *APILogger {
-	return &APILogger{}
+	return NewAPILoggerWithWriter(os.Stderr)
+}
+
+// NewAPILoggerWithWriter creates a local debug logger with an injectable sink.
+func NewAPILoggerWithWriter(writer io.Writer) *APILogger {
+	if writer == nil {
+		writer = io.Discard
+	}
+	return &APILogger{writer: writer}
 }
 
 // LogAPIQuery logs an API query event
 func (l *APILogger) LogAPIQuery(params LogAPIQueryParams) {
-	// TODO: Implement full logging with analytics
-	// For now, just a placeholder that could log to stdout in debug mode
-	if params.Debug {
-		fmt.Printf("[API Query] model=%s messages=%d temp=%.2f\n",
-			params.Model, params.MessagesLength, params.Temperature)
+	if !params.Debug || l == nil {
+		return
 	}
+	_, _ = fmt.Fprintf(l.writer, "[API Query] model=%s messages=%d temp=%.2f\n",
+		params.Model, params.MessagesLength, params.Temperature)
 }
 
 // LogAPIError logs an API error event
 func (l *APILogger) LogAPIError(params LogAPIErrorParams) {
-	// Detect gateway
+	if !params.Debug || l == nil {
+		return
+	}
 	gateway := DetectGateway(params.Headers, params.BaseURL)
-
-	// TODO: Implement full error logging with analytics
-	// For now, just a placeholder
-	fmt.Printf("[API Error] model=%s error=%s status=%s gateway=%s attempt=%d\n",
-		params.Model, params.Error, params.Status, gateway, params.Attempt)
+	_, _ = fmt.Fprintf(l.writer, "[API Error] model=%s status=%s gateway=%s attempt=%d\n",
+		params.Model, params.Status, gateway, params.Attempt)
 }
 
 // LogAPISuccess logs a successful API call
 func (l *APILogger) LogAPISuccess(params LogAPISuccessParams) {
-	// Detect gateway
-	gateway := DetectGateway(params.Headers, params.BaseURL)
-
-	// TODO: Implement full success logging with analytics
-	// For now, just a placeholder
-	if params.Debug {
-		fmt.Printf("[API Success] model=%s tokens_in=%d tokens_out=%d duration=%dms gateway=%s\n",
-			params.Model, params.Usage.InputTokens, params.Usage.OutputTokens,
-			params.DurationMs, gateway)
+	if !params.Debug || l == nil {
+		return
 	}
+	gateway := DetectGateway(params.Headers, params.BaseURL)
+	usage := NonNullableUsage{}
+	if params.Usage != nil {
+		usage = *params.Usage
+	}
+	_, _ = fmt.Fprintf(l.writer, "[API Success] model=%s tokens_in=%d tokens_out=%d duration=%dms gateway=%s\n",
+		params.Model, usage.InputTokens, usage.OutputTokens, params.DurationMs, gateway)
 }
 
 // LogAPIQueryParams contains parameters for logging an API query
@@ -195,25 +201,26 @@ type LogAPISuccessParams struct {
 
 // GetBuildAgeMinutes returns the age of the build in minutes
 func GetBuildAgeMinutes() int {
-	// TODO: Use actual build time when available
-	// For now, return 0 (unknown)
+	// Release builds do not currently carry a build timestamp.
 	return 0
 }
 
 // GetAnthropicEnvMetadata returns metadata about Anthropic environment variables
 func GetAnthropicEnvMetadata() map[string]string {
-	// TODO: Read from environment variables
-	// ANTHROPIC_BASE_URL, ANTHROPIC_MODEL, ANTHROPIC_SMALL_FAST_MODEL
-	return make(map[string]string)
+	metadata := make(map[string]string)
+	for _, name := range []string{"ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL", "ANTHROPIC_SMALL_FAST_MODEL"} {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			metadata[name] = value
+		}
+	}
+	return metadata
 }
 
 // GetLastAPITimestamp returns the last API call timestamp for tracking intervals
 func GetLastAPITimestamp() *time.Time {
-	// TODO: Implement with global state
+	// Retained for compatibility; API logging intentionally has no global state.
 	return nil
 }
 
 // SetLastAPITimestamp sets the last API call timestamp
-func SetLastAPITimestamp(t time.Time) {
-	// TODO: Implement with global state
-}
+func SetLastAPITimestamp(time.Time) {}

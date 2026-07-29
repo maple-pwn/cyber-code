@@ -2,6 +2,7 @@ package constants
 
 import (
 	"os"
+	"runtime"
 
 	"cyber-code/internal/product"
 )
@@ -24,8 +25,6 @@ var CLISyspromptPrefixes = map[CLISyspromptPrefix]bool{
 
 // GetCLISyspromptPrefix returns the appropriate CLI sysprompt prefix based on context
 func GetCLISyspromptPrefix(isNonInteractive bool, hasAppendSystemPrompt bool) CLISyspromptPrefix {
-	// For now, return default prefix
-	// TODO: Add API provider check when vertex support is added
 	if isNonInteractive {
 		if hasAppendSystemPrompt {
 			return AgentSDKCyberCodePresetPrefix
@@ -45,11 +44,10 @@ func GetAttributionHeader(fingerprint string) string {
 		return ""
 	}
 
-	version := "1.0.0." + fingerprint // TODO: Use actual version
+	version := product.BuildVersion + "." + fingerprint
 	entrypoint := getEnvOrDefault("CYBER_CODE_ENTRYPOINT", "unknown")
 
-	// TODO: Add native client attestation when supported
-	// TODO: Add workload context when supported
+	// Native client attestation and workload context are not supported.
 	header := "x-anthropic-billing-header: cc_version=" + version + "; cc_entrypoint=" + entrypoint + ";"
 
 	return header
@@ -61,18 +59,16 @@ func isAttributionHeaderEnabled() bool {
 	if val == "false" || val == "0" || val == "no" {
 		return false
 	}
-	// TODO: Add GrowthBook feature flag check when implemented
+	// Remote feature-flag services are intentionally not used here.
 	return true
 }
 
 // ClaudeCodeDocsMapURL is the URL for the Claude Code docs map
 const ClaudeCodeDocsMapURL = "https://code.claude.com/docs/en/claude_code_docs_map.md"
 
-// GetUnameSR returns OS type and release (similar to uname -sr)
+// GetUnameSR returns the stable build OS and architecture identity.
 func GetUnameSR() string {
-	// TODO: Implement actual OS detection
-	// For now, return a generic value
-	return "Unknown OS"
+	return runtime.GOOS + "/" + runtime.GOARCH
 }
 
 // Helper function - uses getEnvOrDefault from oauth.go

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sync"
+	"time"
 
 	"cyber-code/internal/utils"
 )
@@ -52,6 +53,7 @@ type StateManager struct {
 	mu    sync.RWMutex
 	state *AppState
 	path  string
+	now   func() time.Time
 }
 
 // ========================================
@@ -60,11 +62,19 @@ type StateManager struct {
 
 // NewStateManager creates a new state manager.
 func NewStateManager() *StateManager {
+	return NewStateManagerWithClock(time.Now)
+}
+
+// NewStateManagerWithClock creates a manager with a deterministic time source.
+func NewStateManagerWithClock(now func() time.Time) *StateManager {
+	if now == nil {
+		now = time.Now
+	}
 	return &StateManager{
+		now: now,
 		state: &AppState{
-			SessionStart: 0, // Will be set on init
-			Features:     make(map[string]bool),
-			Custom:       make(map[string]interface{}),
+			Features: make(map[string]bool),
+			Custom:   make(map[string]interface{}),
 		},
 	}
 }
@@ -78,17 +88,22 @@ func (sm *StateManager) Initialize() error {
 	cacheDir := utils.GetClaudeCacheHome()
 	sm.path = filepath.Join(cacheDir, "state.json")
 
-	// Initialize session
+	// Load existing state if available
+	if err := sm.load(); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to load state: %w", err)
+	}
+
 	if sm.state.SessionID == "" {
 		sm.state.SessionID = utils.GenerateUUID()
 	}
 	if sm.state.SessionStart == 0 {
-		sm.state.SessionStart = 0 // TODO: Use time.Now().Unix()
+		sm.state.SessionStart = sm.now().Unix()
 	}
-
-	// Load existing state if available
-	if err := sm.load(); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to load state: %w", err)
+	if sm.state.Features == nil {
+		sm.state.Features = make(map[string]bool)
+	}
+	if sm.state.Custom == nil {
+		sm.state.Custom = make(map[string]interface{})
 	}
 
 	return nil
@@ -393,7 +408,7 @@ func (sm *StateManager) Reset() error {
 
 	sm.state = &AppState{
 		SessionID:        utils.GenerateUUID(),
-		SessionStart:     0, // TODO: time.Now().Unix()
+		SessionStart:     sm.now().Unix(),
 		UserType:         string(utils.GetUserType()),
 		SubscriptionType: string(utils.GetSubscriptionType()),
 		Features:         make(map[string]bool),

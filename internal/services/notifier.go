@@ -62,10 +62,7 @@ func SendNotificationWithNative(ctx context.Context, notif NotificationOptions, 
 	if terminal == nil && preferredChannel != "notifications_disabled" {
 		return fmt.Errorf("terminal notification backend is unavailable")
 	}
-	methodUsed := sendToChannel(preferredChannel, notif, terminal)
-
-	// TODO: Log analytics event
-	_ = methodUsed
+	sendToChannel(preferredChannel, notif, terminal)
 
 	return nil
 }

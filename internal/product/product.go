@@ -14,3 +14,6 @@ const (
 		"Do not claim to be Claude, ChatGPT, DeepSeek, or any model provider's product. " +
 		"Help the user inspect, understand, and modify software accurately and safely."
 )
+
+// BuildVersion is the single product version injected by release builds.
+var BuildVersion = "2.1.88"

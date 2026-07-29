@@ -49,9 +49,6 @@ const (
 	// Application name
 	AppName = product.Name
 
-	// Version
-	Version = "1.0.0"
-
 	// Default model
 	DefaultModel = "claude-sonnet-4-20250514"
 
@@ -67,6 +64,9 @@ const (
 	// Config file name
 	ConfigFileName = "config.json"
 )
+
+// Version preserves the legacy constants API while sharing product identity.
+var Version = product.BuildVersion
 
 // =============================================================================
 // Environment Variables

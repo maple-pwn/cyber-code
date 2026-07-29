@@ -2,9 +2,29 @@ package state_test
 
 import (
 	"testing"
+	"time"
 
 	"cyber-code/internal/state"
 )
+
+func TestSessionStartUsesInjectedClockOnInitializeAndReset(t *testing.T) {
+	t.Setenv("CLAUDE_CACHE_HOME", t.TempDir())
+	now := time.Unix(100, 0)
+	manager := state.NewStateManagerWithClock(func() time.Time { return now })
+	if err := manager.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	if got := manager.GetState().SessionStart; got != 100 {
+		t.Fatalf("initialized session start = %d", got)
+	}
+	now = time.Unix(200, 0)
+	if err := manager.Reset(); err != nil {
+		t.Fatal(err)
+	}
+	if got := manager.GetState().SessionStart; got != 200 {
+		t.Fatalf("reset session start = %d", got)
+	}
+}
 
 type customPayload struct {
 	Values []string `json:"values"`

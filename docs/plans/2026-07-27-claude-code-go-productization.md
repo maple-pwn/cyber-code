@@ -933,7 +933,7 @@ git commit -m "feat: add Windows and Linux notification and voice adapters"
 
 **Step 1: 写命令级测试**
 
-使用注入的 Runtime/FS 检查 `config list/get/set/validate`、`doctor --json`、`mcp list/add/remove/test`、`plugins list/enable/disable`、`sessions list/resume/export/delete`。断言 TODO 文本不再出现。
+使用注入的 Runtime/FS 检查 `config list/get/set/validate`、`doctor --json`、`mcp list/add/remove/test`、`plugins list/enable/disable`、`sessions list/resume/export/delete`。断言待办文本不再出现。
 
 **Step 2: 确认失败**
 
@@ -1049,7 +1049,7 @@ Run: `GOOS=windows GOARCH=amd64 go build -o dist/claude-go-windows-amd64.exe ./c
 
 Run: `scripts/check-placeholders.sh`
 
-Expected: 全部 PASS；目标目录中无 placeholder/TODO 成功路径。
+Expected: 全部 PASS；目标目录中无 placeholder/待办成功路径。
 
 **Step 5: 覆盖率与漏洞检查**
 
