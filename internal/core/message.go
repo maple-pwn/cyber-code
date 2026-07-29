@@ -53,6 +53,14 @@ type ToolResult struct {
 	ToolCallID string         `json:"tool_call_id"`
 	Content    []ContentBlock `json:"content"`
 	IsError    bool           `json:"is_error,omitempty"`
+	Diff       *FileDiff      `json:"-"`
+}
+
+// FileDiff records the complete before and after state of one file mutation.
+type FileDiff struct {
+	Path    string `json:"path"`
+	OldText string `json:"old_text"`
+	NewText string `json:"new_text"`
 }
 
 // ToolDefinition describes a tool without using a provider SDK type.

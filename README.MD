@@ -79,7 +79,7 @@ MCP 配置通过 `mcp add` 持久化；启用插件从状态目录的 `plugins/<
 
 `cmd/cli` 是唯一产品入口。旧的占位 CLI、工具集合、语音控制器和重复 ChatModel 已移除，并由 `scripts/check-entrypoint-reachability.sh` 阻止回归。VS Code 扩展位于 `editors/vscode`，构建与协议说明见 [docs/sdk.md](docs/sdk.md)。
 
-VS Code 扩展从设置 `cyber-code.executable` 启动 `cyber-code serve`，Provider 凭据仍由 CLI 配置和环境变量管理。扩展不会保存 API Key。
+VS Code 扩展从设置 `cyber-code.executable` 启动 `cyber-code serve`，Provider 凭据仍由 CLI 配置和环境变量管理。扩展不会保存 API Key，也不会直接写工作区；文件修改由 Runtime 经 Permission Broker 执行，扩展只预览结果 diff。
 
 外部进程或网络在 headless 默认权限模式下会被拒绝，自动化场景必须显式选择经过审查的规则或 `--permission-mode bypass`。安全模型见 [docs/security.md](docs/security.md)。
 

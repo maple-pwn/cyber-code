@@ -35,7 +35,7 @@
 
 位置使用从零开始的行号和字符号。上下文受协议单帧上限约束；服务端对旧 Runtime 使用额外的字段数量和文本长度限制，并明确把内容标记为不可信编辑器数据。实现 `protocol.IDERuntime` 的宿主可以直接接收结构化上下文。新增字段均为可选，旧版 v1 客户端和 Runtime 保持兼容。
 
-服务端先返回 `accepted`，随后以相同 `id` 返回 `event` 消息；turn 结束时返回 `turn_finished`，取消完成时包含 `canceled: true`。权限请求通过 `permission` 消息发送，响应必须匹配当前连接中的待处理 ID，断线会默认拒绝。
+服务端先返回 `accepted`，随后以相同 `id` 返回 `event` 消息；文件工具成功修改后还会发送 `diff`，其中包含工作区相对路径及完整的 `old_text`/`new_text`。diff 是 Runtime 已授权并执行修改后的只读通知，不授予客户端写权限；超过协议单帧上限时省略 diff，但 turn 继续完成。turn 结束时返回 `turn_finished`，取消完成时包含 `canceled: true`。权限请求通过 `permission` 消息发送，`request` 使用稳定的小写字段 `tool`、`action`、`workspace`、`command`、`paths`、`network`；响应必须匹配当前连接中的待处理 ID，断线会默认拒绝。
 
 输出使用有界队列。客户端持续不读取时，服务端返回 slow-consumer 错误并取消当前 turn，避免无界内存增长。断开连接后，同一 Server 可以接受新连接。
 
@@ -48,7 +48,7 @@
 
 ## VS Code 扩展
 
-`editors/vscode` 提供基于同一 JSONL 协议的扩展。它管理 `cyber-code serve` 子进程，发送工作区、当前文件、选区和诊断上下文，显示流式事件，处理取消及带 challenge ID 的权限确认，并在应用 diff 前检查文档内容是否仍与基线一致。
+`editors/vscode` 提供基于同一 JSONL 协议的扩展。它管理 `cyber-code serve` 子进程，发送工作区、当前文件、选区和诊断上下文，显示流式事件，处理取消及带 challenge ID 的权限确认，并以只读方式展示 Runtime 已执行的文件 diff。
 
 扩展设置只包含 `cyber-code.executable`，不保存 Provider API Key。凭据继续由 cyber-code 的配置和环境变量解析。开发验证命令：
 
@@ -58,4 +58,4 @@ npm test --prefix editors/vscode
 npm run compile --prefix editors/vscode
 ```
 
-在 VS Code 的 Extension Development Host 中打开 `editors/vscode` 后，可运行 `cyber-code: Ask` 和 `cyber-code: Cancel`。`cyber-code.executable` 应指向已构建的本机二进制；扩展继承宿主进程环境，但不会把环境变量值写入设置或协议消息。diff 仅允许工作区相对路径，应用前要求当前文档全文仍等于服务端提供的 `old_text`，否则以冲突拒绝。
+在 VS Code 的 Extension Development Host 中打开 `editors/vscode` 后，可运行 `cyber-code: Ask` 和 `cyber-code: Cancel`。`cyber-code.executable` 应指向已构建的本机二进制；扩展继承宿主进程环境，但不会把环境变量值写入设置或协议消息。扩展不直接写工作区；所有文件修改只由 Runtime 文件工具经 Permission Broker 授权后执行，diff 视图仅用于检查结果。

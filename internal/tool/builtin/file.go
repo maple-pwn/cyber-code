@@ -87,10 +87,18 @@ func (file *fileTool) Run(ctx context.Context, arguments json.RawMessage) (core.
 		if err != nil {
 			return core.ToolResult{}, err
 		}
+		diffPath, err := relativeDiffPath(file.workspace, path)
+		if err != nil {
+			return core.ToolResult{}, err
+		}
+		oldContent, err := readLimitedFile(path)
+		if err != nil && !os.IsNotExist(err) {
+			return core.ToolResult{}, err
+		}
 		if err := atomicWrite(ctx, path, []byte(input.Content)); err != nil {
 			return core.ToolResult{}, err
 		}
-		return textResult("file written"), nil
+		return fileResult("file written", diffPath, string(oldContent), input.Content), nil
 	case "edit_file":
 		var input struct {
 			Path           string `json:"path"`
@@ -102,6 +110,10 @@ func (file *fileTool) Run(ctx context.Context, arguments json.RawMessage) (core.
 			return core.ToolResult{}, err
 		}
 		path, err := permissions.ResolvePath(file.workspace, input.Path)
+		if err != nil {
+			return core.ToolResult{}, err
+		}
+		diffPath, err := relativeDiffPath(file.workspace, path)
 		if err != nil {
 			return core.ToolResult{}, err
 		}
@@ -132,7 +144,7 @@ func (file *fileTool) Run(ctx context.Context, arguments json.RawMessage) (core.
 		if err := atomicWrite(ctx, path, []byte(replaced)); err != nil {
 			return core.ToolResult{}, err
 		}
-		return textResult("file edited"), nil
+		return fileResult("file edited", diffPath, string(content), replaced), nil
 	default:
 		return core.ToolResult{}, fmt.Errorf("unsupported file operation")
 	}
@@ -206,4 +218,22 @@ func atomicWrite(ctx context.Context, path string, content []byte) error {
 
 func textResult(text string) core.ToolResult {
 	return core.ToolResult{Content: []core.ContentBlock{{Type: core.ContentText, Text: text}}}
+}
+
+func relativeDiffPath(workspace, path string) (string, error) {
+	root, err := permissions.ResolvePath(workspace, ".")
+	if err != nil {
+		return "", err
+	}
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return "", fmt.Errorf("resolve diff path: %w", err)
+	}
+	return filepath.ToSlash(relative), nil
+}
+
+func fileResult(message, path, oldText, newText string) core.ToolResult {
+	result := textResult(message)
+	result.Diff = &core.FileDiff{Path: path, OldText: oldText, NewText: newText}
+	return result
 }

@@ -126,6 +126,99 @@ func TestServerStartsTurnAndReportsStatus(t *testing.T) {
 	}
 }
 
+func TestServerSendsAcceptedBeforeImmediateRuntimeEvents(t *testing.T) {
+	server, err := NewServer(&fakeRuntime{}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	input := bytes.NewBufferString(`{"version":1,"id":"fast","type":"start","prompt":"hello"}` + "\n")
+	if err := server.Serve(context.Background(), input, &output); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewScanner(bytes.NewReader(output.Bytes()))
+	if !reader.Scan() {
+		t.Fatal("missing protocol response")
+	}
+	var first Response
+	if err := json.Unmarshal(reader.Bytes(), &first); err != nil {
+		t.Fatal(err)
+	}
+	if first.Type != "accepted" {
+		t.Fatalf("first response = %q, want accepted", first.Type)
+	}
+}
+
+func TestServerContextCancellationUnblocksIdleConnection(t *testing.T) {
+	server, err := NewServer(&fakeRuntime{}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverInput, clientInput := io.Pipe()
+	defer clientInput.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(ctx, serverInput, io.Discard) }()
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("serve error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("idle protocol connection did not stop after cancellation")
+	}
+}
+
+func TestServerForwardsCanonicalFileDiff(t *testing.T) {
+	runtime := &eventRuntime{events: []core.Event{{Type: core.EventToolResult, ToolResult: &core.ToolResult{
+		ToolCallID: "edit-1", Diff: &core.FileDiff{Path: "main.go", OldText: "old", NewText: "new"},
+	}}}}
+	server, err := NewServer(runtime, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	input := bytes.NewBufferString(`{"version":1,"id":"diff-turn","type":"start","prompt":"edit"}` + "\n")
+	if err := server.Serve(context.Background(), input, &output); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), `"type":"diff"`) || !strings.Contains(output.String(), `"path":"main.go"`) {
+		t.Fatalf("output = %s", output.String())
+	}
+}
+
+func TestServerSkipsDiffThatExceedsProtocolFrame(t *testing.T) {
+	runtime := &eventRuntime{events: []core.Event{{Type: core.EventToolResult, ToolResult: &core.ToolResult{
+		ToolCallID: "edit-large", Diff: &core.FileDiff{Path: "large.txt", OldText: strings.Repeat("x", MaxMessageBytes), NewText: "new"},
+	}}}}
+	server, err := NewServer(runtime, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	input := bytes.NewBufferString(`{"version":1,"id":"large-diff","type":"start","prompt":"edit"}` + "\n")
+	if err := server.Serve(context.Background(), input, &output); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(output.String(), `"type":"diff"`) || !strings.Contains(output.String(), `"type":"turn_finished"`) {
+		t.Fatalf("oversized diff disrupted protocol: %s", output.String())
+	}
+}
+
+type eventRuntime struct{ events []core.Event }
+
+func (runtime *eventRuntime) Run(context.Context, string) <-chan core.Event {
+	output := make(chan core.Event, len(runtime.events))
+	for _, event := range runtime.events {
+		output <- event
+	}
+	close(output)
+	return output
+}
+func (*eventRuntime) SessionID() string       { return "events" }
+func (*eventRuntime) History() []core.Message { return nil }
+
 type blockingWriter struct {
 	release <-chan struct{}
 	started chan<- struct{}

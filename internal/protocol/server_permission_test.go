@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,6 +25,24 @@ func (runtime permissionRuntime) Run(ctx context.Context, _ string) <-chan core.
 		}
 	}()
 	return output
+}
+
+func TestPermissionPromptUsesStableLowercaseTargetFields(t *testing.T) {
+	encoded, err := json.Marshal(PermissionPrompt{ID: "permission-1", Request: permissions.Request{
+		Tool: "shell", Action: permissions.ActionExecute, Command: "go test ./...", Paths: []string{"main.go"}, Network: []string{"example.test"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(encoded)
+	for _, field := range []string{`"tool":"shell"`, `"action":"execute"`, `"command":"go test ./..."`, `"paths":["main.go"]`, `"network":["example.test"]`} {
+		if !strings.Contains(text, field) {
+			t.Fatalf("permission JSON %s lacks %s", text, field)
+		}
+	}
+	if strings.Contains(text, `"Tool"`) || strings.Contains(text, `"Action"`) {
+		t.Fatalf("permission JSON uses unstable Go field names: %s", text)
+	}
 }
 func (permissionRuntime) SessionID() string       { return "permission" }
 func (permissionRuntime) History() []core.Message { return nil }

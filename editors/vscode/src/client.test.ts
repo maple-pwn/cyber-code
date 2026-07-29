@@ -3,7 +3,7 @@ import { EventEmitter, once } from "node:events";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 
-import { ProtocolClient, applyDiff, type ManagedProcess } from "./client.js";
+import { ProtocolClient, permissionDetail, type ManagedProcess } from "./client.js";
 
 class FakeProcess extends EventEmitter implements ManagedProcess {
   readonly stdin = new PassThrough();
@@ -98,9 +98,23 @@ test("restarts after disconnect and dispose cleans up the child", async () => {
   assert.equal(index, 2);
   client.dispose();
   assert.equal(processes[1].killed, true);
+  assert.equal(processes[1].stdin.writableEnded, true);
 });
 
-test("applies exact diffs and rejects stale document content", () => {
-  assert.equal(applyDiff("old", { path: "main.go", old_text: "old", new_text: "new" }), "new");
-  assert.throws(() => applyDiff("changed", { path: "main.go", old_text: "old", new_text: "new" }), /conflict/);
+test("registers a turn before a synchronous child response", async () => {
+  const process = new FakeProcess();
+  process.stdin.on("data", (data) => {
+    const request = JSON.parse(data.toString());
+    process.send({ version: 1, id: request.id, type: "accepted" });
+    process.send({ version: 1, id: request.id, type: "turn_finished" });
+  });
+  const client = new ProtocolClient(() => process);
+  assert.deepEqual(await client.start("fast"), { canceled: false });
+  client.dispose();
+});
+
+test("formats stable permission target fields", () => {
+  assert.equal(permissionDetail({ tool: "shell", action: "execute", command: "go test ./..." }), "shell · execute · go");
+  assert.equal(permissionDetail({ tool: "read_file", action: "read", paths: ["main.go"] }), "read_file · read · main.go");
+  assert.equal(permissionDetail({ tool: "web", action: "network", network: ["example.test"] }), "web · network · example.test");
 });

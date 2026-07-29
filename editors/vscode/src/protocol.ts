@@ -56,7 +56,10 @@ export interface PermissionPrompt {
   request: {
     tool?: string;
     action?: string;
-    target?: string;
+    workspace?: string;
+    command?: string;
+    paths?: string[];
+    network?: string[];
     [key: string]: unknown;
   };
 }

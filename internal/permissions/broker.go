@@ -7,12 +7,12 @@ import (
 )
 
 type Request struct {
-	Tool      string
-	Action    string
-	Workspace string
-	Command   string
-	Paths     []string
-	Network   []string
+	Tool      string   `json:"tool"`
+	Action    string   `json:"action"`
+	Workspace string   `json:"workspace,omitempty"`
+	Command   string   `json:"command,omitempty"`
+	Paths     []string `json:"paths,omitempty"`
+	Network   []string `json:"network,omitempty"`
 }
 
 type Decision struct {

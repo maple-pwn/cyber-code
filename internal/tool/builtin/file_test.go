@@ -35,8 +35,12 @@ func TestWriteFileUsesRunnerPermissionBoundaryAndAtomicReplace(t *testing.T) {
 	if err := os.WriteFile(target, []byte("old"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runner.Run(context.Background(), "write_file", writeArgs(target, "new")); err != nil {
+	result, err := runner.Run(context.Background(), "write_file", writeArgs(target, "new"))
+	if err != nil {
 		t.Fatal(err)
+	}
+	if result.Diff == nil || result.Diff.Path != "file.txt" || result.Diff.OldText != "old" || result.Diff.NewText != "new" {
+		t.Fatalf("write diff = %#v", result.Diff)
 	}
 	content, err := os.ReadFile(target)
 	if err != nil || string(content) != "new" {
@@ -115,8 +119,12 @@ func TestReadAndEditFileSuccessfulPaths(t *testing.T) {
 		t.Fatalf("read result = %#v, error = %v", read, err)
 	}
 	editArguments, _ := json.Marshal(map[string]string{"path": target, "old_text": "before", "new_text": "after"})
-	if _, err := runner.Run(context.Background(), "edit_file", editArguments); err != nil {
+	result, err := runner.Run(context.Background(), "edit_file", editArguments)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if result.Diff == nil || result.Diff.Path != "file.txt" || result.Diff.OldText != "before value" || result.Diff.NewText != "after value" {
+		t.Fatalf("edit diff = %#v", result.Diff)
 	}
 	content, err := os.ReadFile(target)
 	if err != nil || string(content) != "after value" {
@@ -171,8 +179,12 @@ func TestWriteFileCreatesMissingDirectories(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := filepath.Join(workspace, "nested", "file.txt")
-	if _, err := tool.NewRunner(registry, broker, tool.RunnerOptions{}).Run(context.Background(), "write_file", writeArgs(target, "created")); err != nil {
+	result, err := tool.NewRunner(registry, broker, tool.RunnerOptions{}).Run(context.Background(), "write_file", writeArgs(target, "created"))
+	if err != nil {
 		t.Fatal(err)
+	}
+	if result.Diff == nil || result.Diff.Path != "nested/file.txt" || result.Diff.OldText != "" || result.Diff.NewText != "created" {
+		t.Fatalf("create diff = %#v", result.Diff)
 	}
 	content, err := os.ReadFile(target)
 	if err != nil || string(content) != "created" {

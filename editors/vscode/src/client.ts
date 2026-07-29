@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
 
-import { protocolVersion, type IDEContext, type IDEDiff, type Request, type Response } from "./protocol.js";
+import { protocolVersion, type IDEContext, type PermissionPrompt, type Request, type Response } from "./protocol.js";
 
 export interface ManagedProcess extends EventEmitter {
   stdin: Writable;
@@ -29,8 +29,18 @@ export class ProtocolClient extends EventEmitter {
   }
 
   start(prompt: string, ideContext?: IDEContext): Promise<{ canceled: boolean }> {
-    const id = this.send({ type: "start", prompt, ide_context: ideContext });
-    return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
+    if (this.disposed) throw new Error("cyber-code client is disposed");
+    const id = String(this.nextID++);
+    const request = { version: protocolVersion, id, type: "start", prompt, ide_context: ideContext } satisfies Request;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      try {
+        this.ensureProcess().stdin.write(`${JSON.stringify(request)}\n`);
+      } catch (error) {
+        this.pending.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
   }
 
   cancel(reason?: string): string {
@@ -50,7 +60,10 @@ export class ProtocolClient extends EventEmitter {
     this.disposed = true;
     const process = this.process;
     this.process = undefined;
-    if (process) process.kill();
+    if (process) {
+      process.stdin.end();
+      process.kill();
+    }
     this.rejectPending(new Error("cyber-code client disposed"));
     this.removeAllListeners();
   }
@@ -131,9 +144,22 @@ export class ProtocolClient extends EventEmitter {
   }
 }
 
-export function applyDiff(currentText: string, diff: IDEDiff): string {
-  if (currentText !== diff.old_text) {
-    throw new Error(`diff conflict for ${diff.path}: document content changed`);
+export function permissionDetail(request: PermissionPrompt["request"]): string {
+  const target = request.paths?.[0] ?? request.network?.[0] ?? commandExecutable(request.command);
+  return [request.tool, request.action, target].filter(Boolean).join(" · ");
+}
+
+function commandExecutable(command?: string): string | undefined {
+  const trimmed = command?.trim();
+  if (!trimmed) return undefined;
+  let executable: string;
+  const quote = trimmed[0];
+  if (quote === '"' || quote === "'") {
+    const end = trimmed.indexOf(quote, 1);
+    executable = end > 1 ? trimmed.slice(1, end) : trimmed.slice(1);
+  } else {
+    executable = trimmed.split(/\s+/, 1)[0];
   }
-  return diff.new_text;
+  const normalized = executable.replaceAll("\\", "/");
+  return normalized.slice(normalized.lastIndexOf("/") + 1) || undefined;
 }

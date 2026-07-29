@@ -3,7 +3,7 @@ import path from "node:path";
 
 import * as vscode from "vscode";
 
-import { ProtocolClient, applyDiff, type ManagedProcess } from "./client.js";
+import { ProtocolClient, permissionDetail, type ManagedProcess } from "./client.js";
 import type { IDEContext, IDEDiff, PermissionPrompt, Response } from "./protocol.js";
 
 let client: ProtocolClient | undefined;
@@ -104,8 +104,7 @@ function renderEvent(response: Response): void {
 
 async function handlePermission(permission?: PermissionPrompt): Promise<void> {
   if (!permission || !client) return;
-  const request = permission.request;
-  const detail = [request.tool, request.action, request.target].filter(Boolean).join(" · ");
+  const detail = permissionDetail(permission.request);
   const choice = await vscode.window.showWarningMessage(
     `cyber-code requests permission${detail ? `: ${detail}` : ""}`,
     { modal: true },
@@ -118,40 +117,9 @@ async function handlePermission(permission?: PermissionPrompt): Promise<void> {
 
 async function handleDiff(diff?: IDEDiff): Promise<void> {
   if (!diff) return;
-  const target = resolveWorkspacePath(diff.path);
-  if (!target) {
-    void vscode.window.showErrorMessage(`cyber-code rejected diff path: ${diff.path}`);
-    return;
-  }
   const oldDocument = await vscode.workspace.openTextDocument({ content: diff.old_text, language: languageForPath(diff.path) });
   const newDocument = await vscode.workspace.openTextDocument({ content: diff.new_text, language: languageForPath(diff.path) });
-  await vscode.commands.executeCommand("vscode.diff", oldDocument.uri, newDocument.uri, `cyber-code: ${diff.path}`);
-  const choice = await vscode.window.showInformationMessage(`Apply cyber-code diff to ${diff.path}?`, { modal: true }, "Apply", "Reject");
-  if (choice !== "Apply") return;
-
-  const document = await vscode.workspace.openTextDocument(target);
-  let replacement: string;
-  try {
-    replacement = applyDiff(document.getText(), diff);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    void vscode.window.showErrorMessage(`cyber-code: ${message}`);
-    return;
-  }
-  const lastLine = document.lineAt(document.lineCount - 1);
-  const edit = new vscode.WorkspaceEdit();
-  edit.replace(target, new vscode.Range(new vscode.Position(0, 0), lastLine.rangeIncludingLineBreak.end), replacement);
-  if (!(await vscode.workspace.applyEdit(edit))) {
-    void vscode.window.showErrorMessage(`cyber-code could not apply diff to ${diff.path}`);
-  }
-}
-
-function resolveWorkspacePath(relative: string): vscode.Uri | undefined {
-  const workspace = vscode.workspace.workspaceFolders?.[0];
-  if (!workspace || path.isAbsolute(relative)) return undefined;
-  const normalized = path.posix.normalize(relative.replaceAll("\\", "/"));
-  if (normalized === ".." || normalized.startsWith("../")) return undefined;
-  return vscode.Uri.joinPath(workspace.uri, ...normalized.split("/"));
+  await vscode.commands.executeCommand("vscode.diff", oldDocument.uri, newDocument.uri, `cyber-code changed: ${diff.path}`);
 }
 
 function relativePath(uri: vscode.Uri): string {

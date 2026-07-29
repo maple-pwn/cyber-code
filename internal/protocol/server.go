@@ -47,9 +47,27 @@ func (server *Server) Serve(ctx context.Context, input io.Reader, output io.Writ
 	}
 	reader := bufio.NewReader(input)
 	responses := newConnectionOutput(output, server.codec, 64)
-	defer responses.Close()
 	connectionCtx, disconnect := context.WithCancel(ctx)
-	defer disconnect()
+	stopInputWatcher := make(chan struct{})
+	if closer, ok := input.(io.Closer); ok {
+		go func() {
+			select {
+			case <-ctx.Done():
+				_ = closer.Close()
+			case <-stopInputWatcher:
+			}
+		}()
+	}
+	defer func() {
+		close(stopInputWatcher)
+		disconnect()
+		server.cancelActive()
+		if server.permissions != nil {
+			server.permissions.Disconnect()
+		}
+		server.runs.Wait()
+		_ = responses.Close()
+	}()
 	if server.permissions != nil {
 		go server.forwardPermissions(connectionCtx, responses)
 	}
@@ -57,13 +75,10 @@ func (server *Server) Serve(ctx context.Context, input io.Reader, output io.Writ
 		var request Request
 		if err := server.codec.Decode(reader, &request); err != nil {
 			if errors.Is(err, io.EOF) {
-				server.cancelActive()
-				disconnect()
-				if server.permissions != nil {
-					server.permissions.Disconnect()
-				}
-				server.runs.Wait()
 				return nil
+			}
+			if ctx.Err() != nil {
+				return ctx.Err()
 			}
 			_ = responses.Send(Response{Type: "error", Error: err.Error()})
 			return err
@@ -74,7 +89,7 @@ func (server *Server) Serve(ctx context.Context, input io.Reader, output io.Writ
 			return ctx.Err()
 		default:
 		}
-		if err := server.handle(ctx, responses, request); err != nil {
+		if err := server.handle(connectionCtx, responses, request); err != nil {
 			_ = responses.Send(Response{ID: request.ID, Type: "error", Error: err.Error()})
 		}
 	}
@@ -102,12 +117,19 @@ func (server *Server) handle(parent context.Context, output *connectionOutput, r
 		turnCtx, cancel := context.WithCancel(parent)
 		server.cancel, server.running = cancel, true
 		server.mu.Unlock()
+		if err := output.Send(Response{ID: request.ID, Type: "accepted"}); err != nil {
+			cancel()
+			server.mu.Lock()
+			server.cancel, server.running = nil, false
+			server.mu.Unlock()
+			return err
+		}
 		server.runs.Add(1)
 		go func() {
 			defer server.runs.Done()
 			server.forwardEvents(output, request.ID, turnCtx, request.Prompt, request.IDEContext)
 		}()
-		return output.Send(Response{ID: request.ID, Type: "accepted"})
+		return nil
 	case "permission":
 		if server.permissions == nil {
 			return errors.New("permission responses are unavailable")
@@ -161,6 +183,22 @@ func (server *Server) forwardEvents(output *connectionOutput, id string, ctx con
 		events = server.runtime.Run(ctx, prompt)
 	}
 	for event := range events {
+		if event.Type == core.EventToolResult && event.ToolResult != nil && event.ToolResult.Diff != nil {
+			diff := event.ToolResult.Diff
+			response := Response{ID: id, Type: "diff", Diff: &IDEDiff{Path: diff.Path, OldText: diff.OldText, NewText: diff.NewText}}
+			if err := server.codec.Encode(io.Discard, response); err == nil {
+				if err := output.Send(response); err != nil {
+					server.cancelActive()
+					return
+				}
+			} else if !errors.Is(err, ErrMessageTooLarge) {
+				server.cancelActive()
+				return
+			}
+			result := *event.ToolResult
+			result.Diff = nil
+			event.ToolResult = &result
+		}
 		if err := output.Send(Response{ID: id, Type: "event", Event: &event}); err != nil {
 			server.cancelActive()
 			return

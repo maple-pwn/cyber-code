@@ -60,6 +60,19 @@ func TestMessageJSONRoundTripPreservesContentBlocks(t *testing.T) {
 	}
 }
 
+func TestFileDiffIsTransientRuntimeMetadata(t *testing.T) {
+	encoded, err := json.Marshal(ToolResult{
+		Content: []ContentBlock{{Type: ContentText, Text: "file written"}},
+		Diff:    &FileDiff{Path: "main.go", OldText: "old", NewText: "new"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), `"diff"`) || strings.Contains(string(encoded), `"old"`) {
+		t.Fatalf("transient diff leaked into persisted tool result: %s", encoded)
+	}
+}
+
 func TestEventJSONRoundTripToolCall(t *testing.T) {
 	want := Event{
 		Type: EventToolCall,
