@@ -157,7 +157,7 @@ func (broker *Broker) localDecision(request Request) Decision {
 
 func (broker *Broker) confirm(ctx context.Context, request Request) (Decision, error) {
 	if broker.headless || broker.confirmer == nil {
-		return Decision{Behavior: PermissionBehaviorDeny, Reason: "confirmation is unavailable"}, nil
+		return Decision{Behavior: PermissionBehaviorDeny, Reason: "confirmation is unavailable in headless mode; configure a reviewed user permission rule or explicitly use --permission-mode bypass"}, nil
 	}
 	decision, err := broker.confirmer(ctx, request)
 	if err != nil {

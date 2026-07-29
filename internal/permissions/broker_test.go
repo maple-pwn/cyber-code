@@ -90,6 +90,11 @@ func TestBrokerHeadlessAskDeniesAndInteractiveConfirmerCanAllow(t *testing.T) {
 	if decision.Behavior != PermissionBehaviorDeny {
 		t.Fatalf("headless decision = %#v", decision)
 	}
+	for _, guidance := range []string{"permission rule", "--permission-mode bypass"} {
+		if !strings.Contains(decision.Reason, guidance) {
+			t.Fatalf("headless denial lacks %q guidance: %#v", guidance, decision)
+		}
+	}
 
 	interactive, err := NewBroker(Options{Mode: PermissionModeDefault, Confirmer: func(context.Context, Request) (Decision, error) {
 		return Decision{Behavior: PermissionBehaviorAllow}, nil

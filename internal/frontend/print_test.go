@@ -25,6 +25,37 @@ func TestPrintTextOutputsOnlyAssistantText(t *testing.T) {
 	}
 }
 
+func TestPrintVerboseReportsSafeToolProgressAndCumulativeUsageToStderr(t *testing.T) {
+	runner := printTestRunner{events: []core.Event{
+		{Type: core.EventToolCall, ToolCall: &core.ToolCall{ID: "call-1", Name: "shell", Arguments: json.RawMessage(`{"command":"secret command"}`)}},
+		{Type: core.EventToolResult, ToolResult: &core.ToolResult{ToolCallID: "call-1", Content: []core.ContentBlock{{Type: core.ContentText, Text: "secret result"}}}},
+		{Type: core.EventUsage, Usage: &core.Usage{InputTokens: 10, OutputTokens: 3, CacheReadInputTokens: 2}},
+		{Type: core.EventUsage, Usage: &core.Usage{InputTokens: 2, OutputTokens: 1, CacheCreationInputTokens: 4}},
+		{Type: core.EventTextDelta, Text: "done"},
+		{Type: core.EventCompleted, FinishReason: "stop"},
+	}}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), runner, "prompt", PrintOptions{Verbose: true, Stdout: &stdout, Stderr: &stderr})
+	if code != ExitOK || stdout.String() != "done\n" {
+		t.Fatalf("code = %d, stdout = %q", code, stdout.String())
+	}
+	progress := stderr.String()
+	for _, want := range []string{
+		"[tool] shell started",
+		"[tool] shell succeeded",
+		"[usage] input=12 output=4 cache_read=2 cache_creation=4",
+	} {
+		if !strings.Contains(progress, want) {
+			t.Fatalf("verbose progress missing %q: %q", want, progress)
+		}
+	}
+	for _, secret := range []string{"secret command", "secret result"} {
+		if strings.Contains(progress, secret) {
+			t.Fatalf("verbose progress leaked %q: %q", secret, progress)
+		}
+	}
+}
+
 func TestPrintJSONEmitsOneStableObjectPerEvent(t *testing.T) {
 	runner := printTestRunner{events: []core.Event{{Type: core.EventTextDelta, Text: "hello"}, {Type: core.EventCompleted, FinishReason: "stop"}}}
 	var stdout bytes.Buffer

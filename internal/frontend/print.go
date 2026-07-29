@@ -25,9 +25,10 @@ type Runner interface {
 }
 
 type PrintOptions struct {
-	JSON   bool
-	Stdout io.Writer
-	Stderr io.Writer
+	JSON    bool
+	Verbose bool
+	Stdout  io.Writer
+	Stderr  io.Writer
 }
 
 func Run(ctx context.Context, runner Runner, prompt string, options PrintOptions) int {
@@ -56,6 +57,8 @@ func Run(ctx context.Context, runner Runner, prompt string, options PrintOptions
 	encoder := json.NewEncoder(stdout)
 	encoder.SetEscapeHTML(false)
 	wroteText := false
+	toolNames := make(map[string]string)
+	var usage core.Usage
 	for {
 		select {
 		case <-ctx.Done():
@@ -86,6 +89,9 @@ func Run(ctx context.Context, runner Runner, prompt string, options PrintOptions
 					}
 				}
 			}
+			if options.Verbose && !options.JSON {
+				writeVerboseEvent(stderr, event, toolNames, &usage)
+			}
 			if event.Type == core.EventError {
 				if event.Err == nil {
 					_, _ = fmt.Fprintln(stderr, "runtime failed")
@@ -97,6 +103,40 @@ func Run(ctx context.Context, runner Runner, prompt string, options PrintOptions
 				return exitCode(event.Err.Kind)
 			}
 		}
+	}
+}
+
+func writeVerboseEvent(output io.Writer, event core.Event, toolNames map[string]string, usage *core.Usage) {
+	switch event.Type {
+	case core.EventToolCall:
+		if event.ToolCall == nil {
+			return
+		}
+		toolNames[event.ToolCall.ID] = event.ToolCall.Name
+		_, _ = fmt.Fprintf(output, "[tool] %s started\n", event.ToolCall.Name)
+	case core.EventToolResult:
+		if event.ToolResult == nil {
+			return
+		}
+		name := toolNames[event.ToolResult.ToolCallID]
+		if name == "" {
+			name = "unknown"
+		}
+		status := "succeeded"
+		if event.ToolResult.IsError {
+			status = "failed"
+		}
+		_, _ = fmt.Fprintf(output, "[tool] %s %s\n", name, status)
+	case core.EventUsage:
+		if event.Usage == nil || usage == nil {
+			return
+		}
+		usage.InputTokens += event.Usage.InputTokens
+		usage.OutputTokens += event.Usage.OutputTokens
+		usage.CacheReadInputTokens += event.Usage.CacheReadInputTokens
+		usage.CacheCreationInputTokens += event.Usage.CacheCreationInputTokens
+		_, _ = fmt.Fprintf(output, "[usage] input=%d output=%d cache_read=%d cache_creation=%d\n",
+			usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens)
 	}
 }
 

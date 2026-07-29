@@ -100,7 +100,7 @@ func errorExitCode(err error) int {
 }
 
 func newRootCommand(environment *commandEnvironment) *cobra.Command {
-	var printMode, jsonMode bool
+	var printMode, jsonMode, verbose bool
 	var profile, permissionMode, model, cwd, resumeSession string
 	var maxTurns int
 	command := &cobra.Command{
@@ -138,7 +138,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 			prompt := strings.Join(args, " ")
 			if printMode {
 				code := frontend.Run(environment.ctx, runner, prompt, frontend.PrintOptions{
-					JSON: jsonMode, Stdout: environment.stdout, Stderr: environment.stderr,
+					JSON: jsonMode, Verbose: verbose, Stdout: environment.stdout, Stderr: environment.stderr,
 				})
 				if code != frontend.ExitOK {
 					return exitStatus{code: code}
@@ -152,6 +152,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	}
 	command.Flags().BoolVarP(&printMode, "print", "p", false, "print events without the interactive UI")
 	command.Flags().BoolVar(&jsonMode, "json", false, "emit JSON Lines in print mode")
+	command.Flags().BoolVar(&verbose, "verbose", false, "emit safe tool progress and token usage to stderr in print mode")
 	command.Flags().StringVar(&profile, "profile", "", "provider profile")
 	command.Flags().StringVar(&permissionMode, "permission-mode", "", "permission mode")
 	command.Flags().StringVarP(&model, "model", "m", "", "model override")

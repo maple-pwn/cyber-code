@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	configpkg "cyber-code/internal/config"
+	"cyber-code/internal/core"
 	"cyber-code/internal/permissions"
 	"cyber-code/internal/ui"
 )
@@ -23,6 +24,24 @@ func TestRootCommandUsesCyberCodeBrand(t *testing.T) {
 	})
 	if command.Use != "cyber-code [prompt]" {
 		t.Fatalf("root command use = %q", command.Use)
+	}
+}
+
+func TestRootPrintVerboseReportsProgressWithoutPollutingStdout(t *testing.T) {
+	runner := &commandTestRunner{events: []core.Event{
+		{Type: core.EventToolCall, ToolCall: &core.ToolCall{ID: "call-1", Name: "read_file"}},
+		{Type: core.EventToolResult, ToolResult: &core.ToolResult{ToolCallID: "call-1"}},
+		{Type: core.EventTextDelta, Text: "ok"},
+		{Type: core.EventCompleted},
+	}}
+	var stdout, stderr bytes.Buffer
+	code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &stdout, &stderr,
+		[]string{"--print", "--verbose", "inspect"}, ExecuteOptions{Runner: runner})
+	if code != 0 || stdout.String() != "ok\n" {
+		t.Fatalf("code = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "read_file started") || !strings.Contains(stderr.String(), "read_file succeeded") {
+		t.Fatalf("verbose progress = %q", stderr.String())
 	}
 }
 
