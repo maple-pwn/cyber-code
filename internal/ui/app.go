@@ -22,6 +22,11 @@ type Runner interface {
 	Run(context.Context, string) <-chan core.Event
 }
 
+// Observer exposes independent background events, such as sub-agent turns.
+type Observer interface {
+	Observe(context.Context) <-chan core.Event
+}
+
 type ModelOptions struct {
 	Width         int
 	Height        int
@@ -47,9 +52,10 @@ type ToolPresentation struct {
 }
 
 type Model struct {
-	runner Runner
-	ctx    context.Context
-	cancel context.CancelFunc
+	runner   Runner
+	observer Observer
+	ctx      context.Context
+	cancel   context.CancelFunc
 
 	Messages        []Message
 	Input           *components.InputModel
@@ -78,10 +84,17 @@ type Model struct {
 	toolIndexes     map[string]int
 	workspace       string
 	commandNames    []string
+	observation     <-chan core.Event
+	subagents       map[string]*SubagentView
 }
 
 type turnStartedMsg struct{ events <-chan core.Event }
 type runtimeEventMsg struct {
+	event core.Event
+	open  bool
+}
+type observationStartedMsg struct{ events <-chan core.Event }
+type observationEventMsg struct {
 	event core.Event
 	open  bool
 }
@@ -231,9 +244,9 @@ func NewModel(runner Runner, options ModelOptions) *Model {
 	input := components.NewInput(">", "Type your message...", options.Width)
 	input.SetVimEnabled(options.VimMode)
 	return &Model{
-		runner: runner, ctx: ctx, cancel: cancel, Messages: []Message{}, Input: input, Width: options.Width, Height: options.Height,
+		runner: runner, observer: observerForRunner(runner), ctx: ctx, cancel: cancel, Messages: []Message{}, Input: input, Width: options.Width, Height: options.Height,
 		Ready: true, assistantIndex: -1, initialPrompt: options.InitialPrompt,
-		toolIndexes: make(map[string]int), workspace: options.Workspace,
+		toolIndexes: make(map[string]int), subagents: make(map[string]*SubagentView), workspace: options.Workspace,
 		commandNames:   append([]string(nil), options.CommandNames...),
 		ProcessingView: components.NewProcessingIndicator("Working"),
 	}
@@ -242,12 +255,17 @@ func NewModel(runner Runner, options ModelOptions) *Model {
 func InitialModel() Model { return *NewModel(nil, ModelOptions{}) }
 
 func (model *Model) Init() tea.Cmd {
+	observation := startObservation(model.observer, model.ctx)
 	if strings.TrimSpace(model.initialPrompt) == "" {
-		return nil
+		return observation
 	}
 	model.Input.SetValue(model.initialPrompt)
 	model.initialPrompt = ""
-	return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
+	enter := func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
+	if observation == nil {
+		return enter
+	}
+	return tea.Batch(observation, enter)
 }
 
 func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
@@ -356,6 +374,19 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 		return model, waitForRuntimeEvent(message.events)
+	case observationStartedMsg:
+		model.observation = message.events
+		if message.events == nil {
+			return model, nil
+		}
+		return model, waitForObservationEvent(message.events)
+	case observationEventMsg:
+		if !message.open {
+			model.observation = nil
+			return model, nil
+		}
+		model.applyObservation(message.event)
+		return model, waitForObservationEvent(model.observation)
 	case runtimeEventMsg:
 		if !message.open {
 			model.finish()
@@ -520,6 +551,25 @@ func waitForRuntimeEvent(events <-chan core.Event) tea.Cmd {
 			return processingTickMsg{}
 		}
 	}
+}
+
+func startObservation(observer Observer, ctx context.Context) tea.Cmd {
+	if observer == nil {
+		return nil
+	}
+	return func() tea.Msg { return observationStartedMsg{events: observer.Observe(ctx)} }
+}
+
+func waitForObservationEvent(events <-chan core.Event) tea.Cmd {
+	return func() tea.Msg {
+		event, open := <-events
+		return observationEventMsg{event: event, open: open}
+	}
+}
+
+func observerForRunner(runner Runner) Observer {
+	observer, _ := runner.(Observer)
+	return observer
 }
 
 func (model *Model) applyEvent(event core.Event) bool {
