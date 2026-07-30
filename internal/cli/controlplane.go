@@ -23,6 +23,7 @@ import (
 	"cyber-code/internal/permissions"
 	runtimepkg "cyber-code/internal/runtime"
 	"cyber-code/internal/skill"
+	"cyber-code/internal/tasks"
 )
 
 type gitWorkflow interface {
@@ -50,6 +51,7 @@ type ControlActions struct {
 	ClearHistory           func(context.Context) error
 	SetVimMode             func(bool) error
 	CreateBugReport        func(context.Context, string) (string, error)
+	TaskSnapshots          func() []tasks.Snapshot
 }
 
 func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model string, mode permissions.PermissionMode, hooksRunner *hooks.Runner, skills []skill.Skill, contextBuilder *contextbuilder.Builder, mcpManager mcpControl, git *gitworkflow.Service, actions ControlActions) (*controlplane.Registry, error) {
@@ -107,8 +109,11 @@ func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model
 	}}); err != nil {
 		return nil, err
 	}
-	if err := register(controlplane.Spec{Name: "tasks", Usage: "/tasks", Description: "show task service status", Handler: func(_ context.Context, _ controlplane.Invocation) ([]core.Event, error) {
-		return controlplane.TextEvents("tasks: enabled"), nil
+	if err := register(controlplane.Spec{Name: "tasks", Usage: "/tasks", Description: "show sub-agent tasks", Handler: func(_ context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
+		if len(invocation.Args) != 0 {
+			return nil, fmt.Errorf("/tasks does not accept arguments")
+		}
+		return controlplane.TextEvents(formatTaskSnapshots(actions.TaskSnapshots)), nil
 	}}); err != nil {
 		return nil, err
 	}
@@ -295,6 +300,46 @@ func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model
 		return nil, err
 	}
 	return registry, nil
+}
+
+func formatTaskSnapshots(snapshot func() []tasks.Snapshot) string {
+	if snapshot == nil {
+		return "tasks: none"
+	}
+	entries := append([]tasks.Snapshot(nil), snapshot()...)
+	if len(entries) == 0 {
+		return "tasks: none"
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].ID < entries[j].ID })
+	lines := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		tokens := entry.Usage.InputTokens + entry.Usage.OutputTokens + entry.Usage.CacheReadInputTokens + entry.Usage.CacheCreationInputTokens
+		parts := []string{boundedTaskText(entry.ID, 80), string(entry.Status)}
+		if entry.Agent != "" {
+			parts = append(parts, "agent: "+boundedTaskText(entry.Agent, 80))
+		}
+		if entry.Description != "" {
+			parts = append(parts, boundedTaskText(entry.Description, 160))
+		}
+		parts = append(parts, fmt.Sprintf("tokens: %d", tokens))
+		if entry.RecentTool != "" {
+			parts = append(parts, "tool: "+boundedTaskText(entry.RecentTool, 80))
+		}
+		if entry.Truncated {
+			parts = append(parts, "warning: truncated")
+		}
+		lines = append(lines, strings.Join(parts, " | "))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func boundedTaskText(value string, maximum int) string {
+	value = strings.Join(strings.Fields(value), " ")
+	runes := []rune(value)
+	if len(runes) <= maximum {
+		return value
+	}
+	return string(runes[:maximum-3]) + "..."
 }
 
 func parseMCPControlAdd(args []string, workspace string) (mcpEntry, mcp.ServerConfig, error) {

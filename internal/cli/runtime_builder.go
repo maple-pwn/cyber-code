@@ -252,6 +252,7 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 		InitializeInstructions: newInstructionInitializer(workspace),
 		EffectiveConfig:        func() configpkg.Config { return *loaded },
 		UsageSnapshot:          built.UsageSnapshot,
+		TaskSnapshots:          taskService.Snapshots,
 		HistoryCount:           func() int { return len(built.History()) },
 		ClearHistory: func(ctx context.Context) error {
 			if err := built.ClearHistory(ctx); err != nil {

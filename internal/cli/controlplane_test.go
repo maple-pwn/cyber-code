@@ -13,7 +13,35 @@ import (
 	"cyber-code/internal/core"
 	"cyber-code/internal/mcp"
 	"cyber-code/internal/permissions"
+	"cyber-code/internal/tasks"
 )
+
+func TestControlPlaneTasksReportsLiveSnapshots(t *testing.T) {
+	registry := testControlPlane(t, ControlActions{TaskSnapshots: func() []tasks.Snapshot {
+		return []tasks.Snapshot{
+			{ID: "task-a", Agent: "reviewer", Description: "review changes", Status: tasks.TaskStatusRunning, Usage: core.Usage{InputTokens: 10, OutputTokens: 3}, RecentTool: "read_file"},
+			{ID: "task-b", Description: "run tests", Status: tasks.TaskStatusFailed, Usage: core.Usage{InputTokens: 4, OutputTokens: 2, CacheReadInputTokens: 1}, Truncated: true},
+		}
+	}})
+	events, err := registry.Dispatch(context.Background(), "/tasks")
+	text := controlEventText(events)
+	for _, want := range []string{"task-a", "reviewer", "running", "review changes", "tokens: 13", "read_file", "task-b", "failed", "run tests", "tokens: 7", "truncated"} {
+		if err != nil || !strings.Contains(text, want) {
+			t.Fatalf("tasks missing %q: text=%q error=%v", want, text, err)
+		}
+	}
+	if _, err := registry.Dispatch(context.Background(), "/tasks extra"); err == nil {
+		t.Fatal("/tasks accepted arguments")
+	}
+}
+
+func TestControlPlaneTasksReportsNone(t *testing.T) {
+	registry := testControlPlane(t, ControlActions{TaskSnapshots: func() []tasks.Snapshot { return nil }})
+	events, err := registry.Dispatch(context.Background(), "/tasks")
+	if err != nil || controlEventText(events) != "tasks: none" {
+		t.Fatalf("events=%#v error=%v", events, err)
+	}
+}
 
 func TestRegisterGitCommandsDispatchesBoundedWorkflows(t *testing.T) {
 	registry := controlplane.NewRegistry()

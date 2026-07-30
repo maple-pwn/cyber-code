@@ -111,6 +111,7 @@ Compact 示例：
 /init
 /cost
 /stats
+/tasks
 /clear
 /vim [on|off|toggle]
 /config
@@ -119,7 +120,7 @@ Compact 示例：
 /branch CHECKPOINT_ID SESSION_ID
 ```
 
-`/init` 以独占创建方式生成根目录 `CYBER.md`，已有普通文件或符号链接时均拒绝覆盖。`/cost` 和 `/stats` 读取 Runtime 的累计 usage；恢复会话时会从 canonical usage 事件重建统计。`/clear` 同步清空 Runtime 历史、持久快照和当前 TUI 展示，但保留累计用量。`/vim` 只在交互式 TUI 中改变当前输入模式。`/config` 只显示生效配置和凭证环境变量名；持久修改仍通过 `cyber-code config` 子命令完成。
+`/init` 以独占创建方式生成根目录 `CYBER.md`，已有普通文件或符号链接时均拒绝覆盖。`/cost` 和 `/stats` 读取 Runtime 的累计 usage；恢复会话时会从 canonical usage 事件重建统计。`/tasks` 显示当前与已完成子 Agent 的状态、描述、Token 总量、最近工具和输出截断提示。`/clear` 同步清空 Runtime 历史、持久快照和当前 TUI 展示，但保留累计用量。`/vim` 只在交互式 TUI 中改变当前输入模式。`/config` 只显示生效配置和凭证环境变量名；持久修改仍通过 `cyber-code config` 子命令完成。
 
 `/rewind` 只回退会话对话历史，不覆盖工作区文件；它会追加一条审计性 warning 事件并写入新快照。`/branch` 创建独立 session，继承 checkpoint 历史，事件序列从分支重新开始，并登记到 `sessions` 索引。工作区文件恢复需要后续显式确认和摘要冲突检查。
 
