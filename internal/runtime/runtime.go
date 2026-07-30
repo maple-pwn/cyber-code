@@ -21,9 +21,10 @@ import (
 type Runtime struct {
 	engine *agent.Engine
 
-	rootCtx context.Context
-	cancel  context.CancelFunc
-	closers []io.Closer
+	rootCtx      context.Context
+	cancel       context.CancelFunc
+	closers      []io.Closer
+	observations []ObservationSource
 
 	mu        sync.Mutex
 	closed    bool
@@ -39,6 +40,12 @@ type Runtime struct {
 	shutdownOnce sync.Once
 	shutdownDone chan struct{}
 	shutdownErr  error
+}
+
+// ObservationSource exposes provider-independent background events owned by a
+// runtime service. Each Runtime.Observe call creates a fresh subscription.
+type ObservationSource interface {
+	Observe(context.Context) <-chan core.Event
 }
 
 type persistentSession struct {
@@ -120,6 +127,12 @@ func newRuntime(modelProvider provider.Provider, options agent.Options, persiste
 		closers = append(closers, closer)
 	}
 	closers = append(closers, services...)
+	observations := make([]ObservationSource, 0, len(services))
+	for _, service := range services {
+		if source, ok := service.(ObservationSource); ok && source != nil {
+			observations = append(observations, source)
+		}
+	}
 	turn := make(chan struct{}, 1)
 	turn <- struct{}{}
 	return &Runtime{
@@ -127,12 +140,73 @@ func newRuntime(modelProvider provider.Provider, options agent.Options, persiste
 		rootCtx:      rootCtx,
 		cancel:       cancel,
 		closers:      closers,
+		observations: observations,
 		turn:         turn,
 		session:      persisted,
 		hooks:        options.Hooks,
 		sessionID:    options.SessionID,
 		shutdownDone: make(chan struct{}),
 	}
+}
+
+// Observe returns an independent merged stream of owned background events.
+// Unlike Run, this stream is not tied to a parent model turn and remains
+// available while background tasks continue running.
+func (r *Runtime) Observe(ctx context.Context) <-chan core.Event {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if r == nil {
+		return closedObservationEvents()
+	}
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return closedObservationEvents()
+	}
+	sources := append([]ObservationSource(nil), r.observations...)
+	rootCtx := r.rootCtx
+	r.mu.Unlock()
+	if len(sources) == 0 {
+		return closedObservationEvents()
+	}
+
+	observeCtx, cancel := context.WithCancel(ctx)
+	stopRootCancellation := context.AfterFunc(rootCtx, cancel)
+	output := make(chan core.Event)
+	var wait sync.WaitGroup
+	for _, source := range sources {
+		stream := source.Observe(observeCtx)
+		if stream == nil {
+			continue
+		}
+		wait.Add(1)
+		go func(stream <-chan core.Event) {
+			defer wait.Done()
+			for {
+				select {
+				case event, open := <-stream:
+					if !open {
+						return
+					}
+					select {
+					case output <- event:
+					case <-observeCtx.Done():
+						return
+					}
+				case <-observeCtx.Done():
+					return
+				}
+			}
+		}(stream)
+	}
+	go func() {
+		wait.Wait()
+		stopRootCancellation()
+		cancel()
+		close(output)
+	}()
+	return output
 }
 
 // AttachControlPlane installs the command registry shared by CLI, TUI and
@@ -585,6 +659,12 @@ func closedRuntimeEvents() <-chan core.Event {
 		Op:      "runtime.run",
 		Message: "runtime is shut down",
 	}}
+	close(events)
+	return events
+}
+
+func closedObservationEvents() <-chan core.Event {
+	events := make(chan core.Event)
 	close(events)
 	return events
 }

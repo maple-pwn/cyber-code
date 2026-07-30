@@ -49,6 +49,103 @@ func TestShutdownCancelsRunsBeforeClosingServices(t *testing.T) {
 	}
 }
 
+func TestRuntimeObserveForwardsOwnedTaskEventsAfterParentRun(t *testing.T) {
+	service := newObservableRuntimeService()
+	runtime := New(&completedProvider{events: []core.Event{{Type: core.EventCompleted, FinishReason: "stop"}}}, agent.Options{Model: "test"}, service)
+	defer runtime.Shutdown(context.Background())
+	collectRuntimeEvents(t, runtime.Run(context.Background(), "parent"))
+
+	observations := runtime.Observe(context.Background())
+	want := core.Event{Type: core.EventSubagentEvent, Subagent: &core.SubagentEvent{TaskID: "task-1"}}
+	service.publish(want)
+	select {
+	case got := <-observations:
+		if got.Type != want.Type || got.Subagent == nil || got.Subagent.TaskID != "task-1" {
+			t.Fatalf("observation = %#v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runtime observation did not forward child event")
+	}
+}
+
+func TestRuntimeObserveHasIndependentSubscribersAndClosesOnCancel(t *testing.T) {
+	service := newObservableRuntimeService()
+	runtime := New(&completedProvider{events: []core.Event{{Type: core.EventCompleted, FinishReason: "stop"}}}, agent.Options{}, service)
+	defer runtime.Shutdown(context.Background())
+	first := runtime.Observe(context.Background())
+	second := runtime.Observe(context.Background())
+	want := core.Event{Type: core.EventSubagentStatus, Subagent: &core.SubagentEvent{TaskID: "task-2", Status: "running"}}
+	service.publish(want)
+	for index, stream := range []<-chan core.Event{first, second} {
+		select {
+		case got := <-stream:
+			if got.Subagent == nil || got.Subagent.TaskID != want.Subagent.TaskID {
+				t.Fatalf("subscriber %d got %#v", index, got)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("subscriber %d did not receive event", index)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	third := runtime.Observe(ctx)
+	cancel()
+	select {
+	case _, open := <-third:
+		if open {
+			t.Fatal("canceled runtime observation remains open")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("canceled runtime observation did not close")
+	}
+}
+
+type observableRuntimeService struct {
+	mu   sync.Mutex
+	open map[int]chan core.Event
+	next int
+}
+
+func newObservableRuntimeService() *observableRuntimeService {
+	return &observableRuntimeService{open: make(map[int]chan core.Event)}
+}
+
+func (service *observableRuntimeService) Observe(ctx context.Context) <-chan core.Event {
+	stream := make(chan core.Event, 2)
+	service.mu.Lock()
+	id := service.next
+	service.next++
+	service.open[id] = stream
+	service.mu.Unlock()
+	go func() {
+		<-ctx.Done()
+		service.mu.Lock()
+		if current, ok := service.open[id]; ok {
+			delete(service.open, id)
+			close(current)
+		}
+		service.mu.Unlock()
+	}()
+	return stream
+}
+
+func (service *observableRuntimeService) publish(event core.Event) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	for _, stream := range service.open {
+		stream <- event
+	}
+}
+
+func (service *observableRuntimeService) Close() error {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	for id, stream := range service.open {
+		delete(service.open, id)
+		close(stream)
+	}
+	return nil
+}
+
 func TestShutdownCancelsOwnedBackgroundTasks(t *testing.T) {
 	registry := tasks.NewRegistry()
 	executor := tasks.NewExecutor(registry)
