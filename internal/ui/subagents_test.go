@@ -2,10 +2,72 @@ package ui
 
 import (
 	"context"
+	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
+
 	"cyber-code/internal/core"
+	"cyber-code/internal/ui/components"
 )
+
+func TestSubagentNavigationSwitchesFullViewportAndRestoresScroll(t *testing.T) {
+	model := NewModel(&uiTestRunner{}, ModelOptions{Width: 80, Height: 14})
+	model.Messages = []Message{{Role: "assistant", Content: "parent transcript"}}
+	for _, observation := range []core.Event{
+		{Type: core.EventSubagentStarted, Subagent: &core.SubagentEvent{TaskID: "task-b", Description: "second child", Status: "running"}},
+		{Type: core.EventSubagentEvent, Subagent: &core.SubagentEvent{TaskID: "task-b", Event: &core.Event{Type: core.EventTextDelta, Text: "second output"}}},
+		{Type: core.EventSubagentStarted, Subagent: &core.SubagentEvent{TaskID: "task-a", Description: "first child", Status: "completed"}},
+		{Type: core.EventSubagentEvent, Subagent: &core.SubagentEvent{TaskID: "task-a", Event: &core.Event{Type: core.EventTextDelta, Text: "first output"}}},
+	} {
+		model.applyObservation(observation)
+	}
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	model = updated.(*Model)
+	if !model.showTaskList || model.taskList == nil {
+		t.Fatal("Ctrl+T did not open the task list")
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(*Model)
+	if model.activeSubagent != "task-a" || model.showTaskList {
+		t.Fatalf("entered task = %q, list=%t", model.activeSubagent, model.showTaskList)
+	}
+	view := model.View()
+	plain := ansi.Strip(view)
+	if !strings.Contains(plain, "first child") || !strings.Contains(plain, "first output") || strings.Contains(plain, "parent transcript") || strings.Contains(plain, "second output") {
+		t.Fatalf("child viewport = %q", view)
+	}
+	model.subagents["task-a"].ScrollOffset = 3
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{']'}})
+	model = updated.(*Model)
+	if model.activeSubagent != "task-b" {
+		t.Fatalf("] selected %q", model.activeSubagent)
+	}
+	model.subagents["task-b"].ScrollOffset = 1
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'['}})
+	model = updated.(*Model)
+	if model.activeSubagent != "task-a" || model.subagents["task-a"].ScrollOffset != 3 || model.subagents["task-b"].ScrollOffset != 1 {
+		t.Fatalf("independent scroll state was lost: a=%d b=%d", model.subagents["task-a"].ScrollOffset, model.subagents["task-b"].ScrollOffset)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(*Model)
+	if model.activeSubagent != "" || !strings.Contains(ansi.Strip(model.View()), "parent transcript") {
+		t.Fatalf("Esc did not return to parent: active=%q view=%q", model.activeSubagent, model.View())
+	}
+}
+
+func TestSubagentNavigationKeepsPermissionDialogPriority(t *testing.T) {
+	model := NewModel(&uiTestRunner{}, ModelOptions{})
+	model.applyObservation(core.Event{Type: core.EventSubagentStarted, Subagent: &core.SubagentEvent{TaskID: "task-1", Status: "running"}})
+	model.Permission = components.NewPermissionDialog("shell", "run command")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	model = updated.(*Model)
+	if model.showTaskList || model.activeSubagent != "" {
+		t.Fatal("task navigation bypassed permission dialog")
+	}
+}
 
 func TestModelStartsObservationAndRoutesChildEventsByTask(t *testing.T) {
 	runner := newObservableUIRunner()

@@ -3,8 +3,15 @@ package ui
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"cyber-code/internal/core"
+	"cyber-code/internal/product"
+	"cyber-code/internal/ui/components"
 )
 
 const (
@@ -64,6 +71,149 @@ func (model *Model) applyObservation(event core.Event) {
 	if event.Type == core.EventSubagentEvent && payload.Event != nil {
 		view.applyEvent(*payload.Event, payload.Usage == nil)
 	}
+	if model.showTaskList {
+		model.syncTaskList()
+	}
+}
+
+func (model *Model) handleSubagentNavigation(key tea.KeyMsg) bool {
+	if key.Type == tea.KeyCtrlC {
+		return false
+	}
+	if key.Type == tea.KeyCtrlT {
+		if model.activeSubagent != "" || model.showTaskList {
+			model.activeSubagent = ""
+			model.showTaskList = false
+		} else {
+			model.syncTaskList()
+			model.showTaskList = true
+		}
+		return true
+	}
+	if key.Type == tea.KeyEsc && (model.activeSubagent != "" || model.showTaskList) {
+		model.activeSubagent = ""
+		model.showTaskList = false
+		return true
+	}
+	if model.showTaskList {
+		if key.Type == tea.KeyEnter {
+			if selected, ok := model.taskList.Selected(); ok {
+				model.activeSubagent = selected.ID
+				model.showTaskList = false
+			}
+			return true
+		}
+		model.taskList.Update(key)
+		return true
+	}
+	if model.activeSubagent == "" {
+		return false
+	}
+	if key.Type == tea.KeyPgUp {
+		model.scrollBy(model.pageSize())
+		return true
+	}
+	if key.Type == tea.KeyPgDown {
+		model.scrollBy(-model.pageSize())
+		return true
+	}
+	if key.Type == tea.KeyRunes && len(key.Runes) == 1 {
+		switch key.Runes[0] {
+		case '[':
+			model.switchSubagent(-1)
+		case ']':
+			model.switchSubagent(1)
+		}
+	}
+	return true
+}
+
+func (model *Model) syncTaskList() {
+	entries := make([]components.TaskListEntry, 0, len(model.subagents))
+	for _, view := range model.subagents {
+		entries = append(entries, components.TaskListEntry{
+			ID: view.TaskID, Agent: view.Agent, Description: view.Description, Status: view.Status,
+			Usage: view.Usage, RecentTool: view.RecentTool, Truncated: view.Truncated,
+		})
+	}
+	model.taskList.SetEntries(entries)
+}
+
+func (model *Model) orderedSubagentIDs() []string {
+	ids := make([]string, 0, len(model.subagents))
+	for id := range model.subagents {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func (model *Model) switchSubagent(delta int) {
+	ids := model.orderedSubagentIDs()
+	if len(ids) == 0 {
+		model.activeSubagent = ""
+		return
+	}
+	index := sort.SearchStrings(ids, model.activeSubagent)
+	if index >= len(ids) || ids[index] != model.activeSubagent {
+		index = 0
+	}
+	index = (index + delta + len(ids)) % len(ids)
+	model.activeSubagent = ids[index]
+}
+
+func (model *Model) renderTaskListView() string {
+	width, height := max(20, model.Width), max(6, model.Height)
+	header := []string{product.Name + " / tasks", "Ctrl+T or Esc: parent  Enter: open  Up/Down: select"}
+	footer := append([]string{strings.Repeat("-", width)}, displayLines(model.Input.View())...)
+	available := max(1, height-len(header)-len(footer))
+	middle := displayLines(model.taskList.View(width, available))
+	return strings.Join(append(append(header, middle...), footer...), "\n")
+}
+
+func (model *Model) renderSubagentView(view *SubagentView) string {
+	width, height := max(20, model.Width), max(6, model.Height)
+	tokens := view.Usage.InputTokens + view.Usage.OutputTokens + view.Usage.CacheReadInputTokens + view.Usage.CacheCreationInputTokens
+	title := view.Description
+	if title == "" {
+		title = view.Agent
+	}
+	if title == "" {
+		title = "sub-agent"
+	}
+	header := []string{
+		ansi.Truncate(fmt.Sprintf("%s / %s", product.Name, title), width, ""),
+		ansi.Truncate(fmt.Sprintf("%s  status=%s  tokens=%d  Ctrl+T/Esc parent  [/] switch", view.TaskID, view.Status, tokens), width, ""),
+	}
+	middle := view.renderScrollableContent(width)
+	overlays := model.modalOverlayLines()
+	footer := append([]string{strings.Repeat("-", width)}, displayLines(model.Input.View())...)
+	available := max(0, height-len(header)-len(footer)-len(overlays))
+	if view.ScrollOffset > 0 && len(middle) > available {
+		available = max(0, available-1)
+		view.ScrollOffset = min(view.ScrollOffset, max(0, len(middle)-available))
+		overlays = append([]string{fmt.Sprintf("up: scrolled %d lines", view.ScrollOffset)}, overlays...)
+	} else {
+		view.ScrollOffset = 0
+	}
+	view.ScrollOffset = min(view.ScrollOffset, max(0, len(middle)-available))
+	middle = viewportLines(middle, available, view.ScrollOffset)
+	middle = append(middle, overlays...)
+	return strings.Join(append(append(header, middle...), footer...), "\n")
+}
+
+func (model *Model) modalOverlayLines() []string {
+	var overlays []string
+	if model.Permission != nil {
+		overlays = append(overlays, displayLines(model.Permission.View())...)
+	}
+	if model.QuestionSelect != nil {
+		overlays = append(overlays, displayLines(model.QuestionSelect.View())...)
+	}
+	if model.QuestionInput != nil {
+		overlays = append(overlays, displayLines(model.QuestionInput.View())...)
+	}
+	return overlays
 }
 
 func (view *SubagentView) applyEvent(event core.Event, accumulateUsage bool) {

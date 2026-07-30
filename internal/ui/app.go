@@ -86,6 +86,9 @@ type Model struct {
 	commandNames    []string
 	observation     <-chan core.Event
 	subagents       map[string]*SubagentView
+	activeSubagent  string
+	showTaskList    bool
+	taskList        *components.TaskListModel
 }
 
 type turnStartedMsg struct{ events <-chan core.Event }
@@ -249,6 +252,7 @@ func NewModel(runner Runner, options ModelOptions) *Model {
 		toolIndexes: make(map[string]int), subagents: make(map[string]*SubagentView), workspace: options.Workspace,
 		commandNames:   append([]string(nil), options.CommandNames...),
 		ProcessingView: components.NewProcessingIndicator("Working"),
+		taskList:       components.NewTaskList(),
 	}
 }
 
@@ -282,6 +286,9 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if model.Permission != nil {
 			return model.updatePermission(message)
+		}
+		if model.handleSubagentNavigation(message) {
+			return model, nil
 		}
 		switch message.Type {
 		case tea.KeyCtrlC:
@@ -493,6 +500,10 @@ func (model *Model) closeCompletions() {
 func (model *Model) pageSize() int { return max(1, model.Height-5) }
 
 func (model *Model) scrollBy(delta int) {
+	if view := model.subagents[model.activeSubagent]; view != nil {
+		view.ScrollOffset = max(0, view.ScrollOffset+delta)
+		return
+	}
 	model.ScrollOffset = max(0, model.ScrollOffset+delta)
 }
 
@@ -710,6 +721,12 @@ func (model *Model) AddMessage(role, content string) {
 func (model *Model) View() string {
 	if !model.Ready {
 		return "Initializing..."
+	}
+	if model.showTaskList {
+		return model.renderTaskListView()
+	}
+	if view := model.subagents[model.activeSubagent]; view != nil {
+		return model.renderSubagentView(view)
 	}
 	width, height := max(20, model.Width), max(6, model.Height)
 	header := []string{product.Name, strings.Repeat("-", width)}
