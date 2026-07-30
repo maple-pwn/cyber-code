@@ -17,7 +17,7 @@
 | Compact、Context Pipeline、Memory | implemented | control plane 与 context 测试 |
 | MCP HTTP/stdio、重连、幂等重试 | implemented | `internal/mcp` 测试 |
 | MCP OAuth/token 生命周期 | partial | 私有存储、过期刷新、CLI 和运行时接线已实现；浏览器授权发现/回调仍由外部宿主提供 |
-| 插件、LSP、Hooks、Tasks/子 Agent | implemented | 各模块测试与集成测试 |
+| 插件、LSP、Hooks、Tasks/子 Agent | implemented | 子 Agent canonical 事件桥接、独立 Runtime 观察流、全屏 TUI 切换和 `/tasks` 快照；OpenAI-compatible/Anthropic 工具循环集成测试 |
 | Claude-compatible 插件市场 | implemented | 本地/HTTPS Git catalog、固定 revision/digest、公开仓库 smoke |
 | Linux sandbox | partial | bubblewrap 强隔离；缺失时 best-effort 降级 |
 | Windows sandbox | partial | Job Object 进程树回收；`required` 对完整边界 fail-closed |
