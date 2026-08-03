@@ -102,18 +102,34 @@ describe('workflow components', () => {
     expect(onTabChange).toHaveBeenCalledWith('evidence');
   });
 
-  test('shows normalized approval fields and requires a deliberate keyboard chord', async () => {
+  test('requires parameter review before allow and resets when the challenge changes', async () => {
     const onApprovalDecision = vi.fn();
-    render(<ApprovalCard approval={approval} t={t} onApprovalDecision={onApprovalDecision} />);
+    const { rerender } = render(<ApprovalCard approval={approval} t={t} onApprovalDecision={onApprovalDecision} />);
 
     expect(screen.getByText('approval-1')).toBeInTheDocument();
     expect(screen.getByText('sha256:abc')).toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Allow once' })).not.toBeInTheDocument();
     screen.getByRole('article').focus();
     await userEvent.keyboard('{Control>}{Enter}{/Control}');
+    expect(onApprovalDecision).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Review parameters' }));
+    expect(screen.getByRole('button', { name: 'Confirm allow once' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm allow once' }));
     expect(onApprovalDecision).toHaveBeenCalledWith('approval-1', 'allow_once');
+
+    rerender(<ApprovalCard approval={{ ...approval, parameterDigest: 'sha256:changed' }} t={t} onApprovalDecision={onApprovalDecision} />);
+    expect(screen.queryByRole('button', { name: 'Confirm allow once' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Deny' }));
     expect(onApprovalDecision).toHaveBeenCalledWith('approval-1', 'deny');
+  });
+
+  test('does not enter approval review while writes are disabled', async () => {
+    render(<ApprovalCard approval={approval} t={t} disabled onApprovalDecision={vi.fn()} />);
+    const review = screen.getByRole('button', { name: 'Review parameters' });
+    expect(review).toBeDisabled();
+    await userEvent.click(review);
+    expect(screen.queryByRole('button', { name: 'Confirm allow once' })).not.toBeInTheDocument();
   });
 
   test('shows immutable raw Evidence in a focus-restoring dialog', async () => {

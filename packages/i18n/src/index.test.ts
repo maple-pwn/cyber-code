@@ -29,6 +29,13 @@ describe('i18n', () => {
     expect(createTranslator().t('approval.allowOnce')).toBe('仅允许一次');
   });
 
+  test('translates the reviewed approval flow in both locales', () => {
+    expect(createTranslator('en').t('approval.review')).toBe('Review parameters');
+    expect(createTranslator('en').t('approval.confirmAllowOnce')).toBe('Confirm allow once');
+    expect(createTranslator('zh-CN').t('approval.review')).toBe('复核参数');
+    expect(createTranslator('zh-CN').t('approval.confirmAllowOnce')).toBe('确认仅允许一次');
+  });
+
   test('defines required security terminology in both locales', () => {
     expect(Object.keys(TERMINOLOGY)).toEqual(expect.arrayContaining([
       'Finding', 'Evidence', 'Scope', 'Runtime', 'Agent', 'CVSS',

@@ -22,6 +22,14 @@
 .cyber-definition-grid dd { margin: var(--cyber-space-1) 0 0; font-family: var(--cyber-font-mono); }
 .cyber-actions { justify-content: flex-start; margin-top: var(--cyber-space-4); }
 .cyber-actions button, .cyber-banner button { min-height: var(--cyber-control-height); }
+.cyber-approval { border-color: rgb(237 199 110 / 40%); border-radius: 20px; background: rgb(57 44 23 / 64%); }
+.cyber-approval-header { align-items: flex-start !important; }
+.cyber-approval-header h3 { margin: var(--cyber-space-1) 0 0; font-size: 1rem; }
+.cyber-approval-header time { color: var(--cyber-muted); font-family: var(--cyber-font-mono); font-size: .75rem; }
+.cyber-approval-risk { color: var(--cyber-pending); font-size: .72rem; font-weight: 700; text-transform: uppercase; }
+.cyber-approval-summary { color: var(--cyber-muted); }
+.cyber-approval .cyber-actions { justify-content: flex-end; }
+.cyber-primary-action { border-color: var(--cyber-running); background: var(--cyber-running); color: #10201c; font-weight: 700; }
 .cyber-narrative ol { list-style: none; padding: 0; }
 .cyber-narrative li { display: grid; grid-template-columns: minmax(180px, auto) 1fr; gap: var(--cyber-space-3); padding: var(--cyber-space-2) 0; border-bottom: 1px solid var(--cyber-border); }
 .cyber-inspector [role="tablist"] { display: flex; gap: var(--cyber-space-1); border-bottom: 1px solid var(--cyber-border); }
