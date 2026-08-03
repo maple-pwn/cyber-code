@@ -92,7 +92,14 @@ importers:
         specifier: workspace:*
         version: link:../protocol
 
-  packages/scenario-player: {}
+  packages/scenario-player:
+    dependencies:
+      '@cyber/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@cyber/runtime-client':
+        specifier: workspace:*
+        version: link:../runtime-client
 
   packages/ui:
     dependencies:

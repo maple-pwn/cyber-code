@@ -7,5 +7,9 @@
   "scripts": {
     "build": "tsc -b --pretty false",
     "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@cyber/protocol": "workspace:*",
+    "@cyber/runtime-client": "workspace:*"
   }
 }
