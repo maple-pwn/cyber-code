@@ -37,6 +37,8 @@ describe('Forensic Noir tokens', () => {
       '--cyber-radius-shell', '--cyber-radius-panel', '--cyber-motion-snap',
     ]) expect(css).toContain(token);
     expect(css).toContain('@supports not ((backdrop-filter: blur(1px))');
+    expect(css).toContain('.no-backdrop-filter .cyber-glass');
+    expect(css).toContain('rgb(18 24 29 / 96%)');
     expect(css).toContain('color-scheme: dark');
   });
 

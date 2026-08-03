@@ -156,14 +156,16 @@ describe('workflow components', () => {
     const onApprovalDecision = vi.fn();
     const { rerender } = render(<ApprovalCard approval={approval} t={t} onApprovalDecision={onApprovalDecision} />);
 
-    expect(screen.getByText('approval-1')).toBeInTheDocument();
-    expect(screen.getByText('sha256:abc')).toBeInTheDocument();
+    expect(screen.queryByText('approval-1')).not.toBeInTheDocument();
+    expect(screen.queryByText('sha256:abc')).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Allow once' })).not.toBeInTheDocument();
     screen.getByRole('article').focus();
     await userEvent.keyboard('{Control>}{Enter}{/Control}');
     expect(onApprovalDecision).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole('button', { name: 'Review parameters' }));
+    expect(screen.getByText('approval-1')).toBeInTheDocument();
+    expect(screen.getByText('sha256:abc')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Confirm allow once' })).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Confirm allow once' }));
     expect(onApprovalDecision).toHaveBeenCalledWith('approval-1', 'allow_once');

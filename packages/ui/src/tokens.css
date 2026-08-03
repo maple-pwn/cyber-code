@@ -120,6 +120,17 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
 .cyber-status-danger { color: var(--cyber-danger); }
 .cyber-status-info { color: var(--cyber-info); }
 
+.no-backdrop-filter .cyber-glass,
+.no-backdrop-filter .cyber-panel,
+.no-backdrop-filter .cyber-banner,
+.no-backdrop-filter .cyber-inspector,
+.no-backdrop-filter .cyber-narrative,
+.no-backdrop-filter .cyber-report-editor {
+  background: rgb(18 24 29 / 96%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .cyber-glass,
   .cyber-panel,

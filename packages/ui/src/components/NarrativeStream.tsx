@@ -8,7 +8,7 @@ export function NarrativeStream({ events, t }: NarrativeStreamProps) {
     <h2 id="narrative-title">{t.t('mission.timeline')}</h2>
     {events.length === 0
       ? <p>{t.t('mission.empty')}</p>
-      : <ol aria-live="polite">
+      : <ol aria-label={t.t('mission.timeline')} aria-live="polite" tabIndex={0}>
           {events.map((event) => <li key={event.eventId}>
             <i className="cyber-event-marker" aria-hidden="true" />
             <div><strong>{event.type}</strong><span className="cyber-event-source">{event.source.agentId ?? event.source.runtimeId} · cursor {event.cursor}</span></div>

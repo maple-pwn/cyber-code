@@ -38,12 +38,12 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .runtime-choice span { display: grid; gap: 4px; }
 .runtime-choice small { color: var(--cyber-muted); font-family: var(--cyber-font-mono); }
 .page-new-task form > button { justify-self: end; min-width: 130px; border-color: var(--cyber-running); background: var(--cyber-running); color: #10201c; font-weight: 700; }
-.page-scope-review { display: grid; gap: 12px; }
-.scope-runtime-context { width: max-content; max-width: 100%; margin: 0; padding: 7px 10px; border-radius: 10px; background: rgb(255 255 255 / 4%); color: var(--cyber-muted); }
+.page-scope-review { min-width: 0; display: grid; gap: 12px; }
+.scope-runtime-context { min-width: 0; width: 100%; margin: 0; overflow-wrap: anywhere; padding: 7px 10px; border-radius: 10px; background: rgb(255 255 255 / 4%); color: var(--cyber-muted); }
 .scope-runtime-context strong { color: var(--cyber-text); }
 .page-mission { width: 100%; max-width: none; }
-.mission-canvas { position: relative; min-height: calc(100vh - 98px); overflow: hidden; border-radius: var(--cyber-radius-shell); }
-.mission-command-deck { position: relative; z-index: 2; min-height: calc(100vh - 98px); display: grid; grid-template-columns: minmax(0, 1fr) minmax(290px, 350px); grid-template-rows: auto minmax(0, 1fr); gap: 12px; padding: 12px; }
+.mission-canvas { position: relative; height: calc(100vh - 98px); min-height: 620px; overflow: hidden; border-radius: var(--cyber-radius-shell); }
+.mission-command-deck { position: relative; z-index: 2; height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(290px, 350px); grid-template-rows: auto minmax(0, 1fr); gap: 12px; padding: 12px; }
 .mission-header { grid-column: 1 / -1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 18px; border-radius: var(--cyber-radius-shell); padding: 14px 16px; }
 .mission-heading { min-width: 0; }
 .mission-heading h1 { margin: 3px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1.25rem; letter-spacing: 0; }
@@ -59,6 +59,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .mission-stream-surface { display: flex; flex-direction: column; padding: 14px; padding-bottom: 88px; }
 .mission-inspector-surface { padding: 12px; }
 .mission-stream-surface .cyber-narrative, .mission-inspector-surface .cyber-inspector { border: 0; background: transparent; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.mission-stream-surface .cyber-narrative ol { max-height: 250px; overflow: auto; padding-right: 8px; }
 .mission-system-banners { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .mission-system-banners .cyber-banner { border-color: rgb(255 255 255 / 10%); background: rgb(255 255 255 / 4%); box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding: 8px 10px; font-size: .78rem; }
 .mission-composer { margin-top: auto; padding-top: 14px; }
@@ -99,9 +100,11 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   .page-new-task form { padding: 16px; border-radius: 20px; }
   .page-new-task fieldset { grid-template-columns: 1fr; }
   .page-new-task form > button { width: 100%; }
+  .page-scope-review { width: 100%; }
+  .scope-runtime-context { display: grid; gap: 3px; }
   .mission-header { align-items: start; flex-direction: column; }
-  .mission-command-deck { min-height: calc(100vh - 154px); grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); padding: 7px; }
-  .mission-canvas { min-height: calc(100vh - 154px); }
+  .mission-command-deck { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); padding: 7px; }
+  .mission-canvas { height: calc(100vh - 154px); min-height: 600px; }
   .mission-header { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; border-radius: 20px; padding: 12px; }
   .mission-task-summary { display: none; }
   .mission-actions { grid-column: 2; grid-row: 1; flex-wrap: wrap; justify-content: flex-end; max-width: 82px; }

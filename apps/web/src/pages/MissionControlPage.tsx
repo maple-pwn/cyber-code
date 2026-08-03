@@ -34,6 +34,12 @@ export function MissionControlPage({ view, t, onDispatch, onReconnect, onDisconn
   const pendingApproval = Object.values(view.product.approvals).find((approval) => !approval.decision);
   const agents = Object.values(view.product.agents);
   const selectedAgent = agents.find((agent) => agent.id === pendingApproval?.agentId)
+    ?? (pendingApproval ? {
+      id: pendingApproval.agentId,
+      name: pendingApproval.agentId.replace(/^agent-/, '').split('-').map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`).join(' '),
+      status: 'waiting',
+      currentAction: t.t('approval.title'),
+    } : null)
     ?? agents.find((agent) => /waiting|blocked/i.test(agent.status))
     ?? agents.find((agent) => /running/i.test(agent.status))
     ?? agents[0]
