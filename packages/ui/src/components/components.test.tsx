@@ -24,6 +24,10 @@ import {
 
 const t = createTranslator('en');
 const scope: ScopeSnapshot = {
+  id: 'scope-1',
+  principal: 'authorized-operator',
+  workspace: '/labs/juice-shop',
+  validity: 'single-task',
   targets: ['juice-shop.lab'],
   allowedActions: ['passive-recon'],
   deniedActions: ['destructive'],

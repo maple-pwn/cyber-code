@@ -1,6 +1,10 @@
 import type { FindingState, ImmutableEvidence, ScopeSnapshot } from '@cyber/protocol';
 
 export const LAB_SCOPE: ScopeSnapshot = {
+  id: 'scope-1',
+  principal: 'authorized-operator',
+  workspace: '/labs/juice-shop',
+  validity: 'single-task',
   targets: ['juice-shop.lab'],
   allowedActions: ['passive-recon', 'route-enumeration', 'bounded-login-verification'],
   deniedActions: ['destructive', 'persistence', 'credential-stuffing'],

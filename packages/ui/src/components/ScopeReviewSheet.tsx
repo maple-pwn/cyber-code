@@ -28,13 +28,14 @@ export function ScopeReviewSheet({
 }: ScopeReviewSheetProps) {
   const Heading = primaryHeading ? 'h1' : 'h2';
   const rows = [
-    [t.t('scope.principal'), principal ?? t.t('common.none')],
+    [t.t('scope.principal'), principal ?? scope.principal],
+    ['Scope ID', scope.id],
     [t.t('scope.targets'), scope.targets.join(', ')],
-    [t.t('scope.workspace'), workspace ?? t.t('common.none')],
+    [t.t('scope.workspace'), workspace ?? scope.workspace],
     [t.t('scope.allowed'), scope.allowedActions.join(', ')],
     [t.t('scope.denied'), scope.deniedActions.join(', ')],
     [t.t('scope.risk'), scope.riskCeiling],
-    [t.t('scope.validity'), validity ?? t.t('common.none')],
+    [t.t('scope.validity'), validity ?? scope.validity],
   ];
 
   return <section className="cyber-panel cyber-scope-review" aria-labelledby="scope-review-title">

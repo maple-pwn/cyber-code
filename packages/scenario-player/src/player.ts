@@ -38,6 +38,8 @@ export class ScenarioPlayer implements EventSource {
   private scopeConfirmed = false;
   private approvalRequested = false;
   private approvalResolved = false;
+  private scopeRevision = 1;
+  private currentScope = LAB_SCOPE;
 
   constructor(private readonly options: ScenarioOptions) {
     if (!Number.isFinite(options.speedMs) || options.speedMs < 0) {
@@ -84,10 +86,14 @@ export class ScenarioPlayer implements EventSource {
         await this.takeControl(command.expectedRevision);
         break;
       case 'instruction.send':
-        await this.append('question.resolved', {
-          questionId: `instruction-${this.nextCursor()}`,
-          answer: command.content,
-        });
+        if (command.content === 'request_scope_revision') {
+          await this.reviseScope();
+        } else {
+          await this.append('question.resolved', {
+            questionId: `instruction-${this.nextCursor()}`,
+            answer: command.content,
+          });
+        }
         break;
     }
   }
@@ -107,15 +113,15 @@ export class ScenarioPlayer implements EventSource {
     if (!command.objective.includes('juice-shop.lab')) throw new Error('unsupported_target');
     this.taskCreated = true;
     await this.append('task.created', { title: command.objective });
-    await this.append('scope.proposed', { scope: LAB_SCOPE });
+    await this.append('scope.proposed', { scope: this.currentScope });
   }
 
   private async confirmScope(scopeId: string): Promise<void> {
     if (!this.taskCreated) throw new Error('task_required');
-    if (scopeId !== 'scope-1') throw new Error('unknown_scope');
+    if (scopeId !== this.currentScope.id) throw new Error('unknown_scope');
     if (this.scopeConfirmed) throw new Error('scope_already_confirmed');
     this.scopeConfirmed = true;
-    await this.append('scope.confirmed', { scope: LAB_SCOPE });
+    await this.append('scope.confirmed', { scope: this.currentScope });
     await this.append('task.started', { title: 'Authorized juice-shop.lab assessment' });
     await this.append('agent.started', {
       agent: { id: 'agent-recon', name: 'Recon Agent', status: 'running', progress: 0 },
@@ -201,6 +207,14 @@ export class ScenarioPlayer implements EventSource {
     await this.append(expectedRevision === 0 ? 'control.acquired' : 'control.transferred', {
       lease: { clientId: 'web-client', revision },
     });
+  }
+
+  private async reviseScope(): Promise<void> {
+    if (!this.taskCreated) throw new Error('task_required');
+    this.scopeRevision += 1;
+    this.scopeConfirmed = false;
+    this.currentScope = { ...LAB_SCOPE, id: `scope-${this.scopeRevision}` };
+    await this.append('scope.proposed', { scope: this.currentScope });
   }
 
   private async failStage(agentId: string, callId: string, reason: string): Promise<void> {

@@ -15,10 +15,7 @@ export function ScopeReviewPage({ scope, runtime, t = createTranslator(), onConf
     <p>{t.t('runtime.label')}: <strong>{runtime.label}</strong> <code>{runtime.id}</code></p>
     <ScopeReviewSheet
       scope={scope}
-      scopeId="scope-1"
-      principal="authorized-operator"
-      workspace="/labs/juice-shop"
-      validity="single task"
+      scopeId={scope.id}
       primaryHeading
       t={t}
       onConfirmScope={onConfirm}

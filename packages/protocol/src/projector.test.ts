@@ -81,7 +81,7 @@ describe('project', () => {
     expect(Object.isFrozen(state.evidence['e-1'].data)).toBe(true);
   });
   it('does not alias mutable event payloads into projected state', () => {
-    const scope = { targets: ['lab'], allowedActions: [], deniedActions: [], riskCeiling: 'high' };
+    const scope = { id: 's', principal: 'p', workspace: '/lab', validity: 'task', targets: ['lab'], allowedActions: [], deniedActions: [], riskCeiling: 'high' };
     const agent = { id: 'agent-1', name: 'Scout', status: 'running' };
     const report = { id: 'r-1', version: 1, notes: { text: 'initial' } };
     const scopeEvent = event('scope.confirmed', { scope }, 1);
@@ -103,7 +103,7 @@ describe('project', () => {
 
   it('projects scope, agents, task lifecycle, and reports', () => {
     let state = apply(initialProductState(), event('task.created', { title: 'Lab' }, 1));
-    state = apply(state, event('scope.confirmed', { scope: { targets: ['lab'], allowedActions: [], deniedActions: [], riskCeiling: 'high' } }, 2));
+    state = apply(state, event('scope.confirmed', { scope: { id: 's', principal: 'p', workspace: '/lab', validity: 'task', targets: ['lab'], allowedActions: [], deniedActions: [], riskCeiling: 'high' } }, 2));
     state = apply(state, event('agent.started', { agent: { id: 'agent-1', name: 'Scout', status: 'running' } }, 3));
     state = apply(state, event('agent.progressed', { agentId: 'agent-1', progress: 50, currentAction: 'scan' }, 4));
     state = apply(state, event('task.paused', {}, 5));

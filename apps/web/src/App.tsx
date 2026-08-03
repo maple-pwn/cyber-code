@@ -59,7 +59,7 @@ export function App({ store }: { store: AppStore }) {
         { id: 'scenario-remote', label: t.t('runtime.remote'), capabilities: ['connected', 'managed'] },
       ]} onCreate={async (command) => { await store.dispatch(command); navigate('scope-review'); }} />;
       case 'scope-review': return snapshot.view.product.scope
-        ? <ScopeReviewPage scope={snapshot.view.product.scope} runtime={{ id: 'scenario-local', label: t.t('runtime.local') }} t={t} onEdit={() => navigate('new-task')} onConfirm={async (scopeId) => { await store.dispatch({ type: 'scope.confirm', scopeId }); navigate('mission-control'); }} />
+        ? <ScopeReviewPage scope={snapshot.view.product.scope} runtime={{ id: 'scenario-local', label: t.t('runtime.local') }} t={t} onEdit={() => void store.dispatch({ type: 'instruction.send', content: 'request_scope_revision' })} onConfirm={async (scopeId) => { await store.dispatch({ type: 'scope.confirm', scopeId }); navigate('mission-control'); }} />
         : <p>{t.t('common.loading')}</p>;
       case 'mission-control': return <MissionControlPage view={snapshot.view} t={t} onDispatch={(command) => store.dispatch(command)} onReconnect={() => void store.reconnect()} />;
       case 'findings': return <FindingsPage product={snapshot.view.product} t={t} />;
