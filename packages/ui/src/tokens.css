@@ -1,20 +1,28 @@
 :root {
   color-scheme: dark;
-  --cyber-bg: #080b0f;
-  --cyber-surface: #11171d;
-  --cyber-surface-raised: #182129;
-  --cyber-border: #33414b;
-  --cyber-text: #f2f5f7;
-  --cyber-muted: #a8b3ba;
-  --cyber-accent: #69d7c6;
-  --cyber-focus: #69d7c6;
-  --cyber-critical: #ff6b7a;
+  --cyber-canvas: #070b0e;
+  --cyber-glass: rgb(18 24 29 / 61%);
+  --cyber-glass-strong: rgb(18 24 29 / 72%);
+  --cyber-glass-border: rgb(255 255 255 / 21%);
+  --cyber-glass-highlight: rgb(255 255 255 / 30%);
+  --cyber-bg: var(--cyber-canvas);
+  --cyber-surface: var(--cyber-glass);
+  --cyber-surface-raised: var(--cyber-glass-strong);
+  --cyber-border: var(--cyber-glass-border);
+  --cyber-text: #edf3f4;
+  --cyber-muted: #9cabb3;
+  --cyber-running: #75d9c3;
+  --cyber-pending: #edc76e;
+  --cyber-failure: #ec6969;
+  --cyber-accent: var(--cyber-running);
+  --cyber-focus: #a8f2df;
+  --cyber-critical: #ff7180;
   --cyber-high: #ff9f66;
   --cyber-medium: #f2c94c;
   --cyber-low: #78c6ff;
-  --cyber-success: #70d6a0;
-  --cyber-warning: #f2c94c;
-  --cyber-danger: #ff6b7a;
+  --cyber-success: var(--cyber-running);
+  --cyber-warning: var(--cyber-pending);
+  --cyber-danger: var(--cyber-failure);
   --cyber-info: #78c6ff;
   --cyber-code: #d7e2e8;
   --cyber-space-1: 4px;
@@ -23,24 +31,40 @@
   --cyber-space-4: 16px;
   --cyber-space-5: 24px;
   --cyber-space-6: 32px;
-  --cyber-radius: 6px;
+  --cyber-radius-shell: 24px;
+  --cyber-radius-panel: 16px;
+  --cyber-radius-control: 10px;
+  --cyber-radius: var(--cyber-radius-control);
+  --cyber-motion-snap: 160ms cubic-bezier(.2, .8, .2, 1);
   --cyber-control-height: 40px;
-  --cyber-sidebar-width: 288px;
+  --cyber-sidebar-width: 64px;
   --cyber-inspector-width: 360px;
-  --cyber-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --cyber-font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  --cyber-font-sans: ui-rounded, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --cyber-font-mono: "SFMono-Regular", Consolas, monospace;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background: var(--cyber-bg);
+  background: var(--cyber-canvas);
   color: var(--cyber-text);
   font-family: var(--cyber-font-sans);
 }
 
 button, input, select, textarea { font: inherit; }
+
+.cyber-glass {
+  border: 1px solid var(--cyber-glass-border);
+  background: var(--cyber-glass);
+  box-shadow: inset 0 1px var(--cyber-glass-highlight), 0 20px 44px rgb(0 0 0 / 40%);
+  -webkit-backdrop-filter: blur(24px) saturate(1.35);
+  backdrop-filter: blur(24px) saturate(1.35);
+}
+
+.cyber-mono {
+  font-family: var(--cyber-font-mono);
+}
 
 button, a, input, select, textarea, [tabindex]:not([tabindex="-1"]) {
   outline: 2px solid transparent;
@@ -95,6 +119,17 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
 .cyber-status-warning { color: var(--cyber-warning); }
 .cyber-status-danger { color: var(--cyber-danger); }
 .cyber-status-info { color: var(--cyber-info); }
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .cyber-glass,
+  .cyber-panel,
+  .cyber-banner,
+  .cyber-inspector,
+  .cyber-narrative,
+  .cyber-report-editor {
+    background: rgb(18 24 29 / 96%);
+  }
+}
 
 @media (min-width: 1280px) {
   :root { --cyber-layout-columns: var(--cyber-sidebar-width) minmax(0, 1fr) var(--cyber-inspector-width); }

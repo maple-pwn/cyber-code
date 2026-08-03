@@ -29,6 +29,17 @@ describe('Forensic Noir tokens', () => {
     expect(css).toMatch(/transition-duration:\s*0\.01ms/);
   });
 
+  test('defines Liquid Command glass, radius, motion, and semantic tokens', () => {
+    for (const token of [
+      '--cyber-canvas', '--cyber-glass', '--cyber-glass-strong',
+      '--cyber-glass-border', '--cyber-glass-highlight',
+      '--cyber-running', '--cyber-pending', '--cyber-failure',
+      '--cyber-radius-shell', '--cyber-radius-panel', '--cyber-motion-snap',
+    ]) expect(css).toContain(token);
+    expect(css).toContain('@supports not ((backdrop-filter: blur(1px))');
+    expect(css).toContain('color-scheme: dark');
+  });
+
   test('uses high contrast text and focus colors on the base background', () => {
     const luminance = (hex: string) => {
       const channels = hex.match(/[\da-f]{2}/gi)?.map((value) => Number.parseInt(value, 16) / 255) ?? [];
