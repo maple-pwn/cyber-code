@@ -16,10 +16,11 @@ export type MissionControlPageProps = {
   t: Translator;
   onDispatch: (command: RuntimeCommand) => void | Promise<void>;
   onReconnect: () => void;
+  onDisconnect?: () => void;
   clientId?: string;
 };
 
-export function MissionControlPage({ view, t, onDispatch, onReconnect, clientId = 'web-client' }: MissionControlPageProps) {
+export function MissionControlPage({ view, t, onDispatch, onReconnect, onDisconnect, clientId = 'web-client' }: MissionControlPageProps) {
   const [activeTab, setActiveTab] = useState<InspectorTab>('agents');
   const [instruction, setInstruction] = useState('');
   const transportBlocked = ['resyncing', 'offline', 'incompatible', 'unauthorized'].includes(view.connection.status);
@@ -39,7 +40,7 @@ export function MissionControlPage({ view, t, onDispatch, onReconnect, clientId 
         <span>{view.product.task.status}</span>
       </div>}
     </header>
-    <ConnectionBanner connection={view.connection} t={t} onReconnect={onReconnect} />
+    <ConnectionBanner connection={view.connection} t={t} onReconnect={onReconnect} onDisconnect={onDisconnect} />
     <ControlLeaseBanner lease={view.product.controlLease} t={t} disabled={transportBlocked} onTakeControl={(expectedRevision) => void onDispatch({ type: 'control.take', expectedRevision })} />
     <div className="mission-actions">
       <button type="button" disabled={writesDisabled} onClick={() => void onDispatch({ type: 'task.pause' })}>{t.t('task.pause')}</button>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import type { Translator } from '@cyber/i18n';
 import { exportReport, freezeReport, validateReport, type FrozenReport, type ProductState, type ReportFormat, type ReportState } from '@cyber/protocol';
@@ -23,14 +23,21 @@ const createDraft = (product: ProductState): ReportState => ({
 
 export function ReportsPage({ product, t }: { product: ProductState; t: Translator }) {
   const [report, setReport] = useState<ReportState>(() => product.report ?? createDraft(product));
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    if (!dirty && report.status === 'draft') setReport(product.report ?? createDraft(product));
+  }, [dirty, product, report.status]);
   const validation = validateReport(report, product.evidence);
-  const setExclusion = (findingId: string, reason: string) => setReport((current) => ({
-    ...current,
-    findings: current.findings.map((entry) => entry.finding.id === findingId
-      ? { ...entry, included: reason === '', exclusionReason: reason || undefined }
-      : entry),
-  }));
-  const freeze = () => setReport(freezeReport(report, product.evidence));
+  const setExclusion = (findingId: string, reason: string) => {
+    setDirty(true);
+    setReport((current) => ({
+      ...current,
+      findings: current.findings.map((entry) => entry.finding.id === findingId
+        ? { ...entry, included: reason === '', exclusionReason: reason || undefined }
+        : entry),
+    }));
+  };
+  const freeze = () => { setDirty(true); setReport(freezeReport(report, product.evidence)); };
   const download = async (format: ReportFormat) => {
     if (report.status !== 'frozen') return;
     const blob = await exportReport(report as FrozenReport, format);
@@ -50,18 +57,19 @@ export function ReportsPage({ product, t }: { product: ProductState; t: Translat
       {!confirmed && report.findings.map((entry) => entry.finding.rejectionReason && <p key={entry.finding.id}>{entry.finding.rejectionReason}</p>)}
     </section>
     {report.status === 'frozen' && <p role="status">Report version {report.version} · {report.taskId}</p>}
-    <ReportEditor
-      report={report}
-      findings={product.findings}
-      evidence={product.evidence}
-      t={t}
-      freezeDisabled={!validation.valid || report.status === 'frozen'}
-      onNotesChange={(humanNotes) => setReport((current) => ({ ...current, humanNotes }))}
-      onRecommendationsChange={(recommendations) => setReport((current) => ({ ...current, recommendations }))}
-      onExcludeFinding={setExclusion}
-      onFreeze={freeze}
-      onExport={(format) => void download(format)}
-    />
+    <p className="phone-only">{t.t('phone.desktopRequired')}</p>
+    <div className="desktop-report-editor"><ReportEditor
+        report={report}
+        findings={product.findings}
+        evidence={product.evidence}
+        t={t}
+        freezeDisabled={!validation.valid || report.status === 'frozen'}
+        onNotesChange={(humanNotes) => { setDirty(true); setReport((current) => ({ ...current, humanNotes })); }}
+        onRecommendationsChange={(recommendations) => { setDirty(true); setReport((current) => ({ ...current, recommendations })); }}
+        onExcludeFinding={setExclusion}
+        onFreeze={freeze}
+        onExport={(format) => void download(format)}
+      /></div>
     {!validation.valid && <p role="alert">{t.t('report.validationFailed')}</p>}
   </section>;
 }

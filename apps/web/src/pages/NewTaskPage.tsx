@@ -39,7 +39,7 @@ export function NewTaskPage({ runtimes, t = createTranslator(), onCreate }: NewT
           <span><strong>{runtime.label}</strong><small>{runtime.capabilities.join(' · ')}</small></span>
         </label>)}
       </fieldset>
-      <label>{t.t('task.workspace')}<input value={workspace} onChange={(event) => setWorkspace(event.currentTarget.value)} /></label>
+      <label className="local-workspace-control">{t.t('task.workspace')}<input value={workspace} onChange={(event) => setWorkspace(event.currentTarget.value)} /></label>
       <button type="submit">{t.t('task.create')}</button>
     </form>
   </section>;
