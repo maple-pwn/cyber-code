@@ -36,6 +36,15 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .mission-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 16px; align-items: start; }
 .mission-grid > section { display: grid; gap: 16px; }
 .finding-list { display: grid; gap: 12px; }
+.other-evidence { margin-top: 24px; }
+.other-evidence ul { display: grid; gap: 12px; padding: 0; list-style: none; }
+.other-evidence li { display: grid; gap: 8px; border-top: 1px solid var(--cyber-border); padding-top: 12px; }
+.cyber-provenance { display: inline-block; width: max-content; color: var(--cyber-muted); font-size: 0.8rem; }
+.page-reports { display: grid; gap: 16px; }
+.page-reports > h1 { margin-bottom: 0; }
+.report-integrity { display: grid; gap: 8px; border-left: 3px solid currentColor; padding: 12px 16px; }
+.cyber-report-editor { display: grid; gap: 16px; }
+.cyber-report-editor > label { display: grid; gap: 8px; }
 
 @media (max-width: 1023px) {
   .mission-grid { grid-template-columns: 1fr; }

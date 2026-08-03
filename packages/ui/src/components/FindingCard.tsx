@@ -10,7 +10,7 @@ export function FindingCard({ finding, evidence, t }: FindingCardProps) {
     <span role="img" className="cyber-confidence-dots" data-level={finding.confidence} aria-label={`${t.t('finding.confidence')}: ${finding.confidence}`}>
       <i /><i /><i />
     </span>
-    <ul>{evidence.map((item) => <li key={item.id}>{item.summary}</li>)}</ul>
+    <ul>{evidence.map((item) => <li key={item.id}><span className="cyber-provenance">{t.t('evidence.generated')}</span> {item.summary}</li>)}</ul>
     {finding.rejectionReason && <p>{finding.rejectionReason}</p>}
   </article>;
 }

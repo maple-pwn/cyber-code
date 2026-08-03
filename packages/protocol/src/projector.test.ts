@@ -73,7 +73,7 @@ describe('project', () => {
     expect(() => project(state, event('control.acquired', { lease: { clientId: 'c-3', revision: 1 } }, 4))).toThrow('non_monotonic_lease_revision');
   });
   it('clones and freezes committed Evidence', () => {
-    const evidence = { id: 'e-1', kind: 'http', summary: 'response', data: { status: 200 } };
+    const evidence = { id: 'e-1', taskId: 'task-1', kind: 'http', summary: 'response', data: { status: 200 } };
     const state = apply(initialProductState(), event('evidence.committed', { evidence }, 1));
     evidence.data.status = 500;
     expect(state.evidence['e-1'].data.status).toBe(200);
@@ -83,17 +83,18 @@ describe('project', () => {
   it('does not alias mutable event payloads into projected state', () => {
     const scope = { id: 's', principal: 'p', workspace: '/lab', validity: 'task', targets: ['lab'], allowedActions: [], deniedActions: [], riskCeiling: 'high' };
     const agent = { id: 'agent-1', name: 'Scout', status: 'running' };
-    const report = { id: 'r-1', version: 1, notes: { text: 'initial' } };
+    const report = { id: 'r-1', taskId: 'task-1', version: 0, status: 'draft' as const, narrative: 'initial', recommendations: '', humanNotes: '', findings: [] as { finding: { title: string } }[] };
     const scopeEvent = event('scope.confirmed', { scope }, 1);
     let state = apply(initialProductState(), scopeEvent);
     const agentEvent = event('agent.started', { agent }, 2);
     state = apply(state, agentEvent);
     const reportEvent = event('report.drafted', { report }, 3);
     state = apply(state, reportEvent);
-    scope.targets[0] = 'changed'; agent.name = 'changed'; (report.notes as { text: string }).text = 'changed';
+    scope.targets[0] = 'changed'; agent.name = 'changed'; report.findings.push({ finding: { title: 'changed' } });
     expect(state.scope?.targets).toEqual(['lab']);
     expect(state.agents['agent-1'].name).toBe('Scout');
-    expect((state.report?.notes as { text: string }).text).toBe('initial');
+    expect(state.report?.narrative).toBe('initial');
+    expect(state.report?.findings).toEqual([]);
     expect((state.timeline[0].payload as { scope: { targets: string[] } }).scope.targets).toEqual(['lab']);
     expect(Object.isFrozen(state.scope)).toBe(true);
     expect(Object.isFrozen(state.agents['agent-1'])).toBe(true);
@@ -108,7 +109,7 @@ describe('project', () => {
     state = apply(state, event('agent.progressed', { agentId: 'agent-1', progress: 50, currentAction: 'scan' }, 4));
     state = apply(state, event('task.paused', {}, 5));
     state = apply(state, event('task.resumed', {}, 6));
-    state = apply(state, event('report.drafted', { report: { id: 'r-1', version: 1 } }, 7));
+    state = apply(state, event('report.drafted', { report: { id: 'r-1', taskId: 'task-1', version: 1, status: 'draft', narrative: '', recommendations: '', humanNotes: '', findings: [] } }, 7));
     state = apply(state, event('report.frozen', { reportId: 'r-1', version: 2 }, 8));
     expect(state).toMatchObject({ scope: { targets: ['lab'] }, agents: { 'agent-1': { progress: 50, currentAction: 'scan' } }, task: { status: 'resumed' }, report: { version: 2, status: 'frozen' } });
   });

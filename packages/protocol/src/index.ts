@@ -6,14 +6,30 @@ export type ProductEvent<TType extends string, TPayload> = { schemaVersion: 1; e
 export type RawProductEvent = { schemaVersion: unknown; eventId: unknown; taskId: unknown; cursor: unknown; occurredAt: unknown; type: unknown; source: unknown; payload: unknown };
 export type ScopeSnapshot = { id: string; principal: string; workspace: string; validity: string; targets: string[]; allowedActions: string[]; deniedActions: string[]; riskCeiling: string };
 export type AgentState = { id: string; name: string; status: string; progress?: number; currentAction?: string };
-export type ImmutableEvidence = { id: string; kind: string; summary: string; data: JsonObject };
+export type ImmutableEvidence = { id: string; taskId: string; kind: string; summary: string; data: JsonObject };
 export type FindingStatus = 'candidate' | 'verifying' | 'confirmed' | 'rejected' | 'mitigated';
 export type FindingState = { id: string; title: string; severity: string; status: FindingStatus; confidence: string; evidenceIds: string[]; rejectionReason?: string };
 export type ApprovalDecision = 'allow_once' | 'deny';
 export type ApprovalChallenge = { id: string; agentId: string; action: string; target: string; parameterDigest: string; risk: string; expiresAt: string };
 export type ApprovalState = ApprovalChallenge & { decision?: ApprovalDecision };
 export type ControlLease = { clientId: string; revision: number };
-export type ReportState = { id: string; version: number; status?: string; [key: string]: unknown };
+export type ReportFinding = {
+  finding: FindingState;
+  evidence: ImmutableEvidence[];
+  included: boolean;
+  exclusionReason?: string;
+};
+export type ReportState = {
+  id: string;
+  taskId: string;
+  version: number;
+  status: 'draft' | 'frozen';
+  narrative: string;
+  recommendations: string;
+  humanNotes: string;
+  findings: ReportFinding[];
+};
+export type FrozenReport = ReportState & { status: 'frozen' };
 
 export interface KnownEventPayloads {
   'task.created': { title: string }; 'task.started': { title: string }; 'task.paused': JsonObject; 'task.resumed': JsonObject; 'task.cancel.requested': JsonObject; 'task.cancelled': JsonObject; 'task.completed': JsonObject; 'task.failed': { reason: string }; 'task.blocked': { reason: string };
@@ -30,6 +46,7 @@ export type ProjectionResult = { kind: 'applied'; state: ProductState } | { kind
 
 export function initialProductState(): ProductState { return { activeRuntime: null, task: null, scope: null, controlLease: null, highestCommittedLeaseRevision: 0, agents: {}, timeline: [], approvals: {}, findings: {}, evidence: {}, report: null, rawEvents: [], committedCursor: 0, canonicalEvents: {} }; }
 export { validateEvent } from './validation';
+export { exportReport, freezeReport, validateReport, type ReportFormat, type ReportValidation } from './report';
 
 const canonicalize = (value: unknown): string => JSON.stringify(value, (_key, item: unknown) => item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.entries(item as JsonObject).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : item);
 const deepFreeze = <T>(value: T): T => { if (value && typeof value === 'object' && !Object.isFrozen(value)) { Object.freeze(value); for (const child of Object.values(value as object)) deepFreeze(child); } return value; };

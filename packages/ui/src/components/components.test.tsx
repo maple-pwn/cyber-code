@@ -44,6 +44,7 @@ const approval: ApprovalState = {
 };
 const evidence: ImmutableEvidence = {
   id: 'evidence-1',
+  taskId: 'task-1',
   kind: 'route',
   summary: 'Login route observed',
   data: { method: 'POST', path: '/rest/user/login' },
@@ -139,7 +140,7 @@ describe('workflow components', () => {
     const onFreeze = vi.fn();
     const onExcludeFinding = vi.fn();
     render(<ReportEditor
-      report={{ id: 'report-1', version: 1 }}
+      report={{ id: 'report-1', taskId: 'task-1', version: 0, status: 'draft', narrative: 'Generated narrative', recommendations: '', humanNotes: '', findings: [{ finding, evidence: [evidence], included: true }] }}
       findings={{ [finding.id]: finding }}
       evidence={{ [evidence.id]: evidence }}
       t={t}

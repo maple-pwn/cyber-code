@@ -20,11 +20,11 @@ const isKnownType = (type: string): type is KnownEventType => knownTypes.has(typ
 const has = (payload: JsonObject, ...keys: string[]) => keys.every((key) => payload[key] !== undefined);
 const validScope = (value: unknown) => isObject(value) && isString(value.id) && isString(value.principal) && isString(value.workspace) && isString(value.validity) && isStrings(value.targets) && isStrings(value.allowedActions) && isStrings(value.deniedActions) && isString(value.riskCeiling);
 const validAgent = (value: unknown) => isObject(value) && isString(value.id) && isString(value.name) && isString(value.status);
-const validEvidence = (value: unknown) => isObject(value) && isString(value.id) && isString(value.kind) && isString(value.summary) && isObject(value.data);
+const validEvidence = (value: unknown) => isObject(value) && isString(value.id) && isString(value.taskId) && isString(value.kind) && isString(value.summary) && isObject(value.data);
 const validFinding = (value: unknown) => isObject(value) && isString(value.id) && isString(value.title) && isString(value.severity) && ['candidate', 'verifying', 'confirmed', 'rejected', 'mitigated'].includes(value.status as string) && isString(value.confidence) && isStrings(value.evidenceIds);
 const validLease = (value: unknown) => isObject(value) && isString(value.clientId) && Number.isSafeInteger(value.revision) && (value.revision as number) > 0;
 const validChallenge = (value: unknown) => isObject(value) && has(value, 'id', 'agentId', 'action', 'target', 'parameterDigest', 'risk', 'expiresAt') && ['id', 'agentId', 'action', 'target', 'parameterDigest', 'risk', 'expiresAt'].every((key) => isString(value[key])) && !Number.isNaN(Date.parse(value.expiresAt as string));
-const validReport = (value: unknown) => isObject(value) && isString(value.id) && Number.isSafeInteger(value.version) && (value.version as number) > 0;
+const validReport = (value: unknown) => isObject(value) && isString(value.id) && isString(value.taskId) && Number.isSafeInteger(value.version) && (value.version as number) >= 0 && (value.status === 'draft' || value.status === 'frozen') && typeof value.narrative === 'string' && typeof value.recommendations === 'string' && typeof value.humanNotes === 'string' && Array.isArray(value.findings);
 
 function isValidPayload(type: KnownEventType, payload: JsonObject): boolean {
   switch (type) {

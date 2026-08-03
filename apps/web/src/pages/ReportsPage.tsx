@@ -1,6 +1,67 @@
+import { useState } from 'react';
+
 import type { Translator } from '@cyber/i18n';
-import type { ProductState } from '@cyber/protocol';
+import { exportReport, freezeReport, validateReport, type FrozenReport, type ProductState, type ReportFormat, type ReportState } from '@cyber/protocol';
+import { ReportEditor } from '@cyber/ui';
+
+const createDraft = (product: ProductState): ReportState => ({
+  id: product.report?.id ?? 'report-1',
+  taskId: product.task?.id ?? '',
+  version: product.report?.version ?? 0,
+  status: 'draft',
+  narrative: Object.values(product.findings).some((finding) => finding.status === 'confirmed')
+    ? 'Confirmed Findings are supported by bounded verification.'
+    : 'Active verification was not performed; conclusions retain explicit limitations.',
+  recommendations: '',
+  humanNotes: '',
+  findings: Object.values(product.findings).map((finding) => ({
+    finding: structuredClone(finding),
+    evidence: finding.evidenceIds.flatMap((id) => product.evidence[id] ? [structuredClone(product.evidence[id])] : []),
+    included: true,
+  })),
+});
 
 export function ReportsPage({ product, t }: { product: ProductState; t: Translator }) {
-  return <section className="page"><h1>{t.t('nav.reports')}</h1><p>{product.report?.id ?? t.t('common.none')}</p></section>;
+  const [report, setReport] = useState<ReportState>(() => product.report ?? createDraft(product));
+  const validation = validateReport(report, product.evidence);
+  const setExclusion = (findingId: string, reason: string) => setReport((current) => ({
+    ...current,
+    findings: current.findings.map((entry) => entry.finding.id === findingId
+      ? { ...entry, included: reason === '', exclusionReason: reason || undefined }
+      : entry),
+  }));
+  const freeze = () => setReport(freezeReport(report, product.evidence));
+  const download = async (format: ReportFormat) => {
+    if (report.status !== 'frozen') return;
+    const blob = await exportReport(report as FrozenReport, format);
+    if (typeof URL.createObjectURL !== 'function') return;
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${report.id}-v${report.version}.${format === 'markdown' ? 'md' : format}`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const confirmed = report.findings.some((entry) => entry.finding.status === 'confirmed');
+  return <section className="page page-reports"><h1>{t.t('nav.reports')}</h1>
+    <section className={`report-integrity ${confirmed ? 'cyber-status-success' : 'cyber-status-warning'}`} aria-label={confirmed ? t.t('report.verifiedImpact') : t.t('report.verificationLimitation')}>
+      <strong>{confirmed ? t.t('report.verifiedImpact') : t.t('report.verificationLimitation')}</strong>
+      {!confirmed && report.findings.map((entry) => entry.finding.rejectionReason && <p key={entry.finding.id}>{entry.finding.rejectionReason}</p>)}
+    </section>
+    {report.status === 'frozen' && <p role="status">Report version {report.version} · {report.taskId}</p>}
+    <ReportEditor
+      report={report}
+      findings={product.findings}
+      evidence={product.evidence}
+      t={t}
+      freezeDisabled={!validation.valid || report.status === 'frozen'}
+      onNotesChange={(humanNotes) => setReport((current) => ({ ...current, humanNotes }))}
+      onRecommendationsChange={(recommendations) => setReport((current) => ({ ...current, recommendations }))}
+      onExcludeFinding={setExclusion}
+      onFreeze={freeze}
+      onExport={(format) => void download(format)}
+    />
+    {!validation.valid && <p role="alert">{t.t('report.validationFailed')}</p>}
+  </section>;
 }

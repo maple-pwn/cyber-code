@@ -12,14 +12,14 @@ export const LAB_SCOPE: ScopeSnapshot = {
 };
 
 export const RECON_EVIDENCE: readonly ImmutableEvidence[] = [
-  { id: 'evidence-runtime', kind: 'technology', summary: 'Node.js runtime identified', data: { runtime: 'Node.js' } },
-  { id: 'evidence-framework', kind: 'technology', summary: 'Express framework identified', data: { framework: 'Express' } },
-  { id: 'evidence-route-count', kind: 'route-inventory', summary: '24 API routes enumerated', data: { count: 24 } },
-  { id: 'evidence-login-route', kind: 'route', summary: 'Login API route observed', data: { method: 'POST', path: '/rest/user/login' } },
-  { id: 'evidence-product-route', kind: 'route', summary: 'Product API route observed', data: { method: 'GET', path: '/api/Products' } },
-  { id: 'evidence-security-headers', kind: 'headers', summary: 'Security header baseline recorded', data: { server: 'Express' } },
-  { id: 'evidence-auth-shape', kind: 'schema', summary: 'Authentication request shape recorded', data: { fields: ['email', 'password'] } },
-  { id: 'evidence-scope', kind: 'scope', summary: 'Evidence collected within juice-shop.lab', data: { target: 'juice-shop.lab' } },
+  { id: 'evidence-runtime', taskId: 'task-1', kind: 'technology', summary: 'Node.js runtime identified', data: { runtime: 'Node.js' } },
+  { id: 'evidence-framework', taskId: 'task-1', kind: 'technology', summary: 'Express framework identified', data: { framework: 'Express' } },
+  { id: 'evidence-route-count', taskId: 'task-1', kind: 'route-inventory', summary: '24 API routes enumerated', data: { count: 24 } },
+  { id: 'evidence-login-route', taskId: 'task-1', kind: 'route', summary: 'Login API route observed', data: { method: 'POST', path: '/rest/user/login' } },
+  { id: 'evidence-product-route', taskId: 'task-1', kind: 'route', summary: 'Product API route observed', data: { method: 'GET', path: '/api/Products' } },
+  { id: 'evidence-security-headers', taskId: 'task-1', kind: 'headers', summary: 'Security header baseline recorded', data: { server: 'Express' } },
+  { id: 'evidence-auth-shape', taskId: 'task-1', kind: 'schema', summary: 'Authentication request shape recorded', data: { fields: ['email', 'password'] } },
+  { id: 'evidence-scope', taskId: 'task-1', kind: 'scope', summary: 'Evidence collected within juice-shop.lab', data: { target: 'juice-shop.lab' } },
 ];
 
 export const CANDIDATE_FINDING: FindingState = {
@@ -33,6 +33,7 @@ export const CANDIDATE_FINDING: FindingState = {
 
 export const VERIFIED_EVIDENCE: ImmutableEvidence = {
   id: 'evidence-bounded-verification',
+  taskId: 'task-1',
   kind: 'verification',
   summary: 'Bounded login verification confirmed impact',
   data: { target: 'juice-shop.lab', attempts: 1, impact: 'authentication bypass' },
