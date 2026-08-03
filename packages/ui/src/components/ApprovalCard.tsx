@@ -26,10 +26,10 @@ export function ApprovalCard({ approval, t, disabled = false, onApprovalDecision
     [t.t('approval.expiry'), approval.expiresAt],
   ];
   return <article className="cyber-panel cyber-approval" tabIndex={0} data-reviewing={reviewing}>
-    <header className="cyber-approval-header">
+    <div className="cyber-approval-header">
       <div><span className="cyber-approval-risk">{approval.risk} · {t.t('approval.title')}</span><h3>{approval.action}</h3></div>
       <time data-testid="approval-expiry" dateTime={approval.expiresAt}>{approval.expiresAt}</time>
-    </header>
+    </div>
     <p className="cyber-approval-summary">{reviewing ? t.t('approval.reviewing') : `${t.t('approval.oneAttempt')} · ${t.t('approval.noPersistence')}`}</p>
     <dl className="cyber-definition-grid">
       {rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}

@@ -38,6 +38,12 @@ describe('MissionControlPage', () => {
 
     expect(screen.getByRole('banner')).toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: 'Mission inspector' })).toBeInTheDocument();
+    expect(screen.getByTestId('mission-command-deck')).toBeInTheDocument();
+    expect(screen.getByTestId('evidence-backdrop')).toBeInTheDocument();
+    const inspectorTrigger = screen.getByRole('button', { name: 'Open inspector' });
+    expect(inspectorTrigger).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(inspectorTrigger);
+    expect(inspectorTrigger).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('tab', { name: /Agents/ })).toHaveAttribute('aria-selected', 'true');
     await userEvent.click(screen.getByRole('button', { name: 'Pause' }));
     await userEvent.click(screen.getByRole('button', { name: 'Resume' }));
@@ -45,7 +51,9 @@ describe('MissionControlPage', () => {
     await userEvent.type(screen.getByLabelText('Send an instruction to active agents'), 'Check headers');
     await userEvent.click(screen.getByRole('button', { name: 'Send instruction' }));
     const approvalCard = screen.getByRole('article');
-    await userEvent.click(within(approvalCard).getByRole('button', { name: 'Allow once' }));
+    await userEvent.click(within(approvalCard).getByRole('button', { name: 'Review parameters' }));
+    await userEvent.click(within(approvalCard).getByRole('button', { name: 'Confirm allow once' }));
+    expect(screen.getByRole('button', { name: /Recon Agent/ })).toBeInTheDocument();
 
     expect(onDispatch.mock.calls.map(([command]) => command)).toEqual(expect.arrayContaining([
       { type: 'task.pause' },
@@ -63,7 +71,7 @@ describe('MissionControlPage', () => {
 
     expect(screen.getByText('Authorized assessment')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Pause' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Allow once' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Review parameters' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Take control' })).toBeDisabled();
     expect(screen.getByLabelText('Send an instruction to active agents')).toBeDisabled();
     await userEvent.click(screen.getByRole('button', { name: 'Reconnect' }));
@@ -76,7 +84,7 @@ describe('MissionControlPage', () => {
     render(<MissionControlPage view={view('healthy', 'desktop-client')} t={t} onDispatch={onDispatch} onReconnect={vi.fn()} clientId="web-client" />);
 
     expect(screen.getByRole('button', { name: 'Pause' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Allow once' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Review parameters' })).toBeDisabled();
     await userEvent.click(screen.getByRole('button', { name: 'Take control' }));
     expect(onDispatch).toHaveBeenCalledWith({ type: 'control.take', expectedRevision: 3 });
   });
