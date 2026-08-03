@@ -20,7 +20,7 @@ func TestProcessCancellationTerminatesChildProcess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := NewRunner(Options{}).Run(ctx, ExecRequest{
+		_, err := NewRunner(Options{SandboxMode: SandboxOff}).Run(ctx, ExecRequest{
 			Command: fmt.Sprintf("sleep 30 & echo $! > %q; wait", pidFile), Workspace: workspace,
 		})
 		done <- err
