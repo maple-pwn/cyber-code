@@ -1,4 +1,5 @@
 .worktrees/
+.superpowers/
 /cli
 /coverage.out
 /dist/
