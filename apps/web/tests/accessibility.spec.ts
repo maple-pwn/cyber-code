@@ -13,9 +13,10 @@ test('priority workflow pages have no detectable accessibility violations', asyn
   await page.getByRole('button', { name: '创建任务' }).click();
   await assertA11y(page);
   await page.getByRole('button', { name: '确认范围' }).click();
-  await expect(page.getByRole('button', { name: '仅允许一次' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '复核参数' })).toBeVisible();
   await assertA11y(page);
-  await page.getByRole('button', { name: '仅允许一次' }).click();
+  await page.getByRole('button', { name: '复核参数' }).click();
+  await page.getByRole('button', { name: '确认仅允许一次' }).click();
   await page.getByRole('button', { name: '发现' }).click();
   await assertA11y(page);
   await page.getByRole('button', { name: '报告' }).click();

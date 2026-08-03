@@ -1,5 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 
+const boxesOverlap = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) =>
+  a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+
 const useEnglish = async (page: Page) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'English' }).click();
@@ -12,7 +15,7 @@ const createAuthorizedTask = async (page: Page) => {
   await expect(page.getByRole('heading', { name: 'Scope Review' })).toBeVisible();
   await page.getByRole('button', { name: 'Confirm scope' }).click();
   await expect(page.getByRole('heading', { name: 'Mission Control' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Allow once' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review parameters' })).toBeVisible();
 };
 
 test.describe('desktop golden paths', () => {
@@ -20,7 +23,8 @@ test.describe('desktop golden paths', () => {
     test.skip(testInfo.project.name === 'phone');
     await useEnglish(page);
     await createAuthorizedTask(page);
-    await page.getByRole('button', { name: 'Allow once' }).click();
+    await page.getByRole('button', { name: 'Review parameters' }).click();
+    await page.getByRole('button', { name: 'Confirm allow once' }).click();
     await page.getByRole('button', { name: 'Findings' }).click();
     await expect(page.getByText(/^Confirmed ·/)).toBeVisible();
     await expect(page.getByText(/Severity: high/)).toBeVisible();
@@ -71,9 +75,10 @@ test.describe('desktop golden paths', () => {
     await expect(page.getByRole('heading', { name: 'Scope Review' })).toBeVisible();
     await page.getByRole('button', { name: 'Confirm scope' }).focus();
     await page.keyboard.press('Enter');
-    const approval = page.getByRole('article');
-    await approval.focus();
-    await page.keyboard.press('Control+Enter');
+    await page.getByRole('button', { name: 'Review parameters' }).focus();
+    await page.keyboard.press('Enter');
+    await page.getByRole('button', { name: 'Confirm allow once' }).focus();
+    await page.keyboard.press('Enter');
     await page.keyboard.press('g'); await page.keyboard.press('f');
     await expect(page.getByRole('heading', { name: 'Findings' })).toBeVisible();
     await page.keyboard.press('g'); await page.keyboard.press('r');
@@ -88,7 +93,14 @@ test('phone keeps observation, approval, pause, and cancel while report editing 
   await createAuthorizedTask(page);
   await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cancel task' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Allow once' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review parameters' })).toBeVisible();
+  await page.getByRole('button', { name: 'Review parameters' }).click();
+  await expect(page.getByRole('button', { name: 'Confirm allow once' })).toBeVisible();
+  const ribbonBox = await page.locator('.cyber-active-agent').boundingBox();
+  const actionBox = await page.locator('.cyber-approval .cyber-actions').boundingBox();
+  const navBox = await page.getByRole('navigation', { name: 'Primary' }).boundingBox();
+  expect(ribbonBox && actionBox && boxesOverlap(ribbonBox, actionBox)).toBe(false);
+  expect(ribbonBox && navBox && boxesOverlap(ribbonBox, navBox)).toBe(false);
   await page.getByRole('button', { name: 'Reports' }).click();
   await expect(page.getByText('This action requires a desktop viewport')).toBeVisible();
   await expect(page.getByLabel(/Analysis notes/)).toBeHidden();
@@ -99,6 +111,14 @@ test('laptop presents the Inspector as an overlay', async ({ page }, testInfo) =
   test.skip(testInfo.project.name !== 'laptop');
   await useEnglish(page);
   await createAuthorizedTask(page);
-  await expect(page.getByRole('complementary', { name: 'Mission inspector' })).toHaveCSS('position', 'fixed');
+  const inspector = page.getByRole('complementary', { name: 'Mission inspector' });
+  const trigger = page.getByRole('button', { name: 'Open inspector' });
+  await expect(inspector).toBeHidden();
+  await trigger.click();
+  await expect(inspector).toBeVisible();
+  await expect(inspector).toHaveCSS('position', 'fixed');
+  await page.keyboard.press('Escape');
+  await expect(inspector).toBeHidden();
+  await expect(trigger).toBeFocused();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { OctagonX, PanelRightOpen, Pause, Play, Send } from 'lucide-react';
 
 import type { Translator } from '@cyber/i18n';
@@ -26,6 +26,7 @@ export type MissionControlPageProps = {
 export function MissionControlPage({ view, t, onDispatch, onReconnect, onDisconnect, clientId = 'web-client' }: MissionControlPageProps) {
   const [activeTab, setActiveTab] = useState<InspectorTab>('agents');
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const inspectorTrigger = useRef<HTMLButtonElement>(null);
   const [instruction, setInstruction] = useState('');
   const transportBlocked = ['resyncing', 'offline', 'incompatible', 'unauthorized'].includes(view.connection.status);
   const displaced = view.product.controlLease !== null && view.product.controlLease.clientId !== clientId;
@@ -40,6 +41,18 @@ export function MissionControlPage({ view, t, onDispatch, onReconnect, onDisconn
   const activeAgent = selectedAgent && pendingApproval?.agentId === selectedAgent.id
     ? { ...selectedAgent, status: 'waiting', currentAction: t.t('approval.title') }
     : selectedAgent;
+  useEffect(() => {
+    if (!inspectorOpen) return;
+    document.querySelector<HTMLElement>('#mission-inspector [role="tab"][aria-selected="true"]')?.focus();
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setInspectorOpen(false);
+      window.requestAnimationFrame(() => inspectorTrigger.current?.focus());
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [inspectorOpen]);
   const sendInstruction = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const content = instruction.trim();
@@ -61,7 +74,7 @@ export function MissionControlPage({ view, t, onDispatch, onReconnect, onDisconn
             <button type="button" title={t.t('task.pause')} aria-label={t.t('task.pause')} disabled={writesDisabled} onClick={() => void onDispatch({ type: 'task.pause' })}><Pause aria-hidden="true" size={17} /></button>
             <button type="button" title={t.t('task.resume')} aria-label={t.t('task.resume')} disabled={writesDisabled} onClick={() => void onDispatch({ type: 'task.resume' })}><Play aria-hidden="true" size={17} /></button>
             <button type="button" title={t.t('task.cancel')} aria-label={t.t('task.cancel')} disabled={writesDisabled} onClick={() => void onDispatch({ type: 'task.cancel' })}><OctagonX aria-hidden="true" size={17} /></button>
-            <button className="mission-inspector-trigger" type="button" title={inspectorOpen ? t.t('inspector.close') : t.t('inspector.open')} aria-label={inspectorOpen ? t.t('inspector.close') : t.t('inspector.open')} aria-expanded={inspectorOpen} aria-controls="mission-inspector" onClick={() => setInspectorOpen((open) => !open)}><PanelRightOpen aria-hidden="true" size={17} /></button>
+            <button ref={inspectorTrigger} className="mission-inspector-trigger" type="button" title={inspectorOpen ? t.t('inspector.close') : t.t('inspector.open')} aria-label={inspectorOpen ? t.t('inspector.close') : t.t('inspector.open')} aria-expanded={inspectorOpen} aria-controls="mission-inspector" onClick={() => setInspectorOpen((open) => !open)}><PanelRightOpen aria-hidden="true" size={17} /></button>
           </div>
         </header>
         <section className="mission-stream-surface cyber-glass" id="mission-stream">
