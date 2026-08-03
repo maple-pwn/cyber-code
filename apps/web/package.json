@@ -6,9 +6,15 @@
   "scripts": {
     "build": "tsc -b && vite build",
     "dev": "vite",
+    "test": "vitest --root ../.. run apps/web/src",
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
+    "@cyber/i18n": "workspace:*",
+    "@cyber/protocol": "workspace:*",
+    "@cyber/runtime-client": "workspace:*",
+    "@cyber/scenario-player": "workspace:*",
+    "@cyber/ui": "workspace:*",
     "react": "19.1.1",
     "react-dom": "19.1.1"
   }

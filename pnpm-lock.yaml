@@ -71,6 +71,21 @@ importers:
 
   apps/web:
     dependencies:
+      '@cyber/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
+      '@cyber/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      '@cyber/runtime-client':
+        specifier: workspace:*
+        version: link:../../packages/runtime-client
+      '@cyber/scenario-player':
+        specifier: workspace:*
+        version: link:../../packages/scenario-player
+      '@cyber/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       react:
         specifier: 19.1.1
         version: 19.1.1

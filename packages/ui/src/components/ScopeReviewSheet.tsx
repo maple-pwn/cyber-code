@@ -8,6 +8,7 @@ export type ScopeReviewSheetProps = {
   workspace?: string;
   validity?: string;
   confirmed?: boolean;
+  primaryHeading?: boolean;
   t: Translator;
   onConfirmScope: (scopeId: string) => void;
   onEdit?: () => void;
@@ -20,10 +21,12 @@ export function ScopeReviewSheet({
   workspace,
   validity,
   confirmed = false,
+  primaryHeading = false,
   t,
   onConfirmScope,
   onEdit,
 }: ScopeReviewSheetProps) {
+  const Heading = primaryHeading ? 'h1' : 'h2';
   const rows = [
     [t.t('scope.principal'), principal ?? t.t('common.none')],
     [t.t('scope.targets'), scope.targets.join(', ')],
@@ -37,7 +40,7 @@ export function ScopeReviewSheet({
   return <section className="cyber-panel cyber-scope-review" aria-labelledby="scope-review-title">
     <header className="cyber-panel-header">
       <div>
-        <h2 id="scope-review-title">{t.t('scope.title')}</h2>
+        <Heading id="scope-review-title">{t.t('scope.title')}</Heading>
         {confirmed && <p>{t.t('scope.immutable')}</p>}
       </div>
       <span className="cyber-status-warning">{t.t('scope.destructiveDisabled')}</span>
