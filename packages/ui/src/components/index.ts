@@ -8,3 +8,5 @@ export * from './ReportEditor';
 export * from './CommandPalette';
 export * from './ConnectionBanner';
 export * from './ControlLeaseBanner';
+export * from './EvidenceBackdrop';
+export * from './ActiveAgentRibbon';

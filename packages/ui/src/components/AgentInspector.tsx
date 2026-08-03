@@ -31,7 +31,13 @@ export function AgentInspector({ agents, scope, evidence, activeTab, t, onTabCha
       >{tab.label} <span aria-label={`${tab.count}`}>{tab.count}</span></button>)}
     </div>
     <div role="tabpanel" id={`inspector-panel-${activeTab}`} aria-labelledby={`inspector-tab-${activeTab}`}>
-      {activeTab === 'agents' && <ul>{Object.values(agents).map((agent) => <li key={agent.id}>{agent.name}: {agent.status}</li>)}</ul>}
+      {activeTab === 'agents' && <ul className="cyber-agent-list">{Object.values(agents).map((agent) => <li key={agent.id} className="cyber-agent-row">
+        <div><strong>{agent.name}</strong><span className="cyber-agent-status">{agent.status}</span></div>
+        {agent.currentAction && <p>{agent.currentAction}</p>}
+        {agent.progress !== undefined && <span className="cyber-agent-row-progress" role="progressbar" aria-label={`${agent.name} progress`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={agent.progress}>
+          <i style={{ inlineSize: `${Math.max(0, Math.min(100, agent.progress))}%` }} />
+        </span>}
+      </li>)}</ul>}
       {activeTab === 'scope' && <p>{scope?.targets.join(', ') ?? t.t('common.none')}</p>}
       {activeTab === 'evidence' && <ul>{Object.values(evidence).map((item) => <li key={item.id}>{item.summary}</li>)}</ul>}
     </div>

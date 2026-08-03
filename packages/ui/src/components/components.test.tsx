@@ -7,15 +7,17 @@ import { axe } from 'vitest-axe';
 import { describe, expect, test, vi } from 'vitest';
 
 import { createTranslator } from '@cyber/i18n';
-import type { ApprovalState, FindingState, ImmutableEvidence, ScopeSnapshot } from '@cyber/protocol';
+import type { ApprovalState, FindingState, ImmutableEvidence, ScopeSnapshot, ValidatedProductEvent } from '@cyber/protocol';
 
 import {
   AgentInspector,
+  ActiveAgentRibbon,
   ApprovalCard,
   CommandPalette,
   ConnectionBanner,
   ControlLeaseBanner,
   EvidenceDrawer,
+  EvidenceBackdrop,
   FindingCard,
   NarrativeStream,
   ReportEditor,
@@ -56,6 +58,17 @@ const finding: FindingState = {
   status: 'confirmed',
   confidence: 'high',
   evidenceIds: [evidence.id],
+};
+const timelineEvent: ValidatedProductEvent = {
+  schemaVersion: 1,
+  eventId: 'event-1',
+  taskId: 'task-1',
+  cursor: 7,
+  occurredAt: '2026-08-03T12:04:00.000Z',
+  type: 'agent.started',
+  source: { runtimeId: 'scenario-local', agentId: 'agent-verify' },
+  payload: { agent: { id: 'agent-verify', name: 'Verification', status: 'running' } },
+  kind: 'known',
 };
 
 describe('workflow components', () => {
@@ -100,6 +113,43 @@ describe('workflow components', () => {
     expect(screen.getByRole('tab', { name: /Agents/ })).toHaveAttribute('aria-selected', 'true');
     await userEvent.click(screen.getByRole('tab', { name: /Evidence/ }));
     expect(onTabChange).toHaveBeenCalledWith('evidence');
+  });
+
+  test('shows contextual Evidence without inventing an empty request', () => {
+    const { rerender } = render(<EvidenceBackdrop evidence={{ [evidence.id]: evidence }} />);
+    expect(screen.getByTestId('evidence-backdrop')).toHaveTextContent('POST');
+    expect(screen.getByTestId('evidence-backdrop')).toHaveTextContent('/rest/user/login');
+    rerender(<EvidenceBackdrop evidence={{}} />);
+    expect(screen.getByTestId('evidence-backdrop')).not.toHaveTextContent('POST');
+  });
+
+  test('exposes active agent action, progress, and pending tone', async () => {
+    const onSelect = vi.fn();
+    render(<ActiveAgentRibbon agent={{ id: 'agent-verify', name: 'Verification', status: 'waiting', progress: 68, currentAction: 'Approval required' }} onSelect={onSelect} />);
+    const ribbon = screen.getByRole('button', { name: /Verification/ });
+    expect(ribbon).toHaveAttribute('data-tone', 'pending');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '68');
+    await userEvent.click(ribbon);
+    expect(onSelect).toHaveBeenCalledWith('agent-verify');
+  });
+
+  test('renders dense agent action and causal event metadata', () => {
+    render(<>
+      <AgentInspector
+        agents={{ agent: { id: 'agent', name: 'Recon Agent', status: 'running', progress: 42, currentAction: 'Inspect headers' } }}
+        scope={scope}
+        evidence={{}}
+        activeTab="agents"
+        t={t}
+        onTabChange={vi.fn()}
+      />
+      <NarrativeStream events={[timelineEvent]} t={t} />
+    </>);
+    expect(screen.getByText('Inspect headers')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: /Recon Agent/ })).toHaveAttribute('aria-valuenow', '42');
+    expect(screen.getByText('agent.started')).toBeInTheDocument();
+    expect(screen.getByText(/cursor 7/i)).toBeInTheDocument();
+    expect(screen.getByText(/agent-verify/)).toBeInTheDocument();
   });
 
   test('requires parameter review before allow and resets when the challenge changes', async () => {
