@@ -12,7 +12,7 @@ export type ScopeReviewPageProps = {
 
 export function ScopeReviewPage({ scope, runtime, t = createTranslator(), onConfirm, onEdit }: ScopeReviewPageProps) {
   return <div className="page page-scope-review">
-    <p>{t.t('runtime.label')}: <strong>{runtime.label}</strong> <code>{runtime.id}</code></p>
+    <p className="scope-runtime-context">{t.t('runtime.label')}: <strong>{runtime.label}</strong> <code className="cyber-mono">{runtime.id}</code></p>
     <ScopeReviewSheet
       scope={scope}
       scopeId={scope.id}

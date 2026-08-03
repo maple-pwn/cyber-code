@@ -31,7 +31,7 @@ export function NewTaskPage({ runtimes, t = createTranslator(), onCreate }: NewT
   };
   return <section className="page page-new-task" aria-labelledby="new-task-title">
     <h1 id="new-task-title">{t.t('task.new')}</h1>
-    <form ref={formRef} onSubmit={submit} onKeyDown={onKeyDown}>
+    <form className="task-creation-surface cyber-glass" data-testid="new-task-surface" ref={formRef} onSubmit={submit} onKeyDown={onKeyDown}>
       <label>{t.t('task.objective')}<textarea required value={objective} onChange={(event) => setObjective(event.currentTarget.value)} /></label>
       <fieldset><legend>{t.t('runtime.label')}</legend>
         {runtimes.map((runtime) => <label key={runtime.id} className="runtime-choice">

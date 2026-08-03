@@ -17,14 +17,16 @@ describe('authorized scope review flow', () => {
     const user = userEvent.setup();
     render(<App store={store} />);
 
+    expect(screen.getByTestId('new-task-surface')).toHaveClass('cyber-glass');
     expect(screen.getByLabelText('本地授权实验室')).toBeChecked();
     expect(screen.getByLabelText('远程授权实验室')).not.toBeChecked();
     expect(screen.getByText(/isolated/)).toBeInTheDocument();
     await user.type(screen.getByLabelText('任务目标'), '评估 juice-shop.lab');
     await user.click(screen.getByRole('button', { name: '创建任务' }));
 
+    expect(await screen.findByTestId('scope-review-surface')).toHaveClass('cyber-glass');
     expect(await screen.findByText('authorized-operator')).toBeInTheDocument();
-    expect(screen.getByText('scope-1')).toBeInTheDocument();
+    expect(screen.getByText('scope-1')).toHaveClass('cyber-mono');
     expect(screen.getByText('juice-shop.lab')).toBeInTheDocument();
     expect(screen.getByText('/labs/juice-shop')).toBeInTheDocument();
     expect(screen.getByText(/passive-recon/)).toBeInTheDocument();

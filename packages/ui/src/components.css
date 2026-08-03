@@ -15,6 +15,9 @@
   gap: var(--cyber-space-3);
   flex-wrap: wrap;
 }
+.cyber-scope-review { border-radius: var(--cyber-radius-shell); padding: clamp(18px, 3vw, 30px); }
+.cyber-scope-review .cyber-actions { justify-content: flex-end; }
+.cyber-scope-review .cyber-actions button:first-child { border-color: var(--cyber-running); background: var(--cyber-running); color: #10201c; font-weight: 700; }
 
 .cyber-definition-grid { display: grid; gap: var(--cyber-space-3); grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
 .cyber-definition-grid div { min-width: 0; }
@@ -65,8 +68,12 @@
 .cyber-dialog { position: fixed; inset: 8vh max(16px, calc((100vw - 720px) / 2)) auto; max-height: 84vh; overflow: auto; border: 1px solid var(--cyber-border); border-radius: var(--cyber-radius); background: var(--cyber-surface-raised); color: var(--cyber-text); padding: var(--cyber-space-5); }
 .cyber-dialog pre, .cyber-report-editor pre { overflow: auto; border: 1px solid var(--cyber-border); background: var(--cyber-bg); color: var(--cyber-code); padding: var(--cyber-space-3); }
 .cyber-report-editor { display: grid; gap: var(--cyber-space-4); }
+.cyber-report-editor { border-radius: var(--cyber-radius-shell); padding: clamp(18px, 3vw, 30px); }
 .cyber-report-editor label { display: grid; gap: var(--cyber-space-2); }
 .cyber-report-editor textarea { min-height: 96px; }
+.cyber-finding { border-radius: 20px; }
+.cyber-finding header h3 { margin: 0; font-size: 1rem; }
+.cyber-finding ul { padding-left: 18px; color: var(--cyber-muted); }
 
 @media (max-width: 767px) {
   .cyber-narrative li { grid-template-columns: 8px minmax(0, 1fr); }

@@ -38,7 +38,7 @@ export function ScopeReviewSheet({
     [t.t('scope.validity'), validity ?? scope.validity],
   ];
 
-  return <section className="cyber-panel cyber-scope-review" aria-labelledby="scope-review-title">
+  return <section className="cyber-panel cyber-glass cyber-scope-review" data-testid="scope-review-surface" aria-labelledby="scope-review-title">
     <header className="cyber-panel-header">
       <div>
         <Heading id="scope-review-title">{t.t('scope.title')}</Heading>
@@ -49,7 +49,7 @@ export function ScopeReviewSheet({
     <dl className="cyber-definition-grid">
       {rows.map(([label, value]) => <div key={label}>
         <dt>{label}</dt>
-        <dd className="cyber-label">{value}</dd>
+        <dd className="cyber-label cyber-mono">{value}</dd>
       </div>)}
     </dl>
     <footer className="cyber-actions">

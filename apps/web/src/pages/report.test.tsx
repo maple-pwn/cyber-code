@@ -24,16 +24,19 @@ const product = (): ProductState => ({
 describe('Finding, Evidence, and Reports pages', () => {
   test('groups supporting Evidence and renders unassociated facts as Other Evidence', () => {
     render(<FindingsPage product={product()} t={t} />);
+    expect(screen.getByTestId('finding-card')).toHaveClass('cyber-glass');
     expect(screen.getByRole('heading', { name: 'Login injection' })).toBeInTheDocument();
     expect(screen.getByText('Verified authentication bypass')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Other Evidence' })).toBeInTheDocument();
     expect(screen.getByText('Server header observed')).toBeInTheDocument();
+    expect(screen.getByTestId('raw-evidence')).toHaveClass('cyber-mono');
     expect(screen.getAllByText('Generated').length).toBeGreaterThan(0);
     expect(screen.queryByDisplayValue(/Express/)).not.toBeInTheDocument();
   });
 
   test('requires an audited exclusion reason, labels authorship, and freezes a valid report', async () => {
     render(<ReportsPage product={product()} t={t} />);
+    expect(screen.getByTestId('report-editor')).toHaveClass('cyber-glass');
     expect(screen.getByText('Verified impact')).toBeInTheDocument();
     expect(screen.getByText('Generated')).toBeInTheDocument();
     expect(screen.getByText('Human note')).toBeInTheDocument();

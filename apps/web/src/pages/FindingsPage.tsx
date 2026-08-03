@@ -5,7 +5,7 @@ import { FindingCard } from '@cyber/ui';
 export function FindingsPage({ product, t }: { product: ProductState; t: Translator }) {
   const associated = new Set(Object.values(product.findings).flatMap((finding) => finding.evidenceIds));
   const otherEvidence = Object.values(product.evidence).filter((item) => !associated.has(item.id));
-  return <section className="page"><h1>{t.t('nav.findings')}</h1>
+  return <section className="page page-findings"><h1>{t.t('nav.findings')}</h1>
     <div className="finding-list">{Object.values(product.findings).map((finding) => <FindingCard
       key={finding.id}
       finding={finding}
@@ -17,7 +17,7 @@ export function FindingsPage({ product, t }: { product: ProductState; t: Transla
       {otherEvidence.length === 0 ? <p>{t.t('common.none')}</p> : <ul>{otherEvidence.map((item) => <li key={item.id}>
         <span className="cyber-provenance">{t.t('evidence.generated')}</span>
         <strong>{item.summary}</strong>
-        <pre tabIndex={0}>{JSON.stringify(item.data, null, 2)}</pre>
+        <pre className="cyber-mono" data-testid="raw-evidence" tabIndex={0}>{JSON.stringify(item.data, null, 2)}</pre>
       </li>)}</ul>}
     </section>
   </section>;

@@ -26,7 +26,7 @@ export function ReportEditor({ report, findings, evidence, t, onNotesChange, onR
     setReason(value);
     if (excluded) onExcludeFinding(excluded, value);
   };
-  return <section className="cyber-report-editor" aria-labelledby="report-editor-title">
+  return <section className="cyber-report-editor cyber-glass" data-testid="report-editor" aria-labelledby="report-editor-title">
     <h2 id="report-editor-title">{t.t('report.title')} {report.id}</h2>
     <p><span className="cyber-provenance">{t.t('evidence.generated')}</span> {report.narrative}</p>
     <label>{t.t('report.notes')} <span className="cyber-provenance">{t.t('evidence.human')}</span><textarea value={report.humanNotes} disabled={frozen} onChange={(event) => onNotesChange(event.currentTarget.value)} /></label>
@@ -45,7 +45,7 @@ export function ReportEditor({ report, findings, evidence, t, onNotesChange, onR
     <section aria-label={t.t('evidence.raw')}>
       <h3>{t.t('evidence.raw')}</h3>
       <p>{t.t('evidence.immutable')}</p>
-      {Object.values(evidence).map((item) => <pre key={item.id} tabIndex={0}>{JSON.stringify(item.data, null, 2)}</pre>)}
+      {Object.values(evidence).map((item) => <pre className="cyber-mono" key={item.id} tabIndex={0}>{JSON.stringify(item.data, null, 2)}</pre>)}
     </section>
     <div className="cyber-actions">
       <button type="button" disabled={freezeDisabled || (Boolean(excluded) && reason.trim() === '')} onClick={onFreeze}>{t.t('report.freeze')}</button>
