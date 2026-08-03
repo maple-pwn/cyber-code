@@ -1,0 +1,67 @@
+import { describe, expect, it } from 'vitest';
+import { initialProductState, project, validateEvent } from './index';
+
+const event = (type: string, payload: Record<string, unknown>, cursor: number, eventId = `evt-${cursor}`) => validateEvent({ schemaVersion: 1, eventId, taskId: 'task-1', cursor, occurredAt: '2026-08-03T00:00:00Z', type, source: { runtimeId: 'scenario-local' }, payload });
+const apply = (state: ReturnType<typeof initialProductState>, value: ReturnType<typeof event>) => project(state, value).state;
+
+describe('project', () => {
+  it('ignores an identical replay', () => {
+    const value = event('task.started', { title: 'Lab review' }, 1);
+    const state = apply(initialProductState(), value);
+    expect(project(state, value).kind).toBe('duplicate');
+  });
+  it('rejects a reused event ID with a different canonical envelope', () => {
+    const state = apply(initialProductState(), event('task.started', { title: 'Lab review' }, 1));
+    expect(() => project(state, event('task.started', { title: 'Changed' }, 2, 'evt-1'))).toThrow('event_id_conflict');
+  });
+  it('rejects stale unseen cursors', () => {
+    const state = apply(initialProductState(), event('task.started', { title: 'Lab review' }, 1));
+    expect(() => project(state, event('task.paused', {}, 1, 'evt-2'))).toThrow('stale_cursor');
+  });
+  it('requires resync for a cursor gap without changing state', () => {
+    const state = apply(initialProductState(), event('task.started', { title: 'Lab review' }, 1));
+    const result = project(state, event('task.paused', {}, 3));
+    expect(result).toMatchObject({ kind: 'resync-required', expectedCursor: 2, state });
+  });
+  it('permits only legal Finding transitions', () => {
+    let state = apply(initialProductState(), event('finding.created', { finding: { id: 'f-1', title: 'X', severity: 'high', status: 'candidate', confidence: 'high', evidenceIds: [] } }, 1));
+    state = apply(state, event('finding.verifying', { findingId: 'f-1' }, 2));
+    state = apply(state, event('finding.confirmed', { findingId: 'f-1' }, 3));
+    expect(state.findings['f-1'].status).toBe('confirmed');
+    expect(() => project(state, event('finding.verifying', { findingId: 'f-1' }, 4))).toThrow('invalid_finding_transition');
+  });
+  it('resolves an approval at most once', () => {
+    let state = apply(initialProductState(), event('approval.requested', { challenge: { id: 'a-1', agentId: 'agent-1', action: 'verify', target: 'lab', parameterDigest: 'abc', risk: 'high', expiresAt: '2026-08-03T01:00:00Z' } }, 1));
+    state = apply(state, event('approval.resolved', { challengeId: 'a-1', decision: 'allow_once' }, 2));
+    expect(() => project(state, event('approval.resolved', { challengeId: 'a-1', decision: 'deny' }, 3))).toThrow('approval_already_resolved');
+  });
+  it('requires monotonically increasing lease revisions', () => {
+    let state = apply(initialProductState(), event('control.transferred', { lease: { clientId: 'c-1', revision: 1 } }, 1));
+    state = apply(state, event('control.transferred', { lease: { clientId: 'c-2', revision: 2 } }, 2));
+    expect(() => project(state, event('control.transferred', { lease: { clientId: 'c-3', revision: 2 } }, 3))).toThrow('non_monotonic_lease_revision');
+  });
+  it('clones and freezes committed Evidence', () => {
+    const evidence = { id: 'e-1', kind: 'http', summary: 'response', data: { status: 200 } };
+    const state = apply(initialProductState(), event('evidence.committed', { evidence }, 1));
+    evidence.data.status = 500;
+    expect(state.evidence['e-1'].data.status).toBe(200);
+    expect(Object.isFrozen(state.evidence['e-1'])).toBe(true);
+    expect(Object.isFrozen(state.evidence['e-1'].data)).toBe(true);
+  });
+  it('projects scope, agents, task lifecycle, and reports', () => {
+    let state = apply(initialProductState(), event('task.created', { title: 'Lab' }, 1));
+    state = apply(state, event('scope.confirmed', { scope: { targets: ['lab'], allowedActions: [], deniedActions: [], riskCeiling: 'high' } }, 2));
+    state = apply(state, event('agent.started', { agent: { id: 'agent-1', name: 'Scout', status: 'running' } }, 3));
+    state = apply(state, event('agent.progressed', { agentId: 'agent-1', progress: 50, currentAction: 'scan' }, 4));
+    state = apply(state, event('task.paused', {}, 5));
+    state = apply(state, event('task.resumed', {}, 6));
+    state = apply(state, event('report.drafted', { report: { id: 'r-1', version: 1 } }, 7));
+    state = apply(state, event('report.frozen', { reportId: 'r-1', version: 2 }, 8));
+    expect(state).toMatchObject({ scope: { targets: ['lab'] }, agents: { 'agent-1': { progress: 50, currentAction: 'scan' } }, task: { status: 'resumed' }, report: { version: 2, status: 'frozen' } });
+  });
+  it('acquires and releases control', () => {
+    let state = apply(initialProductState(), event('control.acquired', { lease: { clientId: 'c-1', revision: 1 } }, 1));
+    state = apply(state, event('control.released', { clientId: 'c-1' }, 2));
+    expect(state.controlLease).toBeNull();
+  });
+});
