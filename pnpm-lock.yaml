@@ -86,7 +86,11 @@ importers:
         specifier: 1.17.1
         version: 1.17.1
 
-  packages/runtime-client: {}
+  packages/runtime-client:
+    dependencies:
+      '@cyber/protocol':
+        specifier: workspace:*
+        version: link:../protocol
 
   packages/scenario-player: {}
 
