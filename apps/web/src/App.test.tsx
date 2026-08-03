@@ -53,4 +53,12 @@ describe('App shell', () => {
     expect(error).not.toHaveBeenCalled();
     error.mockRestore();
   });
+
+  test('renders a compact icon rail with accessible route names', async () => {
+    await renderApp();
+    const navigation = screen.getByRole('navigation', { name: 'Primary' });
+    expect(within(navigation).getByRole('button', { name: '新建任务' })).toHaveAttribute('aria-current', 'page');
+    expect(within(navigation).getAllByTestId('nav-icon')).toHaveLength(4);
+    expect(screen.getByTestId('app-canvas')).toHaveClass('app-canvas');
+  });
 });

@@ -1,4 +1,5 @@
 import { Component, useEffect, useRef, useState, useSyncExternalStore, type ErrorInfo, type ReactNode } from 'react';
+import { Activity, FileText, Radar, ShieldPlus, type LucideIcon } from 'lucide-react';
 
 import { createTranslator, setLocale, type Locale } from '@cyber/i18n';
 import { CommandPalette } from '@cyber/ui';
@@ -10,11 +11,13 @@ import { NewTaskPage } from './pages/NewTaskPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { ScopeReviewPage } from './pages/ScopeReviewPage';
 
-const routes: { route: AppRoute; key: 'nav.newTask' | 'nav.missionControl' | 'nav.findings' | 'nav.reports'; chord: string }[] = [
-  { route: 'new-task', key: 'nav.newTask', chord: 'n' },
-  { route: 'mission-control', key: 'nav.missionControl', chord: 'm' },
-  { route: 'findings', key: 'nav.findings', chord: 'f' },
-  { route: 'reports', key: 'nav.reports', chord: 'r' },
+type RouteKey = 'nav.newTask' | 'nav.missionControl' | 'nav.findings' | 'nav.reports';
+
+const routes: { route: AppRoute; key: RouteKey; chord: string; icon: LucideIcon }[] = [
+  { route: 'new-task', key: 'nav.newTask', chord: 'n', icon: ShieldPlus },
+  { route: 'mission-control', key: 'nav.missionControl', chord: 'm', icon: Radar },
+  { route: 'findings', key: 'nav.findings', chord: 'f', icon: Activity },
+  { route: 'reports', key: 'nav.reports', chord: 'r', icon: FileText },
 ];
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }> {
@@ -69,14 +72,21 @@ export function App({ store }: { store: AppStore }) {
 
   return <AppErrorBoundary>
     <a className="skip-link" href="#main-content">Skip to content</a>
-    <div className="app-shell">
-      <header className="topbar"><strong>{t.t('app.name')}</strong><span>{t.t(`connection.${snapshot.view.connection.status}`)}</span>
+    <div className={`app-shell app-canvas route-${snapshot.route}`} data-testid="app-canvas">
+      <header className="topbar product-bar cyber-glass"><strong>CYBER</strong><span className="product-context">{t.t('app.name')}</span><span className="connection-state" data-status={snapshot.view.connection.status}>{t.t(`connection.${snapshot.view.connection.status}`)}</span>
         <div className="locale-control" aria-label="Language">
           <button type="button" aria-pressed={locale === 'zh-CN'} onClick={() => setAppLocale('zh-CN')}>{t.t('locale.zhCN')}</button>
           <button type="button" aria-pressed={locale === 'en'} onClick={() => setAppLocale('en')}>{t.t('locale.en')}</button>
         </div>
       </header>
-      <nav className="sidebar" aria-label="Primary">{routes.map((item) => <button key={item.route} type="button" aria-current={snapshot.route === item.route ? 'page' : undefined} onClick={() => navigate(item.route)}>{t.t(item.key)}</button>)}</nav>
+      <nav className="sidebar navigation-rail cyber-glass" aria-label="Primary">{routes.map((item) => {
+        const Icon = item.icon;
+        const label = t.t(item.key);
+        return <button key={item.route} type="button" aria-label={label} title={label} aria-current={snapshot.route === item.route ? 'page' : undefined} onClick={() => navigate(item.route)}>
+          <Icon data-testid="nav-icon" aria-hidden="true" size={19} strokeWidth={1.8} />
+          <span className="cyber-visually-hidden">{label}</span>
+        </button>;
+      })}</nav>
       <main id="main-content" className="workspace">{renderPage()}</main>
     </div>
     <CommandPalette open={paletteOpen} commands={routes.map((item) => ({ id: item.route, label: t.t(item.key) }))} t={t} onOpenChange={setPaletteOpen} onCommand={(id) => navigate(id as AppRoute)} />
