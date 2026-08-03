@@ -26,8 +26,15 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .runtime-choice span { display: grid; gap: 4px; }
 .runtime-choice small { color: var(--cyber-muted); }
 .mission-actions { display: flex; gap: 8px; margin: 16px 0; }
+.mission-header { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+.mission-header h1 { margin: 0; font-size: 1.65rem; letter-spacing: 0; }
+.mission-task-summary { display: grid; gap: 4px; text-align: right; }
+.mission-task-summary span { color: var(--cyber-muted); }
+.mission-composer { display: grid; gap: 8px; margin: 16px 0; }
+.mission-composer > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: stretch; }
+.mission-composer textarea { min-height: 44px; resize: vertical; }
 .mission-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 16px; align-items: start; }
-.mission-grid main { display: grid; gap: 16px; }
+.mission-grid > section { display: grid; gap: 16px; }
 .finding-list { display: grid; gap: 12px; }
 
 @media (max-width: 1023px) {
@@ -40,4 +47,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   .sidebar { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--cyber-border); padding: 8px; }
   .sidebar button { white-space: nowrap; }
   .workspace { padding: 16px; }
+  .mission-header { align-items: start; flex-direction: column; }
+  .mission-task-summary { text-align: left; }
+  .mission-composer > div { grid-template-columns: 1fr; }
 }
