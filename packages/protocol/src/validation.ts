@@ -1,7 +1,12 @@
 import type { EventSourceRef, JsonObject, KnownEventType, RawProductEvent, ValidatedProductEvent } from './index';
 
-const isObject = (value: unknown): value is JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value);
-const isJsonValue = (value: unknown): boolean => value === null || typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value)) || (Array.isArray(value) && value.every(isJsonValue)) || (isObject(value) && Object.values(value).every(isJsonValue));
+const isPlainObject = (value: unknown): value is JsonObject => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+};
+const isObject = isPlainObject;
+const isJsonValue = (value: unknown): boolean => value === null || typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value)) || (Array.isArray(value) && value.length === Object.keys(value).length && value.every(isJsonValue)) || (isPlainObject(value) && Object.values(value).every(isJsonValue));
 const isString = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
 const isStrings = (value: unknown): value is string[] => Array.isArray(value) && value.every(isString);
 const knownTypes = new Set<KnownEventType>(['task.created', 'task.started', 'task.paused', 'task.resumed', 'task.cancel.requested', 'task.cancelled', 'task.completed', 'task.failed', 'task.blocked', 'scope.proposed', 'scope.confirmed', 'runtime.capabilities.updated', 'control.acquired', 'control.transferred', 'control.released', 'approval.requested', 'approval.resolved', 'question.requested', 'question.resolved', 'agent.started', 'agent.progressed', 'agent.completed', 'agent.failed', 'tool.started', 'tool.completed', 'tool.failed', 'evidence.committed', 'finding.created', 'finding.verifying', 'finding.confirmed', 'finding.rejected', 'finding.mitigated', 'report.drafted', 'report.edited', 'report.validation.failed', 'report.validated', 'report.frozen', 'report.exported']);

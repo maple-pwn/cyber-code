@@ -46,6 +46,14 @@ describe('project', () => {
     expect(() => project(state, validateEvent({ schemaVersion: 1, eventId: 'evt-2', taskId: 'task-1', cursor: 2, occurredAt: '2026-08-03T00:02:00Z', type: 'approval.resolved', source: { runtimeId: 'scenario-local' }, payload: { challengeId: 'a-1', decision: 'deny' } }))).toThrow('approval_expired');
   });
 
+  it('cannot admit non-canonical values into duplicate detection', () => {
+    class Payload { value = 'x'; }
+    const sparse = ['value'] as string[]; sparse.length = 2;
+    for (const value of [new Date('2026-08-03T00:00:00Z'), new Payload(), sparse]) {
+      expect(() => validateEvent({ schemaVersion: 1, eventId: 'evt-invalid', taskId: 'task-1', cursor: 1, occurredAt: '2026-08-03T00:00:00Z', type: 'future.event', source: { runtimeId: 'scenario-local' }, payload: { value } })).toThrow('invalid_event');
+    }
+  });
+
   it('requires monotonically increasing lease revisions, including after release', () => {
     let state = apply(initialProductState(), event('control.transferred', { lease: { clientId: 'c-1', revision: 1 } }, 1));
     state = apply(state, event('control.transferred', { lease: { clientId: 'c-2', revision: 2 } }, 2));
