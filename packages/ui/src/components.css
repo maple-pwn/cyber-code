@@ -1,0 +1,37 @@
+.cyber-panel, .cyber-banner, .cyber-inspector, .cyber-narrative, .cyber-report-editor {
+  border: 1px solid var(--cyber-border);
+  border-radius: var(--cyber-radius);
+  background: var(--cyber-surface);
+  padding: var(--cyber-space-4);
+}
+
+.cyber-panel-header, .cyber-panel header, .cyber-actions, .cyber-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cyber-space-3);
+  flex-wrap: wrap;
+}
+
+.cyber-definition-grid { display: grid; gap: var(--cyber-space-3); grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.cyber-definition-grid div { min-width: 0; }
+.cyber-definition-grid dt { color: var(--cyber-muted); font-size: 0.8125rem; }
+.cyber-definition-grid dd { margin: var(--cyber-space-1) 0 0; font-family: var(--cyber-font-mono); }
+.cyber-actions { justify-content: flex-start; margin-top: var(--cyber-space-4); }
+.cyber-actions button, .cyber-banner button { min-height: var(--cyber-control-height); }
+.cyber-narrative ol { list-style: none; padding: 0; }
+.cyber-narrative li { display: grid; grid-template-columns: minmax(180px, auto) 1fr; gap: var(--cyber-space-3); padding: var(--cyber-space-2) 0; border-bottom: 1px solid var(--cyber-border); }
+.cyber-inspector [role="tablist"] { display: flex; gap: var(--cyber-space-1); border-bottom: 1px solid var(--cyber-border); }
+.cyber-inspector [role="tab"][aria-selected="true"] { color: var(--cyber-accent); border-bottom-color: var(--cyber-accent); }
+.cyber-inspector [role="tabpanel"] { padding-top: var(--cyber-space-3); }
+.cyber-dialog-overlay { position: fixed; inset: 0; background: rgb(0 0 0 / 72%); }
+.cyber-dialog { position: fixed; inset: 8vh max(16px, calc((100vw - 720px) / 2)) auto; max-height: 84vh; overflow: auto; border: 1px solid var(--cyber-border); border-radius: var(--cyber-radius); background: var(--cyber-surface-raised); color: var(--cyber-text); padding: var(--cyber-space-5); }
+.cyber-dialog pre, .cyber-report-editor pre { overflow: auto; border: 1px solid var(--cyber-border); background: var(--cyber-bg); color: var(--cyber-code); padding: var(--cyber-space-3); }
+.cyber-report-editor { display: grid; gap: var(--cyber-space-4); }
+.cyber-report-editor label { display: grid; gap: var(--cyber-space-2); }
+.cyber-report-editor textarea { min-height: 96px; }
+
+@media (max-width: 767px) {
+  .cyber-narrative li { grid-template-columns: 1fr; }
+  .cyber-dialog { inset: auto 0 0; max-height: 88vh; }
+}

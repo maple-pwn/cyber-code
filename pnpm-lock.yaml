@@ -103,6 +103,15 @@ importers:
 
   packages/ui:
     dependencies:
+      '@cyber/i18n':
+        specifier: workspace:*
+        version: link:../i18n
+      '@cyber/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@cyber/runtime-client':
+        specifier: workspace:*
+        version: link:../runtime-client
       '@radix-ui/react-dialog':
         specifier: 1.1.15
         version: 1.1.15(@types/react-dom@19.1.9(@types/react@19.1.12))(@types/react@19.1.12)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
@@ -115,6 +124,12 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: 1.2.8
         version: 1.2.8(@types/react-dom@19.1.9(@types/react@19.1.12))(@types/react@19.1.12)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+      react:
+        specifier: 19.1.1
+        version: 19.1.1
+      react-dom:
+        specifier: 19.1.1
+        version: 19.1.1(react@19.1.1)
 
 packages:
 
