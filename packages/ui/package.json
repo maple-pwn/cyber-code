@@ -3,9 +3,13 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "exports": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.css": "./src/tokens.css"
+  },
   "scripts": {
     "build": "tsc -b --pretty false",
+    "test": "vitest --root ../.. run packages/ui/src",
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {

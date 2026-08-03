@@ -6,6 +6,7 @@
   "exports": "./src/index.ts",
   "scripts": {
     "build": "tsc -b --pretty false",
+    "test": "vitest --root ../.. run packages/i18n/src/index.test.ts",
     "typecheck": "tsc -b --pretty false"
   }
 }
