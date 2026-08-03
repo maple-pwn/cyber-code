@@ -35,10 +35,23 @@ describe('project', () => {
     state = apply(state, event('approval.resolved', { challengeId: 'a-1', decision: 'allow_once' }, 2));
     expect(() => project(state, event('approval.resolved', { challengeId: 'a-1', decision: 'deny' }, 3))).toThrow('approval_already_resolved');
   });
-  it('requires monotonically increasing lease revisions', () => {
+  it('rejects repeated approval requests that could erase a decision', () => {
+    const challenge = { id: 'a-1', agentId: 'agent-1', action: 'verify', target: 'lab', parameterDigest: 'abc', risk: 'high', expiresAt: '2026-08-03T01:00:00Z' };
+    let state = apply(initialProductState(), event('approval.requested', { challenge }, 1));
+    state = apply(state, event('approval.resolved', { challengeId: 'a-1', decision: 'deny' }, 2));
+    expect(() => project(state, event('approval.requested', { challenge: { ...challenge, target: 'changed' } }, 3))).toThrow('approval_challenge_conflict');
+  });
+  it('rejects every expired approval resolution, including deny', () => {
+    let state = apply(initialProductState(), validateEvent({ schemaVersion: 1, eventId: 'evt-1', taskId: 'task-1', cursor: 1, occurredAt: '2026-08-03T00:00:00Z', type: 'approval.requested', source: { runtimeId: 'scenario-local' }, payload: { challenge: { id: 'a-1', agentId: 'agent-1', action: 'verify', target: 'lab', parameterDigest: 'abc', risk: 'high', expiresAt: '2026-08-03T00:01:00Z' } } }));
+    expect(() => project(state, validateEvent({ schemaVersion: 1, eventId: 'evt-2', taskId: 'task-1', cursor: 2, occurredAt: '2026-08-03T00:02:00Z', type: 'approval.resolved', source: { runtimeId: 'scenario-local' }, payload: { challengeId: 'a-1', decision: 'deny' } }))).toThrow('approval_expired');
+  });
+
+  it('requires monotonically increasing lease revisions, including after release', () => {
     let state = apply(initialProductState(), event('control.transferred', { lease: { clientId: 'c-1', revision: 1 } }, 1));
     state = apply(state, event('control.transferred', { lease: { clientId: 'c-2', revision: 2 } }, 2));
     expect(() => project(state, event('control.transferred', { lease: { clientId: 'c-3', revision: 2 } }, 3))).toThrow('non_monotonic_lease_revision');
+    state = apply(state, event('control.released', { clientId: 'c-2' }, 3));
+    expect(() => project(state, event('control.acquired', { lease: { clientId: 'c-3', revision: 1 } }, 4))).toThrow('non_monotonic_lease_revision');
   });
   it('clones and freezes committed Evidence', () => {
     const evidence = { id: 'e-1', kind: 'http', summary: 'response', data: { status: 200 } };
@@ -48,6 +61,27 @@ describe('project', () => {
     expect(Object.isFrozen(state.evidence['e-1'])).toBe(true);
     expect(Object.isFrozen(state.evidence['e-1'].data)).toBe(true);
   });
+  it('does not alias mutable event payloads into projected state', () => {
+    const scope = { targets: ['lab'], allowedActions: [], deniedActions: [], riskCeiling: 'high' };
+    const agent = { id: 'agent-1', name: 'Scout', status: 'running' };
+    const report = { id: 'r-1', version: 1, notes: { text: 'initial' } };
+    const scopeEvent = event('scope.confirmed', { scope }, 1);
+    let state = apply(initialProductState(), scopeEvent);
+    const agentEvent = event('agent.started', { agent }, 2);
+    state = apply(state, agentEvent);
+    const reportEvent = event('report.drafted', { report }, 3);
+    state = apply(state, reportEvent);
+    scope.targets[0] = 'changed'; agent.name = 'changed'; (report.notes as { text: string }).text = 'changed';
+    expect(state.scope?.targets).toEqual(['lab']);
+    expect(state.agents['agent-1'].name).toBe('Scout');
+    expect((state.report?.notes as { text: string }).text).toBe('initial');
+    expect((state.timeline[0].payload as { scope: { targets: string[] } }).scope.targets).toEqual(['lab']);
+    expect(Object.isFrozen(state.scope)).toBe(true);
+    expect(Object.isFrozen(state.agents['agent-1'])).toBe(true);
+    expect(Object.isFrozen(state.report)).toBe(true);
+    expect(Object.isFrozen(state.timeline[0])).toBe(true);
+  });
+
   it('projects scope, agents, task lifecycle, and reports', () => {
     let state = apply(initialProductState(), event('task.created', { title: 'Lab' }, 1));
     state = apply(state, event('scope.confirmed', { scope: { targets: ['lab'], allowedActions: [], deniedActions: [], riskCeiling: 'high' } }, 2));

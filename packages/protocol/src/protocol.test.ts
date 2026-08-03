@@ -12,6 +12,10 @@ describe('validateEvent', () => {
     expect(project(initialProductState(), unknown).state.rawEvents).toHaveLength(1);
   });
   it('rejects malformed envelope fields', () => expect(() => validateEvent({ ...started, cursor: '1' })).toThrow('invalid_event'));
+  it('rejects non-finite values that canonical JSON would transform', () => {
+    expect(() => validateEvent({ ...started, payload: { title: 'Lab', value: Number.NaN } })).toThrow('invalid_event');
+    expect(() => validateEvent({ ...started, payload: { title: 'Lab', value: Infinity } })).toThrow('invalid_event');
+  });
   it('validates representative known payload families before narrowing', () => {
     const payloads = [
       ['task.failed', { reason: 'failed' }], ['scope.confirmed', { scope: { targets: [], allowedActions: [], deniedActions: [], riskCeiling: 'low' } }], ['runtime.capabilities.updated', { capabilities: [] }], ['agent.started', { agent: { id: 'a', name: 'A', status: 'running' } }], ['tool.completed', { callId: 'c', success: true, evidenceIds: [] }], ['evidence.committed', { evidence: { id: 'e', kind: 'http', summary: 'ok', data: {} } }], ['finding.created', { finding: { id: 'f', title: 'F', severity: 'low', status: 'candidate', confidence: 'low', evidenceIds: [] } }], ['approval.resolved', { challengeId: 'a', decision: 'deny' }], ['control.transferred', { lease: { clientId: 'c', revision: 1 } }], ['report.frozen', { reportId: 'r', version: 1 }],

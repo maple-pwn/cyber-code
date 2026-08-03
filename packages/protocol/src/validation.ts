@@ -1,6 +1,7 @@
 import type { EventSourceRef, JsonObject, KnownEventType, RawProductEvent, ValidatedProductEvent } from './index';
 
 const isObject = (value: unknown): value is JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isJsonValue = (value: unknown): boolean => value === null || typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value)) || (Array.isArray(value) && value.every(isJsonValue)) || (isObject(value) && Object.values(value).every(isJsonValue));
 const isString = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
 const isStrings = (value: unknown): value is string[] => Array.isArray(value) && value.every(isString);
 const knownTypes = new Set<KnownEventType>(['task.created', 'task.started', 'task.paused', 'task.resumed', 'task.cancel.requested', 'task.cancelled', 'task.completed', 'task.failed', 'task.blocked', 'scope.proposed', 'scope.confirmed', 'runtime.capabilities.updated', 'control.acquired', 'control.transferred', 'control.released', 'approval.requested', 'approval.resolved', 'question.requested', 'question.resolved', 'agent.started', 'agent.progressed', 'agent.completed', 'agent.failed', 'tool.started', 'tool.completed', 'tool.failed', 'evidence.committed', 'finding.created', 'finding.verifying', 'finding.confirmed', 'finding.rejected', 'finding.mitigated', 'report.drafted', 'report.edited', 'report.validation.failed', 'report.validated', 'report.frozen', 'report.exported']);
@@ -45,7 +46,7 @@ function isValidPayload(type: KnownEventType, payload: JsonObject): boolean {
 
 export function validateEvent(raw: RawProductEvent): ValidatedProductEvent {
   if (raw.schemaVersion !== 1) throw new Error('unsupported_schema_version');
-  if (!isString(raw.eventId) || !isString(raw.taskId) || typeof raw.cursor !== 'number' || !Number.isSafeInteger(raw.cursor) || raw.cursor < 1 || !isString(raw.occurredAt) || Number.isNaN(Date.parse(raw.occurredAt)) || !isString(raw.type) || !isObject(raw.source) || !isString(raw.source.runtimeId) || !isObject(raw.payload)) throw new Error('invalid_event');
+  if (!isString(raw.eventId) || !isString(raw.taskId) || typeof raw.cursor !== 'number' || !Number.isSafeInteger(raw.cursor) || raw.cursor < 1 || !isString(raw.occurredAt) || Number.isNaN(Date.parse(raw.occurredAt)) || !isString(raw.type) || !isObject(raw.source) || !isString(raw.source.runtimeId) || !isObject(raw.payload) || !isJsonValue(raw)) throw new Error('invalid_event');
   const source: EventSourceRef = { runtimeId: raw.source.runtimeId };
   if (raw.source.agentId !== undefined) { if (!isString(raw.source.agentId)) throw new Error('invalid_event'); source.agentId = raw.source.agentId; }
   if (raw.source.toolCallId !== undefined) { if (!isString(raw.source.toolCallId)) throw new Error('invalid_event'); source.toolCallId = raw.source.toolCallId; }
