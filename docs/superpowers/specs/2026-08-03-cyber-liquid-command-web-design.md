@@ -1,7 +1,7 @@
 # CYBER Liquid Command Web Design
 
 **Date:** 2026-08-03  
-**Status:** Design approved; written review pending  
+**Status:** Approved  
 **Product:** `cyber-code` Web console  
 **Parent specification:** `2026-08-03-cyber-unified-ui-design.md`
 
