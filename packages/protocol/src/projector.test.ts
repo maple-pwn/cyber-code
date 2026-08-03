@@ -42,7 +42,7 @@ describe('project', () => {
     expect(() => project(state, event('approval.requested', { challenge: { ...challenge, target: 'changed' } }, 3))).toThrow('approval_challenge_conflict');
   });
   it('rejects every expired approval resolution, including deny', () => {
-    let state = apply(initialProductState(), validateEvent({ schemaVersion: 1, eventId: 'evt-1', taskId: 'task-1', cursor: 1, occurredAt: '2026-08-03T00:00:00Z', type: 'approval.requested', source: { runtimeId: 'scenario-local' }, payload: { challenge: { id: 'a-1', agentId: 'agent-1', action: 'verify', target: 'lab', parameterDigest: 'abc', risk: 'high', expiresAt: '2026-08-03T00:01:00Z' } } }));
+    const state = apply(initialProductState(), validateEvent({ schemaVersion: 1, eventId: 'evt-1', taskId: 'task-1', cursor: 1, occurredAt: '2026-08-03T00:00:00Z', type: 'approval.requested', source: { runtimeId: 'scenario-local' }, payload: { challenge: { id: 'a-1', agentId: 'agent-1', action: 'verify', target: 'lab', parameterDigest: 'abc', risk: 'high', expiresAt: '2026-08-03T00:01:00Z' } } }));
     expect(() => project(state, validateEvent({ schemaVersion: 1, eventId: 'evt-2', taskId: 'task-1', cursor: 2, occurredAt: '2026-08-03T00:02:00Z', type: 'approval.resolved', source: { runtimeId: 'scenario-local' }, payload: { challengeId: 'a-1', decision: 'deny' } }))).toThrow('approval_expired');
   });
 
