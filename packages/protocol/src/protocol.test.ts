@@ -23,6 +23,14 @@ describe('validateEvent', () => {
     expect(() => validateEvent({ ...started, payload: { title: 'Lab', value: new Payload() } })).toThrow('invalid_event');
     expect(() => validateEvent({ ...started, payload: { title: 'Lab', value: sparse } })).toThrow('invalid_event');
   });
+  it('rejects arrays whose own properties change JSON canonicalization', () => {
+    const holeWithExtra = [] as string[] & { extra?: string }; holeWithExtra.length = 1; holeWithExtra.extra = 'x';
+    const denseWithExtra = ['value'] as string[] & { extra?: string }; denseWithExtra.extra = 'x';
+    const symbolValue = ['value']; Object.defineProperty(symbolValue, Symbol('hidden'), { value: 'x' });
+    for (const value of [holeWithExtra, denseWithExtra, symbolValue]) expect(() => validateEvent({ ...started, payload: { title: 'Lab', value } })).toThrow('invalid_event');
+    expect(validateEvent({ ...started, payload: { title: 'Lab', value: ['dense', null, 1] } }).kind).toBe('known');
+  });
+
   it('validates representative known payload families before narrowing', () => {
     const payloads = [
       ['task.failed', { reason: 'failed' }], ['scope.confirmed', { scope: { targets: [], allowedActions: [], deniedActions: [], riskCeiling: 'low' } }], ['runtime.capabilities.updated', { capabilities: [] }], ['agent.started', { agent: { id: 'a', name: 'A', status: 'running' } }], ['tool.completed', { callId: 'c', success: true, evidenceIds: [] }], ['evidence.committed', { evidence: { id: 'e', kind: 'http', summary: 'ok', data: {} } }], ['finding.created', { finding: { id: 'f', title: 'F', severity: 'low', status: 'candidate', confidence: 'low', evidenceIds: [] } }], ['approval.resolved', { challengeId: 'a', decision: 'deny' }], ['control.transferred', { lease: { clientId: 'c', revision: 1 } }], ['report.frozen', { reportId: 'r', version: 1 }],

@@ -54,6 +54,17 @@ describe('project', () => {
     }
   });
 
+  it('rejects non-canonical array properties before duplicate detection', () => {
+    const holeWithExtra = [] as string[] & { extra?: string }; holeWithExtra.length = 1; holeWithExtra.extra = 'x';
+    const denseWithExtra = ['value'] as string[] & { extra?: string }; denseWithExtra.extra = 'x';
+    const symbolValue = ['value']; Object.defineProperty(symbolValue, Symbol('hidden'), { value: 'x' });
+    for (const value of [holeWithExtra, denseWithExtra, symbolValue]) {
+      expect(() => validateEvent({ schemaVersion: 1, eventId: 'evt-invalid', taskId: 'task-1', cursor: 1, occurredAt: '2026-08-03T00:00:00Z', type: 'future.event', source: { runtimeId: 'scenario-local' }, payload: { value } })).toThrow('invalid_event');
+    }
+    const accepted = validateEvent({ schemaVersion: 1, eventId: 'evt-1', taskId: 'task-1', cursor: 1, occurredAt: '2026-08-03T00:00:00Z', type: 'future.event', source: { runtimeId: 'scenario-local' }, payload: { value: ['dense', null] } });
+    expect(project(initialProductState(), accepted).kind).toBe('applied');
+  });
+
   it('requires monotonically increasing lease revisions, including after release', () => {
     let state = apply(initialProductState(), event('control.transferred', { lease: { clientId: 'c-1', revision: 1 } }, 1));
     state = apply(state, event('control.transferred', { lease: { clientId: 'c-2', revision: 2 } }, 2));
