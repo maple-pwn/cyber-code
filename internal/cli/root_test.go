@@ -13,7 +13,9 @@ import (
 
 	configpkg "cyber-code/internal/config"
 	"cyber-code/internal/core"
+	"cyber-code/internal/frontend"
 	"cyber-code/internal/permissions"
+	"cyber-code/internal/product"
 	"cyber-code/internal/ui"
 )
 
@@ -24,6 +26,42 @@ func TestRootCommandUsesCyberCodeBrand(t *testing.T) {
 	})
 	if command.Use != "cyber-code [prompt]" {
 		t.Fatalf("root command use = %q", command.Use)
+	}
+}
+
+func TestRootCommandExposesAuthenticatedRuntimeServe(t *testing.T) {
+	command := newRootCommand(&commandEnvironment{
+		ctx: context.Background(), stdin: strings.NewReader(""), stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{},
+		configFile: filepath.Join(t.TempDir(), "config.yaml"), stateDir: t.TempDir(),
+	})
+	found, _, err := command.Find([]string{"runtime", "serve"})
+	if err != nil || found == nil || found.CommandPath() != "cyber-code runtime serve" {
+		t.Fatalf("runtime serve command = %#v, %v", found, err)
+	}
+}
+
+func TestRuntimeServeRequiresEnvironmentBearer(t *testing.T) {
+	t.Setenv(product.EnvRuntimeBearer, "")
+	var stdout, stderr bytes.Buffer
+	code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &stdout, &stderr,
+		[]string{"runtime", "serve"}, ExecuteOptions{StateDir: t.TempDir()})
+	if code != frontend.ExitConfiguration || !strings.Contains(stderr.String(), product.EnvRuntimeBearer) {
+		t.Fatalf("code = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRuntimeServeUsesAuthenticatedInheritedStdioWithoutLeakingBearer(t *testing.T) {
+	secret := "desktop-launch-secret"
+	t.Setenv(product.EnvRuntimeBearer, secret)
+	input := strings.NewReader(`{"id":"1","type":"health","bearer":"` + secret + `"}` + "\n")
+	var stdout, stderr bytes.Buffer
+	code := ExecuteWithOptions(context.Background(), input, &stdout, &stderr,
+		[]string{"runtime", "serve"}, ExecuteOptions{StateDir: t.TempDir()})
+	if code != frontend.ExitOK || !strings.Contains(stdout.String(), `"type":"health"`) || !strings.Contains(stdout.String(), `"ready":true`) {
+		t.Fatalf("code = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), secret) || strings.Contains(stderr.String(), secret) {
+		t.Fatalf("runtime output leaked bearer: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 

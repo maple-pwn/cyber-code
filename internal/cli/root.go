@@ -197,6 +197,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	command.AddCommand(newPluginsCommand(environment))
 	command.AddCommand(newSessionsCommand(environment))
 	command.AddCommand(newServeCommand(environment))
+	command.AddCommand(newRuntimeCommand(environment))
 	command.AddCommand(newVersionCheckCommand(environment))
 	command.AddCommand(newTerminalSetupCommand(environment))
 	return command

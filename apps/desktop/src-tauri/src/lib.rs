@@ -1,4 +1,5 @@
 mod commands;
+mod runtime_process;
 mod security;
 mod window;
 
@@ -30,6 +31,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_notification::init())
+        .manage(runtime_process::RuntimeManagerState::default())
         .setup(|app| {
             if let Some(window) = tauri::Manager::get_webview_window(app, "main") {
                 window::clamp_main_window(&window)?;
@@ -42,6 +44,10 @@ pub fn run() {
             commands::store_secret,
             commands::delete_secret,
             commands::export_report,
+            runtime_process::runtime_start,
+            runtime_process::runtime_request,
+            runtime_process::runtime_restart,
+            runtime_process::runtime_stop,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run CYBER desktop shell");
