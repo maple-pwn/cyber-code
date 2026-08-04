@@ -3,7 +3,7 @@ name = "cyber-desktop"
 version = "0.1.0"
 description = "CYBER deterministic desktop shell"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [lib]
 name = "cyber_desktop_lib"

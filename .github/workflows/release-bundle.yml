@@ -17,6 +17,7 @@ permissions:
 
 jobs:
   bundle:
+    environment: protected-release
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
