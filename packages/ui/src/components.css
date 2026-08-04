@@ -72,7 +72,7 @@
 .cyber-report-editor label { display: grid; gap: var(--cyber-space-2); }
 .cyber-report-editor textarea { min-height: 96px; }
 .cyber-finding { border-radius: 20px; }
-.cyber-finding header h3 { margin: 0; font-size: 1rem; }
+.cyber-finding header h2 { margin: 0; font-size: 1rem; }
 .cyber-finding ul { padding-left: 18px; color: var(--cyber-muted); }
 
 @media (max-width: 767px) {

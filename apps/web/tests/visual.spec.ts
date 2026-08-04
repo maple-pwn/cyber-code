@@ -19,7 +19,6 @@ const expectInside = async (page: Page, childSelector: string, containerSelector
 };
 
 const capture = async (page: Page, testInfo: TestInfo, name: string) => {
-  await page.mouse.move(0, 0);
   await expect(page).toHaveScreenshot(name, {
     animations: 'disabled',
     maxDiffPixelRatio: 0.01,

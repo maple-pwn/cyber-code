@@ -253,6 +253,7 @@ describe('workflow components', () => {
       <FindingCard finding={finding} evidence={[evidence]} t={t} />
     </main>);
 
+    expect(screen.getByRole('heading', { name: finding.title, level: 2 })).toBeInTheDocument();
     const results = await axe(container, { rules: { 'color-contrast': { enabled: false } } });
     expect(results.violations).toEqual([]);
   });
