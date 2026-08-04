@@ -8,6 +8,7 @@ import type { AppRoute, AppStore } from './app-store';
 import { FindingsPage } from './pages/FindingsPage';
 import { MissionControlPage } from './pages/MissionControlPage';
 import { NewTaskPage } from './pages/NewTaskPage';
+import type { RuntimeOption } from './pages/NewTaskPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { ScopeReviewPage } from './pages/ScopeReviewPage';
 
@@ -27,12 +28,20 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error?: Erro
   render() { return this.state.error ? <main><h1>CYBER</h1><p role="alert">{this.state.error.message}</p></main> : this.props.children; }
 }
 
-export function ProductApp({ store }: { store: AppStore }) {
+export type ProductAppProps = { store: AppStore; runtimes?: readonly RuntimeOption[] };
+
+export function ProductApp({ store, runtimes }: ProductAppProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [locale, updateLocale] = useState<Locale>('zh-CN');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const chord = useRef<{ key: string; timer?: number }>({ key: '' });
   const t = createTranslator(locale);
+  const availableRuntimes = runtimes ?? [
+    { id: 'scenario-local', label: t.t('runtime.local'), capabilities: ['isolated', 'deterministic'] },
+    { id: 'scenario-remote', label: t.t('runtime.remote'), capabilities: ['connected', 'managed'] },
+  ];
+  const activeRuntime = availableRuntimes.find((runtime) => runtime.id === snapshot.view.product.activeRuntime?.id)
+    ?? availableRuntimes[0];
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -57,12 +66,9 @@ export function ProductApp({ store }: { store: AppStore }) {
   const navigate = (route: AppRoute) => { store.navigate(route); setPaletteOpen(false); };
   const renderPage = () => {
     switch (snapshot.route) {
-      case 'new-task': return <NewTaskPage t={t} runtimes={[
-        { id: 'scenario-local', label: t.t('runtime.local'), capabilities: ['isolated', 'deterministic'] },
-        { id: 'scenario-remote', label: t.t('runtime.remote'), capabilities: ['connected', 'managed'] },
-      ]} onCreate={async (command) => { await store.dispatch(command); navigate('scope-review'); }} />;
+      case 'new-task': return <NewTaskPage t={t} runtimes={availableRuntimes} onCreate={async (command) => { await store.dispatch(command); navigate('scope-review'); }} />;
       case 'scope-review': return snapshot.view.product.scope
-        ? <ScopeReviewPage scope={snapshot.view.product.scope} runtime={{ id: 'scenario-local', label: t.t('runtime.local') }} t={t} onEdit={() => void store.dispatch({ type: 'instruction.send', content: 'request_scope_revision' })} onConfirm={async (scopeId) => { await store.dispatch({ type: 'scope.confirm', scopeId }); navigate('mission-control'); }} />
+        ? <ScopeReviewPage scope={snapshot.view.product.scope} runtime={{ id: activeRuntime?.id ?? 'unavailable', label: activeRuntime?.label ?? t.t('common.none') }} t={t} onEdit={() => void store.dispatch({ type: 'instruction.send', content: 'request_scope_revision' })} onConfirm={async (scopeId) => { await store.dispatch({ type: 'scope.confirm', scopeId }); navigate('mission-control'); }} />
         : <p>{t.t('common.loading')}</p>;
       case 'mission-control': return <MissionControlPage view={snapshot.view} t={t} onDispatch={(command) => store.dispatch(command)} onReconnect={() => void store.reconnect()} onDisconnect={() => void store.disconnect()} />;
       case 'findings': return <FindingsPage product={snapshot.view.product} t={t} />;

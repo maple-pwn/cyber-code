@@ -1,6 +1,7 @@
 {
   "files": [],
   "references": [
+    { "path": "./apps/desktop" },
     { "path": "./apps/web" },
     { "path": "./packages/product-app" },
     { "path": "./packages/protocol" },

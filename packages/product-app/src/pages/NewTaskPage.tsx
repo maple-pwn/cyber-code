@@ -3,7 +3,7 @@ import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { createTranslator, type Translator } from '@cyber/i18n';
 import type { RuntimeCommand } from '@cyber/runtime-client';
 
-export type RuntimeOption = { id: 'scenario-local' | 'scenario-remote'; label: string; capabilities: readonly string[] };
+export type RuntimeOption = { id: string; label: string; capabilities: readonly string[] };
 export type NewTaskPageProps = {
   runtimes: readonly RuntimeOption[];
   t?: Translator;
@@ -12,7 +12,7 @@ export type NewTaskPageProps = {
 
 export function NewTaskPage({ runtimes, t = createTranslator(), onCreate }: NewTaskPageProps) {
   const [objective, setObjective] = useState('');
-  const [runtimeId, setRuntimeId] = useState<RuntimeOption['id']>('scenario-local');
+  const [runtimeId, setRuntimeId] = useState(runtimes[0]?.id ?? '');
   const [workspace, setWorkspace] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
   const submit = async (event: FormEvent) => {
