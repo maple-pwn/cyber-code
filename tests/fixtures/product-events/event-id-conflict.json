@@ -1,0 +1,33 @@
+{
+  "name": "event-id-conflict",
+  "events": [
+    {
+      "schemaVersion": 1,
+      "eventId": "fixture-1-task.started",
+      "taskId": "task-1",
+      "cursor": 1,
+      "occurredAt": "2026-08-03T12:00:01.000Z",
+      "type": "task.started",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "title": "Authorized lab assessment"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "fixture-1-task.started",
+      "taskId": "task-1",
+      "cursor": 1,
+      "occurredAt": "2026-08-03T12:00:01.000Z",
+      "type": "task.started",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "title": "Conflicting assessment"
+      }
+    }
+  ]
+}
