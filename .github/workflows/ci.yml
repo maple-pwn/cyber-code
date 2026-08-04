@@ -80,6 +80,7 @@ jobs:
 
   web:
     runs-on: ubuntu-latest
+    container: mcr.microsoft.com/playwright:v1.61.0-noble
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -108,9 +109,6 @@ jobs:
 
       - name: Build
         run: pnpm build
-
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
 
       - name: Browser tests
         run: pnpm test:e2e
