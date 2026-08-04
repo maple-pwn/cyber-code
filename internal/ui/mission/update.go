@@ -28,6 +28,23 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (model *Model) updateKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if key.Type == tea.KeyF2 {
+		if model.panel == panelInspector {
+			model.returnToStream()
+		} else {
+			model.panel = panelInspector
+			model.activeAgentID = ""
+			model.approvalFocused = false
+			model.input.Blur()
+		}
+		return model, nil
+	}
+	if key.Type == tea.KeyF5 {
+		return model, actionCommand(Action{Kind: ActionPauseTask})
+	}
+	if key.Type == tea.KeyF8 {
+		return model, actionCommand(Action{Kind: ActionCancelTask})
+	}
 	if key.Type == tea.KeyCtrlT {
 		if model.panel == panelStream {
 			model.panel = panelTasks

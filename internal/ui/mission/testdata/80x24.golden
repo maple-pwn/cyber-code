@@ -1,0 +1,24 @@
+┌──────────────────────────────────────────────────────────────────────────────┐
+│CYBER  DEMO  LOCAL  Assessment  RUNNING  cursor 9  Agents 1/1 active          │
+│[F5] Pause  [F8] Cancel  [F2] Inspector  [Ctrl+T] Agents                      │
+│NARRATIVE STREAM                                                              │
+│12:00  STARTED  Assessment                                                    │
+│                                                                              │
+│┌────────────────────────────┐                                                │
+││ APPROVAL REQUIRED          │                                                │
+││ Agent: agent-1             │                                                │
+││ Action: GET /admin         │                                                │
+││ Risk: MEDIUM               │                                                │
+││ [Tab] Focus  Review / Deny │                                                │
+│└────────────────────────────┘                                                │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│LIVE  local runtime  Ctrl+T Agents  PgUp/PgDn Scroll                          │
+│┌───────────────────────────────────────────────────┐                         │
+││ Instruction > Send guidance to the active task... │                         │
+│└───────────────────────────────────────────────────┘                         │
+└──────────────────────────────────────────────────────────────────────────────┘

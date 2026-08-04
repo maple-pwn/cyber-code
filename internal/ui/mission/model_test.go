@@ -39,7 +39,7 @@ func TestViewSanitizesControlANSIAndBidiText(t *testing.T) {
 	state.Evidence["evidence-1"] = productprotocol.ImmutableEvidence{
 		ID: "evidence-1", TaskID: "task-1", Kind: "http", Summary: "safe\u2066text", Data: map[string]any{},
 	}
-	model := NewModel(state, Options{Width: 100, Height: 30})
+	model := NewModel(state, Options{Width: 120, Height: 40})
 	model.input.SetValue("prompt\x1b[2J\u202e\rtext")
 	view := modelView(model)
 	for _, forbidden := range []string{"\x1b", "\u202e", "\u2066", "\x00", "\r"} {

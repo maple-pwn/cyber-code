@@ -13,9 +13,10 @@ import (
 type panelMode string
 
 const (
-	panelStream panelMode = "stream"
-	panelTasks  panelMode = "tasks"
-	panelAgent  panelMode = "agent"
+	panelStream    panelMode = "stream"
+	panelTasks     panelMode = "tasks"
+	panelAgent     panelMode = "agent"
+	panelInspector panelMode = "inspector"
 )
 
 type ActionKind string
@@ -23,6 +24,8 @@ type ActionKind string
 const (
 	ActionResolveApproval ActionKind = "approval.resolve"
 	ActionSendInstruction ActionKind = "instruction.send"
+	ActionPauseTask       ActionKind = "task.pause"
+	ActionCancelTask      ActionKind = "task.cancel.request"
 )
 
 type Action struct {
@@ -47,6 +50,7 @@ type Options struct {
 	Demo       bool
 	Runtime    string
 	Connection string
+	NoColor    bool
 }
 
 type Model struct {
@@ -57,6 +61,7 @@ type Model struct {
 	runtime          string
 	connection       string
 	connectionDetail string
+	noColor          bool
 
 	panel              panelMode
 	selectedAgent      int
@@ -82,7 +87,7 @@ func NewModel(state productstate.State, options Options) *Model {
 	input := components.NewInput("Instruction >", "Send guidance to the active task...", options.Width)
 	return &Model{
 		state: state, width: options.Width, height: options.Height, demo: options.Demo,
-		runtime: options.Runtime, connection: options.Connection, panel: panelStream, input: input,
+		runtime: options.Runtime, connection: options.Connection, noColor: options.NoColor, panel: panelStream, input: input,
 	}
 }
 

@@ -1,0 +1,24 @@
+┌──────────────────────────────────────────────────────────────────────────────┐
+│CYBER  DEMO  LOCAL  東方服务安全审查  RUNNING  cursor 9  Agents 1/1 active    │
+│[F5] Pause  [F8] Cancel  [F2] Inspector  [Ctrl+T] Agents                      │
+│NARRATIVE STREAM                                                              │
+│12:00  STARTED  東方服务安全审查                                              │
+│12:00  EVIDENCE  发现管理端点未授权访问                                       │
+│                                                                              │
+│┌────────────────────────────┐                                                │
+││ APPROVAL REQUIRED          │                                                │
+││ Agent: agent-1             │                                                │
+││ Action: 验证 管理后台      │                                                │
+││ Risk: MEDIUM               │                                                │
+││ [Tab] Focus  Review / Deny │                                                │
+│└────────────────────────────┘                                                │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│LIVE  local runtime  Ctrl+T Agents  PgUp/PgDn Scroll                          │
+│┌───────────────────────────────────────────────────┐                         │
+││ Instruction > Send guidance to the active task... │                         │
+│└───────────────────────────────────────────────────┘                         │
+└──────────────────────────────────────────────────────────────────────────────┘

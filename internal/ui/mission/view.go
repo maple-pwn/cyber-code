@@ -20,24 +20,59 @@ func (model *Model) View() string {
 	if model.panel == panelAgent {
 		return model.renderAgentDetail()
 	}
+	if model.panel == panelInspector {
+		return model.renderInspectorPanel()
+	}
 
-	header := model.renderHeader()
-	stream := model.renderStream()
-	inspector := model.renderInspector()
-	mainWidth := max(40, model.width*2/3)
-	inspectorWidth := max(24, model.width-mainWidth-1)
-	body := lipgloss.JoinHorizontal(lipgloss.Top,
-		lipgloss.NewStyle().Width(mainWidth).Render(stream),
-		inspectorStyle.Width(inspectorWidth).Render(inspector),
-	)
-	footer := model.renderConnection() + "\n" + model.renderInput()
-	return frameStyle.Width(max(20, model.width-2)).Render(header + "\n" + body + "\n" + footer)
+	contentWidth := max(1, model.width-2)
+	inputLines := fitLines(strings.Split(model.renderInput(), "\n"), contentWidth)
+	footer := append([]string{fitLine(model.renderConnection(), contentWidth)}, inputLines...)
+	bodyHeight := max(1, model.height-2-2-len(footer))
+	body := model.renderResponsiveBody(contentWidth, bodyHeight)
+	lines := []string{fitLine(model.renderHeader(), contentWidth), fitLine(model.renderControls(), contentWidth)}
+	lines = append(lines, body...)
+	lines = append(lines, footer...)
+	return model.renderFrame(lines)
 }
 
 func (model *Model) renderInput() string {
 	safeInput := *model.input
 	safeInput.SetValue(clean(model.input.Value))
 	return safeInput.View()
+}
+
+func (model *Model) renderResponsiveBody(width, height int) []string {
+	stream := fitSection(strings.Split(model.renderStream(), "\n"), width, height)
+	if model.width < 110 {
+		return padLines(stream, height)
+	}
+	mainWidth := max(1, width*2/3)
+	inspectorWidth := max(1, width-mainWidth-1)
+	stream = fitSection(strings.Split(model.renderStream(), "\n"), mainWidth, height)
+	inspector := fitSection(strings.Split(model.renderInspector(), "\n"), inspectorWidth, height)
+	lines := make([]string, height)
+	for index := range lines {
+		left, right := "", ""
+		if index < len(stream) {
+			left = stream[index]
+		}
+		if index < len(inspector) {
+			right = inspector[index]
+		}
+		lines[index] = padLine(left, mainWidth) + dimStyle.Render("│") + fitLine(right, inspectorWidth)
+	}
+	return lines
+}
+
+func padLines(lines []string, height int) []string {
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	return lines
+}
+
+func (model *Model) renderControls() string {
+	return "[F5] Pause  [F8] Cancel  [F2] Inspector  [Ctrl+T] Agents"
 }
 
 func (model *Model) renderHeader() string {
@@ -173,8 +208,10 @@ func (model *Model) renderInspector() string {
 	lines = append(lines, "", sectionStyle.Render("Finding"))
 	for _, id := range sortedFindingIDs(model.state.Findings) {
 		finding := model.state.Findings[id]
-		lines = append(lines, fmt.Sprintf("%s  %s · %s · %s",
-			clean(finding.Title), strings.ToUpper(clean(finding.Severity)), strings.ToUpper(clean(finding.Status)), confidenceLabel(finding.Confidence)))
+		lines = append(lines,
+			clean(finding.Title),
+			fmt.Sprintf("%s · %s · %s", strings.ToUpper(clean(finding.Severity)), strings.ToUpper(clean(finding.Status)), confidenceLabel(finding.Confidence)),
+		)
 	}
 	lines = append(lines, "", sectionStyle.Render("Report"))
 	if model.state.Report == nil {
@@ -236,7 +273,7 @@ func (model *Model) renderAgentTasks() string {
 		}
 		lines = append(lines, fmt.Sprintf("%s%s  %s%s  %s", prefix, clean(agent.Name), strings.ToUpper(clean(agent.Status)), progress, clean(agent.CurrentAction)))
 	}
-	return frameStyle.Width(max(20, model.width-2)).Render(strings.Join(lines, "\n"))
+	return model.renderFrame(lines)
 }
 
 func (model *Model) renderAgentDetail() string {
@@ -257,7 +294,67 @@ func (model *Model) renderAgentDetail() string {
 		"Progress: " + progress,
 		"Current action: " + clean(agent.CurrentAction),
 	}
-	return frameStyle.Width(max(20, model.width-2)).Render(strings.Join(lines, "\n"))
+	return model.renderFrame(lines)
+}
+
+func (model *Model) renderInspectorPanel() string {
+	lines := []string{
+		brandStyle.Render("CYBER / INSPECTOR"),
+		dimStyle.Render("F2 or Esc Parent"),
+		"",
+	}
+	lines = append(lines, strings.Split(model.renderInspector(), "\n")...)
+	return model.renderFrame(lines)
+}
+
+func (model *Model) renderFrame(lines []string) string {
+	width, height := max(1, model.width-2), max(1, model.height-2)
+	lines = padLines(fitSection(lines, width, height), height)
+	view := frameStyle.Width(width).Render(strings.Join(lines, "\n"))
+	view = constrainView(view, model.width, model.height)
+	if model.noColor {
+		return ansi.Strip(view)
+	}
+	return view
+}
+
+func fitSection(lines []string, width, height int) []string {
+	lines = fitLines(lines, width)
+	if len(lines) <= height {
+		return lines
+	}
+	if height <= 1 {
+		return lines[:height]
+	}
+	result := make([]string, 0, height)
+	result = append(result, lines[0])
+	result = append(result, lines[len(lines)-(height-1):]...)
+	return result
+}
+
+func fitLines(lines []string, width int) []string {
+	result := make([]string, len(lines))
+	for index, line := range lines {
+		result[index] = fitLine(line, width)
+	}
+	return result
+}
+
+func fitLine(line string, width int) string {
+	return ansi.Truncate(line, max(0, width), "")
+}
+
+func padLine(line string, width int) string {
+	line = fitLine(line, width)
+	return line + strings.Repeat(" ", max(0, width-ansi.StringWidth(line)))
+}
+
+func constrainView(view string, width, height int) string {
+	lines := strings.Split(view, "\n")
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	return strings.Join(fitLines(lines, width), "\n")
 }
 
 func (model *Model) pendingApprovalID() string {
