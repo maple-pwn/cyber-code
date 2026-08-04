@@ -97,8 +97,14 @@ Anthropic、Bedrock、Vertex、Azure 与更多 OpenAI-compatible 配置见 [Prov
 ### 3. 开始使用
 
 ```bash
-./cyber-code
+# Phase 3 默认入口：Tactical Ops 场景演示，不需要 API key
+./cyber-code "评估 juice-shop.lab"
+
+# 完整编码 Agent（保留一个弃用周期的经典界面）
+./cyber-code --ui=classic
 ```
+
+Tactical Ops 当前明确标记为 `DEMO`，只运行确定性的 `juice-shop.lab` 安全场景，不会调用 Provider，也不会在本地失败时回退远端。快捷键、恢复语义和迁移说明见 [Tactical Ops 指南](docs/tactical-ops.md)。
 
 也可以跳过 TUI，直接获得适合脚本和管道处理的输出：
 
@@ -134,7 +140,8 @@ Anthropic、Bedrock、Vertex、Azure 与更多 OpenAI-compatible 配置见 [Prov
 
 | 场景 | 命令 |
 | --- | --- |
-| 启动交互 TUI | `cyber-code` |
+| 启动 Tactical Ops Demo | `cyber-code "评估 juice-shop.lab"` |
+| 启动完整编码 Agent | `cyber-code --ui=classic` |
 | 非交互文本输出 | `cyber-code --print "PROMPT"` |
 | JSON Lines 输出 | `cyber-code --print --json "PROMPT"` |
 | 显示工具进度和 Token | `cyber-code --print --verbose "PROMPT"` |
@@ -150,7 +157,7 @@ Anthropic、Bedrock、Vertex、Azure 与更多 OpenAI-compatible 配置见 [Prov
 | 查看终端设置建议 | `cyber-code terminal-setup` |
 | 显式检查版本 | `cyber-code version-check` |
 
-交互 TUI 中还可以使用：
+经典交互 TUI 中还可以使用：
 
 ```text
 /help           /status          /config
@@ -163,7 +170,7 @@ Anthropic、Bedrock、Vertex、Azure 与更多 OpenAI-compatible 配置见 [Prov
 
 运行 `/help` 可查看当前版本实际注册的命令和参数。
 
-常用 TUI 快捷键：输入 `/` 会显示斜杠命令候选，使用 `↑/↓` 选择、`Tab` 或 `Enter` 接受；`PgUp/PgDn` 或鼠标滚轮滚动对话，普通 `↑/↓` 仍用于输入历史。按 `Ctrl+T` 打开子 Agent 任务列表，`Enter` 进入选中任务，`[` / `]` 切换任务，`Esc` 或再次按 `Ctrl+T` 返回父会话。模型生成期间按 `Ctrl+C` 只取消当前生成，再次处于空闲状态时按 `Ctrl+C` 退出。权限窗口中的 `Allow Always` 仅记住当前进程会话内相同工具和动作的批准，不会写入配置，也不会绕过显式 deny 或沙箱边界。
+经典 TUI 快捷键：输入 `/` 会显示斜杠命令候选，使用 `↑/↓` 选择、`Tab` 或 `Enter` 接受；`PgUp/PgDn` 或鼠标滚轮滚动对话，普通 `↑/↓` 仍用于输入历史。按 `Ctrl+T` 打开子 Agent 任务列表，`Enter` 进入选中任务，`[` / `]` 切换任务，`Esc` 或再次按 `Ctrl+T` 返回父会话。模型生成期间按 `Ctrl+C` 只取消当前生成，再次处于空闲状态时按 `Ctrl+C` 退出。权限窗口中的 `Allow Always` 仅记住当前进程会话内相同工具和动作的批准，不会写入配置，也不会绕过显式 deny 或沙箱边界。
 
 ## 会话与项目指令
 
@@ -261,6 +268,7 @@ GOOS=windows GOARCH=amd64 go build -o cyber-code-windows-amd64.exe ./cmd/cli
 | [Provider 指南](docs/providers.md) | Anthropic、OpenAI-compatible、DeepSeek 与受管云 Provider。 |
 | [安全模型](docs/security.md) | Permission Broker、路径边界、脱敏、审计和进程隔离。 |
 | [本机 SDK](docs/sdk.md) | JSONL 协议、IDE context、diff、VS Code 扩展和 Bridge。 |
+| [Tactical Ops](docs/tactical-ops.md) | 默认 Demo、快捷键、恢复语义和经典 TUI 迁移。 |
 
 ---
 

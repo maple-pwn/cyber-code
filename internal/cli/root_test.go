@@ -34,7 +34,7 @@ func TestRootCommandExposesExplicitTacticalScenarioFlags(t *testing.T) {
 	})
 	uiFlag := command.Flags().Lookup("ui")
 	sourceFlag := command.Flags().Lookup("source")
-	if uiFlag == nil || uiFlag.DefValue != "classic" {
+	if uiFlag == nil || uiFlag.DefValue != "tactical" {
 		t.Fatalf("--ui flag = %#v", uiFlag)
 	}
 	if sourceFlag == nil || sourceFlag.DefValue != "" {
@@ -48,18 +48,21 @@ func TestValidateUISelectionKeepsScenarioExplicitAndInteractive(t *testing.T) {
 	tests := []struct {
 		name, ui, source string
 		printMode        bool
+		uiExplicit       bool
 		wantError        bool
 	}{
 		{name: "classic", ui: "classic"},
-		{name: "tactical scenario", ui: "tactical", source: "scenario"},
+		{name: "tactical default scenario", ui: "tactical"},
+		{name: "tactical explicit scenario", ui: "tactical", source: "scenario"},
 		{name: "unknown ui", ui: "movie", wantError: true},
-		{name: "missing source", ui: "tactical", wantError: true},
+		{name: "unknown tactical source", ui: "tactical", source: "remote", wantError: true},
 		{name: "scenario classic", ui: "classic", source: "scenario", wantError: true},
-		{name: "tactical print", ui: "tactical", source: "scenario", printMode: true, wantError: true},
+		{name: "default print", ui: "tactical", printMode: true},
+		{name: "explicit tactical print", ui: "tactical", printMode: true, uiExplicit: true, wantError: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := validateUISelection(test.ui, test.source, test.printMode)
+			err := validateUISelection(test.ui, test.source, test.printMode, test.uiExplicit)
 			if (err != nil) != test.wantError {
 				t.Fatalf("validateUISelection() error = %v, wantError = %v", err, test.wantError)
 			}

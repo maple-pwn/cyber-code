@@ -2,8 +2,12 @@ package adapter
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -245,6 +249,63 @@ func TestScenarioSourceMapsLifecycleControlAndInstructionCommands(t *testing.T) 
 	}
 	if got := client.View().State.Scope.ID; got != "scope-2" {
 		t.Fatalf("revised scope = %q", got)
+	}
+}
+
+func TestScenarioTerminalStatesMatchWebAllowAndDenyDigests(t *testing.T) {
+	t.Parallel()
+
+	manifestPath := filepath.Join("..", "..", "..", "tests", "fixtures", "product-events", "manifest.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Fixtures []struct {
+			Name        string `json:"name"`
+			StateSHA256 string `json:"stateSha256"`
+		} `json:"fixtures"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	want := make(map[string]string)
+	for _, fixture := range manifest.Fixtures {
+		want[fixture.Name] = fixture.StateSHA256
+	}
+	for _, decision := range []string{"allow_once", "deny"} {
+		decision := decision
+		t.Run(decision, func(t *testing.T) {
+			source, err := NewScenarioSource(ScenarioOptions{RuntimeID: "scenario-local"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := NewClient(source, ClientOptions{ClientID: "tui-client"})
+			ctx := context.Background()
+			if err := client.Connect(ctx); err != nil {
+				t.Fatal(err)
+			}
+			for _, command := range []Command{
+				{Type: CommandTaskCreate, Objective: "评估 juice-shop.lab", RuntimeID: "scenario-local"},
+				{Type: CommandScopeConfirm, ScopeID: "scope-1"},
+				{Type: CommandApprovalRespond, ChallengeID: "approval-1", Decision: decision},
+			} {
+				if err := client.Dispatch(ctx, command); err != nil {
+					t.Fatal(err)
+				}
+			}
+			canonical, err := productprotocol.CanonicalJSON(client.View().State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixtureName := "deny"
+			if decision == "allow_once" {
+				fixtureName = "allow"
+			}
+			if got := fmt.Sprintf("%x", sha256.Sum256(canonical)); got != want[fixtureName] {
+				t.Fatalf("%s state digest = %s, want %s", fixtureName, got, want[fixtureName])
+			}
+		})
 	}
 }
 

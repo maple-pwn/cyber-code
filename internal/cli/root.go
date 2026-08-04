@@ -116,12 +116,12 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 		SilenceErrors: true,
 		Args:          cobra.ArbitraryArgs,
 		Version:       environment.options.Version,
-		RunE: func(_ *cobra.Command, args []string) error {
-			if err := validateUISelection(uiMode, sourceName, printMode); err != nil {
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := validateUISelection(uiMode, sourceName, printMode, command.Flags().Changed("ui")); err != nil {
 				return err
 			}
 			prompt := strings.Join(args, " ")
-			if uiMode == "tactical" {
+			if !printMode && uiMode == "tactical" {
 				source, err := adapter.NewScenarioSource(adapter.ScenarioOptions{RuntimeID: "scenario-local"})
 				if err != nil {
 					return err
@@ -188,7 +188,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	command.Flags().StringVar(&cwd, "cwd", "", "workspace directory")
 	command.Flags().StringArrayVar(&imagePaths, "image", nil, "attach an image from the workspace to the first turn")
 	command.Flags().StringVar(&resumeSession, "resume", "", "resume a persisted session")
-	command.Flags().StringVar(&uiMode, "ui", "classic", "interactive UI: classic or tactical")
+	command.Flags().StringVar(&uiMode, "ui", "tactical", "interactive UI: tactical or classic (legacy)")
 	command.Flags().StringVar(&sourceName, "source", "", "Tactical Ops event source: scenario")
 	command.Flags().IntVar(&maxTurns, "max-turns", 100, "maximum agent turns")
 	command.AddCommand(newConfigCommand(environment))
@@ -202,16 +202,22 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	return command
 }
 
-func validateUISelection(uiMode, sourceName string, printMode bool) error {
+func validateUISelection(uiMode, sourceName string, printMode, uiExplicit bool) error {
 	if uiMode != "classic" && uiMode != "tactical" {
 		return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.ui", Message: "--ui must be classic or tactical"}
 	}
-	if uiMode == "tactical" {
-		if printMode {
+	if printMode {
+		if uiMode == "tactical" && uiExplicit {
 			return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.ui", Message: "tactical UI is interactive and cannot be used with --print"}
 		}
-		if sourceName != "scenario" {
-			return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "tactical UI currently requires --source=scenario"}
+		if sourceName != "" {
+			return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "--source is unavailable in print mode"}
+		}
+		return nil
+	}
+	if uiMode == "tactical" {
+		if sourceName != "" && sourceName != "scenario" {
+			return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "tactical UI currently supports only --source=scenario"}
 		}
 		return nil
 	}
