@@ -11,10 +11,15 @@ import {
 import {
   RuntimeClient,
   type EventSource,
-  type RuntimeCommand,
   type RuntimeSnapshot,
   type Unsubscribe,
 } from './index';
+import type {
+  RuntimeCommandEnvelope,
+  RuntimeCommandReceipt,
+  RuntimeHandshakeRequest,
+  RuntimeHandshakeResponse,
+} from './conformance';
 
 const event = (cursor: number, overrides: Partial<RawProductEvent> = {}): RawProductEvent => ({
   schemaVersion: 1,
@@ -35,17 +40,36 @@ const stateWith = (...events: RawProductEvent[]): ProductState => events.reduce(
 }, initialProductState());
 
 class FakeEventSource implements EventSource {
-  readonly sent: RuntimeCommand[] = [];
+  readonly sent: unknown[] = [];
   readonly subscribeCalls: number[] = [];
+  readonly handshakeCalls: RuntimeHandshakeRequest[] = [];
   closeCalls = 0;
   snapshotCalls = 0;
   subscribeError?: Error;
   snapshotError?: Error;
+  rejectionCode?: string;
   snapshot: RuntimeSnapshot;
   private listener?: (event: RawProductEvent) => void;
 
   constructor(readonly events: RawProductEvent[] = [], snapshot?: RuntimeSnapshot) {
     this.snapshot = snapshot ?? { cursor: 0, state: initialProductState() };
+  }
+
+  async handshake(request: RuntimeHandshakeRequest): Promise<RuntimeHandshakeResponse> {
+    this.handshakeCalls.push(request);
+    return {
+      protocolVersion: 1,
+      runtimeId: 'runtime-1',
+      principal: 'test-operator',
+      role: 'operator',
+      capabilities: ['events.replay', 'snapshot.read', 'command.send'],
+      source: {
+        mode: 'local',
+        runtimeId: 'runtime-1',
+        principal: 'test-operator',
+        capabilities: ['events.replay', 'snapshot.read', 'command.send'],
+      },
+    };
   }
 
   async subscribe(afterCursor: number, onEvent: (event: RawProductEvent) => void): Promise<Unsubscribe> {
@@ -64,8 +88,16 @@ class FakeEventSource implements EventSource {
     return this.snapshot;
   }
 
-  async send(command: RuntimeCommand): Promise<void> {
-    this.sent.push(command);
+  async send(envelope: RuntimeCommandEnvelope): Promise<RuntimeCommandReceipt> {
+    this.sent.push(envelope);
+    if (this.rejectionCode) {
+      return {
+        idempotencyKey: envelope.idempotencyKey,
+        status: 'rejected',
+        errorCode: this.rejectionCode,
+      };
+    }
+    return { idempotencyKey: envelope.idempotencyKey, status: 'accepted' };
   }
 
   async close(): Promise<void> {
@@ -79,6 +111,25 @@ class FakeEventSource implements EventSource {
 }
 
 describe('RuntimeClient', () => {
+  test('handshakes before subscribing and exposes trusted source metadata', async () => {
+    const source = new FakeEventSource();
+    const client = new RuntimeClient(source);
+
+    await client.connect();
+
+    expect(source.handshakeCalls).toEqual([{
+      supportedProtocolVersions: [1],
+      afterCursor: 0,
+    }]);
+    expect(client.getView().source).toEqual({
+      mode: 'local',
+      runtimeId: 'runtime-1',
+      principal: 'test-operator',
+      capabilities: ['events.replay', 'snapshot.read', 'command.send'],
+    });
+    expect(source.subscribeCalls).toEqual([0]);
+  });
+
   test('projects source events and ignores an identical duplicate replay', async () => {
     const taskStartedEvent = event(1);
     const source = new FakeEventSource([taskStartedEvent, structuredClone(taskStartedEvent)]);
@@ -180,7 +231,7 @@ describe('RuntimeClient', () => {
     expect(client.getView().product.committedCursor).toBe(0);
   });
 
-  test('notifies reconnecting and requires explicit takeover', async () => {
+  test('notifies reconnecting and sends mutating commands in idempotent envelopes', async () => {
     const source = new FakeEventSource();
     const client = new RuntimeClient(source);
     const statuses: string[] = [];
@@ -193,7 +244,11 @@ describe('RuntimeClient', () => {
     expect(source.sent).toEqual([]);
 
     await client.dispatch({ type: 'control.take', expectedRevision: 7 });
-    expect(source.sent).toEqual([{ type: 'control.take', expectedRevision: 7 }]);
+    expect(source.sent).toHaveLength(1);
+    expect(source.sent[0]).toMatchObject({
+      idempotencyKey: expect.stringMatching(/^cmd-/),
+      command: { type: 'control.take', expectedRevision: 7 },
+    });
   });
 
   test('sends only the approval contract and never persists endpoint tokens', async () => {
@@ -205,10 +260,23 @@ describe('RuntimeClient', () => {
     await client.dispatch({ type: 'approval.respond', challengeId: 'a-1', decision: 'deny' });
 
     expect(source.sent).toEqual([
-      { type: 'approval.respond', challengeId: 'a-1', decision: 'deny' },
+      expect.objectContaining({
+        command: { type: 'approval.respond', challengeId: 'a-1', decision: 'deny' },
+      }),
     ]);
     expect(setItem).not.toHaveBeenCalled();
     setItem.mockRestore();
+  });
+
+  test('surfaces a rejected command receipt as an actionable dispatch error', async () => {
+    const source = new FakeEventSource();
+    source.rejectionCode = 'stale_lease';
+    const client = new RuntimeClient(source);
+    await client.connect();
+
+    await expect(client.dispatch({ type: 'control.take', expectedRevision: 4 }))
+      .rejects.toThrow('command_rejected:stale_lease');
+    expect(source.sent).toHaveLength(1);
   });
 
   test('disconnects into offline mode, closes the source, and blocks commands', async () => {

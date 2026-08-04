@@ -1,0 +1,19 @@
+{
+  "request": {
+    "supportedProtocolVersions": [1],
+    "afterCursor": 7
+  },
+  "response": {
+    "protocolVersion": 1,
+    "runtimeId": "runtime-local-1",
+    "principal": "operator@example.test",
+    "role": "operator",
+    "capabilities": ["events.replay", "snapshot.read", "command.send"],
+    "source": {
+      "mode": "local",
+      "runtimeId": "runtime-local-1",
+      "principal": "operator@example.test",
+      "capabilities": ["events.replay", "snapshot.read", "command.send"]
+    }
+  }
+}

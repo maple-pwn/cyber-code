@@ -11,10 +11,16 @@ import type {
   ConnectionStatus,
   EventSource,
   RuntimeCommand,
-  RuntimeSnapshot,
   RuntimeView,
   Unsubscribe,
 } from './index';
+import {
+  negotiateHandshake,
+  validateCommandReceipt,
+  validateRuntimeSnapshot,
+  type RuntimeCommandReceipt,
+  type RuntimeSourceMetadata,
+} from './conformance';
 
 const blockedStatuses = new Set<ConnectionStatus>([
   'resyncing',
@@ -29,12 +35,14 @@ const errorCode = (error: unknown): string =>
 export class RuntimeClient {
   private product: ProductState;
   private connection: ConnectionState;
+  private sourceMetadata: RuntimeSourceMetadata | null = null;
   private readonly listeners = new Set<(view: RuntimeView) => void>();
   private unsubscribeSource?: Unsubscribe;
   private lifecycleRevision = 0;
   private subscribingRevision?: number;
   private pendingResyncRevision?: number;
   private recoveringRevision?: number;
+  private commandSequence = 0;
 
   constructor(private readonly source: EventSource, initial = initialProductState()) {
     this.product = initial;
@@ -63,15 +71,23 @@ export class RuntimeClient {
     await this.source.close();
   }
 
-  async dispatch(command: RuntimeCommand): Promise<void> {
+  async dispatch(command: RuntimeCommand): Promise<RuntimeCommandReceipt> {
     if (blockedStatuses.has(this.connection.status)) {
       throw new Error(`writes_disabled:${this.connection.status}`);
     }
-    await this.source.send(command);
+    const envelope = {
+      idempotencyKey: `cmd-${globalThis.crypto.randomUUID()}-${(++this.commandSequence).toString(36)}`,
+      command,
+    };
+    const receipt = validateCommandReceipt(await this.source.send(envelope), envelope);
+    if (receipt.status === 'rejected') {
+      throw new Error(`command_rejected:${receipt.errorCode}`);
+    }
+    return receipt;
   }
 
   getView(): RuntimeView {
-    return { connection: this.connection, product: this.product };
+    return { connection: this.connection, product: this.product, source: this.sourceMetadata };
   }
 
   subscribe(listener: (view: RuntimeView) => void): Unsubscribe {
@@ -90,6 +106,15 @@ export class RuntimeClient {
     if (this.pendingResyncRevision === revision) this.pendingResyncRevision = undefined;
 
     try {
+      const handshake = await this.source.handshake({
+        supportedProtocolVersions: [1],
+        afterCursor: this.connection.lastTrustedCursor,
+      });
+      if (revision !== this.lifecycleRevision) return;
+      this.sourceMetadata = negotiateHandshake({
+        supportedProtocolVersions: [1],
+        afterCursor: this.connection.lastTrustedCursor,
+      }, handshake);
       const unsubscribe = await this.source.subscribe(
         this.connection.lastTrustedCursor,
         (raw) => this.receive(raw, revision),
@@ -162,7 +187,7 @@ export class RuntimeClient {
     try {
       const snapshot = await this.source.getSnapshot();
       if (revision !== this.lifecycleRevision) return;
-      this.validateSnapshot(snapshot);
+      validateRuntimeSnapshot(snapshot, this.connection.lastTrustedCursor);
       this.product = snapshot.state;
       this.connection = {
         status: 'resyncing',
@@ -177,18 +202,6 @@ export class RuntimeClient {
       this.setConnection('offline', errorCode(error));
     } finally {
       if (this.recoveringRevision === revision) this.recoveringRevision = undefined;
-    }
-  }
-
-  private validateSnapshot(snapshot: RuntimeSnapshot): void {
-    if (!Number.isSafeInteger(snapshot.cursor) || snapshot.cursor < 0) {
-      throw new Error('invalid_snapshot_cursor');
-    }
-    if (snapshot.cursor < this.connection.lastTrustedCursor) {
-      throw new Error('snapshot_cursor_behind');
-    }
-    if (snapshot.state.committedCursor !== snapshot.cursor) {
-      throw new Error('snapshot_cursor_mismatch');
     }
   }
 

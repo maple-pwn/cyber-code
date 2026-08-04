@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import type { RawProductEvent } from '@cyber/protocol';
+import type { RuntimeCommandEnvelope } from '@cyber/runtime-client';
 
 import { ScenarioPlayer } from './index';
 
@@ -20,6 +21,39 @@ const createAndConfirm = async (player: ScenarioPlayer) => {
 };
 
 describe('ScenarioPlayer', () => {
+  test('handshakes as an explicitly labelled demo source', async () => {
+    const player = new ScenarioPlayer({ runtimeId: 'scenario-local', speedMs: 0 });
+
+    const response = await player.handshake({ supportedProtocolVersions: [1], afterCursor: 0 });
+
+    expect(response).toMatchObject({
+      protocolVersion: 1,
+      runtimeId: 'scenario-local',
+      principal: 'demo-operator',
+      source: { mode: 'demo', runtimeId: 'scenario-local', principal: 'demo-operator' },
+    });
+  });
+
+  test('returns the same receipt without repeating an idempotent command', async () => {
+    const player = new ScenarioPlayer({ runtimeId: 'scenario-local', speedMs: 0 });
+    const envelope: RuntimeCommandEnvelope = {
+      idempotencyKey: 'cmd-idempotent-create',
+      command: {
+        type: 'task.create',
+        objective: '评估 juice-shop.lab',
+        runtimeId: 'scenario-local',
+      },
+    };
+
+    const first = await player.send(envelope);
+    const eventCount = player.events().length;
+    const replay = await player.send(structuredClone(envelope));
+
+    expect(first).toEqual({ idempotencyKey: envelope.idempotencyKey, status: 'accepted' });
+    expect(replay).toEqual(first);
+    expect(player.events()).toHaveLength(eventCount);
+  });
+
   test('produces byte-identical allow branches with bounded verification', async () => {
     const first = new ScenarioPlayer({ runtimeId: 'scenario-local', speedMs: 0 });
     const second = new ScenarioPlayer({ runtimeId: 'scenario-local', speedMs: 0 });

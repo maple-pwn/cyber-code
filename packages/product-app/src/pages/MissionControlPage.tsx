@@ -47,6 +47,9 @@ export function MissionControlPage({ view, t, onDispatch, onReconnect, onDisconn
   const activeAgent = selectedAgent && pendingApproval?.agentId === selectedAgent.id
     ? { ...selectedAgent, status: 'waiting', currentAction: t.t('approval.title') }
     : selectedAgent;
+  const sourceLabel = view.source
+    ? `${view.source.mode.charAt(0).toUpperCase()}${view.source.mode.slice(1)} · ${view.source.runtimeId}`
+    : t.t('common.none');
   useEffect(() => {
     if (!inspectorOpen) return;
     document.querySelector<HTMLElement>('#mission-inspector [role="tab"][aria-selected="true"]')?.focus();
@@ -75,7 +78,7 @@ export function MissionControlPage({ view, t, onDispatch, onReconnect, onDisconn
             <span className="mission-title-detail">{view.product.task?.title ?? t.t('common.none')}</span>
             <span className="mission-meta">{view.product.scope?.targets.join(', ') ?? t.t('common.none')} · cursor {view.product.committedCursor}</span>
           </div>
-          {view.product.task && <div className="mission-task-summary"><strong>{view.product.task.status}</strong><span>{view.product.activeRuntime?.id ?? 'scenario-local'}</span></div>}
+          {view.product.task && <div className="mission-task-summary"><strong>{view.product.task.status}</strong><span>{sourceLabel}</span></div>}
           <div className="mission-actions">
             <button type="button" title={t.t('task.pause')} aria-label={t.t('task.pause')} disabled={writesDisabled} onClick={() => void onDispatch({ type: 'task.pause' })}><Pause aria-hidden="true" size={17} /></button>
             <button type="button" title={t.t('task.resume')} aria-label={t.t('task.resume')} disabled={writesDisabled} onClick={() => void onDispatch({ type: 'task.resume' })}><Play aria-hidden="true" size={17} /></button>

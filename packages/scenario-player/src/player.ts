@@ -9,6 +9,10 @@ import {
 import type {
   EventSource,
   RuntimeCommand,
+  RuntimeCommandEnvelope,
+  RuntimeCommandReceipt,
+  RuntimeHandshakeRequest,
+  RuntimeHandshakeResponse,
   RuntimeSnapshot,
   Unsubscribe,
 } from '@cyber/runtime-client';
@@ -40,11 +44,37 @@ export class ScenarioPlayer implements EventSource {
   private approvalResolved = false;
   private scopeRevision = 1;
   private currentScope = LAB_SCOPE;
+  private readonly commandReceipts = new Map<string, {
+    canonicalCommand: string;
+    receipt: RuntimeCommandReceipt;
+  }>();
+  private directCommandSequence = 0;
 
   constructor(private readonly options: ScenarioOptions) {
     if (!Number.isFinite(options.speedMs) || options.speedMs < 0) {
       throw new Error('invalid_scenario_speed');
     }
+  }
+
+  async handshake(request: RuntimeHandshakeRequest): Promise<RuntimeHandshakeResponse> {
+    if (!Number.isSafeInteger(request.afterCursor) || request.afterCursor < 0) {
+      throw new Error('invalid_handshake_request');
+    }
+    if (!request.supportedProtocolVersions.includes(1)) throw new Error('incompatible');
+    const capabilities = ['events.replay', 'snapshot.read', 'command.send'];
+    return {
+      protocolVersion: 1,
+      runtimeId: this.options.runtimeId,
+      principal: 'demo-operator',
+      role: 'operator',
+      capabilities,
+      source: {
+        mode: 'demo',
+        runtimeId: this.options.runtimeId,
+        principal: 'demo-operator',
+        capabilities,
+      },
+    };
   }
 
   async subscribe(afterCursor: number, onEvent: (event: RawProductEvent) => void): Promise<Unsubscribe> {
@@ -61,7 +91,42 @@ export class ScenarioPlayer implements EventSource {
     return { cursor: this.state.committedCursor, state: structuredClone(this.state) };
   }
 
-  async send(command: RuntimeCommand): Promise<void> {
+  async send(input: RuntimeCommand | RuntimeCommandEnvelope): Promise<RuntimeCommandReceipt> {
+    const direct = 'type' in input;
+    const envelope: RuntimeCommandEnvelope = direct ? {
+      idempotencyKey: `scenario-direct-${++this.directCommandSequence}`,
+      command: input,
+    } : input;
+    const canonicalCommand = JSON.stringify(envelope.command);
+    const existing = this.commandReceipts.get(envelope.idempotencyKey);
+    if (existing) {
+      if (existing.canonicalCommand !== canonicalCommand) {
+        return {
+          idempotencyKey: envelope.idempotencyKey,
+          status: 'rejected',
+          errorCode: 'idempotency_conflict',
+        };
+      }
+      return existing.receipt;
+    }
+
+    let receipt: RuntimeCommandReceipt;
+    try {
+      await this.execute(envelope.command);
+      receipt = { idempotencyKey: envelope.idempotencyKey, status: 'accepted' };
+    } catch (error) {
+      if (direct) throw error;
+      receipt = {
+        idempotencyKey: envelope.idempotencyKey,
+        status: 'rejected',
+        errorCode: error instanceof Error && error.message ? error.message : 'command_rejected',
+      };
+    }
+    this.commandReceipts.set(envelope.idempotencyKey, { canonicalCommand, receipt });
+    return receipt;
+  }
+
+  private async execute(command: RuntimeCommand): Promise<void> {
     switch (command.type) {
       case 'task.create':
         await this.createTask(command);

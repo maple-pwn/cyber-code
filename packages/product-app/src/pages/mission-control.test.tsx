@@ -29,6 +29,12 @@ const product = (leaseClient = 'web-client'): ProductState => ({
 const view = (status: RuntimeView['connection']['status'], leaseClient = 'web-client'): RuntimeView => ({
   connection: { status, lastTrustedCursor: 12 },
   product: product(leaseClient),
+  source: {
+    mode: 'demo',
+    runtimeId: 'scenario-local',
+    principal: 'demo-operator',
+    capabilities: ['events.replay', 'snapshot.read', 'command.send'],
+  },
 });
 
 describe('MissionControlPage', () => {
@@ -40,6 +46,7 @@ describe('MissionControlPage', () => {
     expect(screen.getByRole('complementary', { name: 'Mission inspector' })).toBeInTheDocument();
     expect(screen.getByTestId('mission-command-deck')).toBeInTheDocument();
     expect(screen.getByTestId('evidence-backdrop')).toBeInTheDocument();
+    expect(screen.getByText('Demo · scenario-local')).toBeInTheDocument();
     const inspectorTrigger = screen.getByRole('button', { name: 'Open inspector' });
     expect(inspectorTrigger).toHaveAttribute('aria-expanded', 'false');
     await userEvent.click(inspectorTrigger);
