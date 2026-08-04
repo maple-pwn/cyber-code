@@ -22,10 +22,14 @@ const (
 type ActionKind string
 
 const (
+	ActionCreateTask      ActionKind = "task.create"
+	ActionConfirmScope    ActionKind = "scope.confirm"
 	ActionResolveApproval ActionKind = "approval.resolve"
 	ActionSendInstruction ActionKind = "instruction.send"
 	ActionPauseTask       ActionKind = "task.pause"
+	ActionResumeTask      ActionKind = "task.resume"
 	ActionCancelTask      ActionKind = "task.cancel.request"
+	ActionTakeControl     ActionKind = "control.take"
 )
 
 type Action struct {

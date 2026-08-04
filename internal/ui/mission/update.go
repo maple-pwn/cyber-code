@@ -28,6 +28,9 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (model *Model) updateKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if key.Type == tea.KeyCtrlC {
+		return model, tea.Quit
+	}
 	if key.Type == tea.KeyF2 {
 		if model.panel == panelInspector {
 			model.returnToStream()
@@ -39,8 +42,17 @@ func (model *Model) updateKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return model, nil
 	}
+	if key.Type == tea.KeyF4 {
+		return model, actionCommand(Action{Kind: ActionConfirmScope})
+	}
 	if key.Type == tea.KeyF5 {
+		if model.state.Task != nil && model.state.Task.Status == "paused" {
+			return model, actionCommand(Action{Kind: ActionResumeTask})
+		}
 		return model, actionCommand(Action{Kind: ActionPauseTask})
+	}
+	if key.Type == tea.KeyF6 {
+		return model, actionCommand(Action{Kind: ActionTakeControl})
 	}
 	if key.Type == tea.KeyF8 {
 		return model, actionCommand(Action{Kind: ActionCancelTask})
@@ -73,6 +85,9 @@ func (model *Model) updateKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 		model.input.Clear()
+		if model.state.Task == nil {
+			return model, actionCommand(Action{Kind: ActionCreateTask, Text: text})
+		}
 		return model, actionCommand(Action{Kind: ActionSendInstruction, Text: text})
 	}
 	return model, model.input.Update(key)

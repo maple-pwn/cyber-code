@@ -27,6 +27,46 @@ func TestRootCommandUsesCyberCodeBrand(t *testing.T) {
 	}
 }
 
+func TestRootCommandExposesExplicitTacticalScenarioFlags(t *testing.T) {
+	command := newRootCommand(&commandEnvironment{
+		ctx: context.Background(), stdin: strings.NewReader(""), stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{},
+		configFile: filepath.Join(t.TempDir(), "config.yaml"), stateDir: t.TempDir(),
+	})
+	uiFlag := command.Flags().Lookup("ui")
+	sourceFlag := command.Flags().Lookup("source")
+	if uiFlag == nil || uiFlag.DefValue != "classic" {
+		t.Fatalf("--ui flag = %#v", uiFlag)
+	}
+	if sourceFlag == nil || sourceFlag.DefValue != "" {
+		t.Fatalf("--source flag = %#v", sourceFlag)
+	}
+}
+
+func TestValidateUISelectionKeepsScenarioExplicitAndInteractive(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name, ui, source string
+		printMode        bool
+		wantError        bool
+	}{
+		{name: "classic", ui: "classic"},
+		{name: "tactical scenario", ui: "tactical", source: "scenario"},
+		{name: "unknown ui", ui: "movie", wantError: true},
+		{name: "missing source", ui: "tactical", wantError: true},
+		{name: "scenario classic", ui: "classic", source: "scenario", wantError: true},
+		{name: "tactical print", ui: "tactical", source: "scenario", printMode: true, wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateUISelection(test.ui, test.source, test.printMode)
+			if (err != nil) != test.wantError {
+				t.Fatalf("validateUISelection() error = %v, wantError = %v", err, test.wantError)
+			}
+		})
+	}
+}
+
 func TestRootPrintVerboseReportsProgressWithoutPollutingStdout(t *testing.T) {
 	runner := &commandTestRunner{events: []core.Event{
 		{Type: core.EventToolCall, ToolCall: &core.ToolCall{ID: "call-1", Name: "read_file"}},

@@ -72,7 +72,14 @@ func padLines(lines []string, height int) []string {
 }
 
 func (model *Model) renderControls() string {
-	return "[F5] Pause  [F8] Cancel  [F2] Inspector  [Ctrl+T] Agents"
+	pause := "Pause"
+	if model.state.Task != nil && model.state.Task.Status == "paused" {
+		pause = "Resume"
+	}
+	if model.width < 100 {
+		return "[F5]" + pause + " [F8]Cancel [F4]Scope [F6]Take [F2]Inspect [^T]Agents"
+	}
+	return "[F5] " + pause + "  [F8] Cancel  [F4] Scope  [F6] Takeover  [F2] Inspector  [Ctrl+T] Agents"
 }
 
 func (model *Model) renderHeader() string {
@@ -243,7 +250,7 @@ func (model *Model) renderApproval(approval productprotocol.ApprovalState) strin
 func (model *Model) renderConnection() string {
 	status := strings.ToUpper(clean(model.connection))
 	style := dimStyle
-	if status == "LIVE" || status == "CONNECTED" {
+	if status == "LIVE" || status == "CONNECTED" || status == "HEALTHY" {
 		style = liveStyle
 	} else if status == "OFFLINE" || status == "DISCONNECTED" {
 		style = dangerStyle

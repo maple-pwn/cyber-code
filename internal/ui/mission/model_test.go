@@ -149,6 +149,15 @@ func TestInstructionComposerDispatchesSemanticAction(t *testing.T) {
 	}
 }
 
+func TestComposerCreatesTaskWhenNoTaskExists(t *testing.T) {
+	t.Parallel()
+
+	model := NewModel(productstate.Initial(), Options{})
+	model = update(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Assess juice-shop.lab")})
+	_, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assertAction(t, command, Action{Kind: ActionCreateTask, Text: "Assess juice-shop.lab"})
+}
+
 func missionState() productstate.State {
 	progress := 72.0
 	state := productstate.Initial()

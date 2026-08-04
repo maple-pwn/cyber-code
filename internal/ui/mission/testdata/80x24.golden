@@ -1,6 +1,6 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │CYBER  DEMO  LOCAL  Assessment  RUNNING  cursor 9  Agents 1/1 active          │
-│[F5] Pause  [F8] Cancel  [F2] Inspector  [Ctrl+T] Agents                      │
+│[F5]Pause [F8]Cancel [F4]Scope [F6]Take [F2]Inspect [^T]Agents                │
 │NARRATIVE STREAM                                                              │
 │12:00  STARTED  Assessment                                                    │
 │                                                                              │

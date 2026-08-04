@@ -30,6 +30,9 @@ func TestResponsiveLayoutsStayWithinTerminalAndPreserveCriticalControls(t *testi
 			if size.width < 110 && strings.Contains(plain, "AGENTS · SCOPE · EVIDENCE") {
 				t.Fatalf("%dx%d retained the inline Inspector:\n%s", size.width, size.height, plain)
 			}
+			if size.width == 80 && !strings.Contains(plain, "[^T]Agents") {
+				t.Fatalf("80-column controls were truncated:\n%s", plain)
+			}
 			if size.width >= 110 && !strings.Contains(plain, "AGENTS · SCOPE · EVIDENCE") {
 				t.Fatalf("%dx%d omitted the inline Inspector:\n%s", size.width, size.height, plain)
 			}
@@ -66,10 +69,33 @@ func TestTaskControlKeysDispatchSemanticActions(t *testing.T) {
 	t.Parallel()
 
 	model := NewModel(missionState(), Options{})
-	_, command := model.Update(tea.KeyMsg{Type: tea.KeyF5})
+	_, command := model.Update(tea.KeyMsg{Type: tea.KeyF4})
+	assertAction(t, command, Action{Kind: ActionConfirmScope})
+	_, command = model.Update(tea.KeyMsg{Type: tea.KeyF5})
 	assertAction(t, command, Action{Kind: ActionPauseTask})
+	model.state.Task.Status = "paused"
+	_, command = model.Update(tea.KeyMsg{Type: tea.KeyF5})
+	assertAction(t, command, Action{Kind: ActionResumeTask})
+	_, command = model.Update(tea.KeyMsg{Type: tea.KeyF6})
+	assertAction(t, command, Action{Kind: ActionTakeControl})
 	_, command = model.Update(tea.KeyMsg{Type: tea.KeyF8})
 	assertAction(t, command, Action{Kind: ActionCancelTask})
+}
+
+func TestControlCQuitsFromEveryTacticalPanel(t *testing.T) {
+	t.Parallel()
+
+	for _, panel := range []panelMode{panelStream, panelTasks, panelAgent, panelInspector} {
+		model := NewModel(missionState(), Options{})
+		model.panel = panel
+		_, command := model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+		if command == nil {
+			t.Fatalf("panel %q did not return a quit command", panel)
+		}
+		if _, ok := command().(tea.QuitMsg); !ok {
+			t.Fatalf("panel %q command = %#v", panel, command())
+		}
+	}
 }
 
 func TestNoColorLayoutContainsNoANSI(t *testing.T) {

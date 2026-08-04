@@ -22,6 +22,7 @@ import (
 	"cyber-code/internal/protocol"
 	"cyber-code/internal/tool/builtin"
 	"cyber-code/internal/ui"
+	"cyber-code/internal/ui/adapter"
 )
 
 type ExecuteOptions struct {
@@ -106,7 +107,7 @@ func errorExitCode(err error) int {
 
 func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	var printMode, jsonMode, verbose bool
-	var profile, permissionMode, model, cwd, resumeSession string
+	var profile, permissionMode, model, cwd, resumeSession, uiMode, sourceName string
 	var imagePaths []string
 	var maxTurns int
 	command := &cobra.Command{
@@ -116,6 +117,18 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 		Args:          cobra.ArbitraryArgs,
 		Version:       environment.options.Version,
 		RunE: func(_ *cobra.Command, args []string) error {
+			if err := validateUISelection(uiMode, sourceName, printMode); err != nil {
+				return err
+			}
+			prompt := strings.Join(args, " ")
+			if uiMode == "tactical" {
+				source, err := adapter.NewScenarioSource(adapter.ScenarioOptions{RuntimeID: "scenario-local"})
+				if err != nil {
+					return err
+				}
+				defer source.Close(context.Background())
+				return runTactical(environment, source, prompt)
+			}
 			runner := environment.options.Runner
 			var shutdown func(context.Context) error
 			var permissionUI *ui.PermissionBridge
@@ -152,7 +165,6 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 				}
 				runner = &initialImageRunner{delegate: runner, images: images}
 			}
-			prompt := strings.Join(args, " ")
 			if printMode {
 				code := frontend.Run(environment.ctx, runner, prompt, frontend.PrintOptions{
 					JSON: jsonMode, Verbose: verbose, Stdout: environment.stdout, Stderr: environment.stderr,
@@ -176,6 +188,8 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	command.Flags().StringVar(&cwd, "cwd", "", "workspace directory")
 	command.Flags().StringArrayVar(&imagePaths, "image", nil, "attach an image from the workspace to the first turn")
 	command.Flags().StringVar(&resumeSession, "resume", "", "resume a persisted session")
+	command.Flags().StringVar(&uiMode, "ui", "classic", "interactive UI: classic or tactical")
+	command.Flags().StringVar(&sourceName, "source", "", "Tactical Ops event source: scenario")
 	command.Flags().IntVar(&maxTurns, "max-turns", 100, "maximum agent turns")
 	command.AddCommand(newConfigCommand(environment))
 	command.AddCommand(newDoctorCommand(environment))
@@ -186,6 +200,25 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	command.AddCommand(newVersionCheckCommand(environment))
 	command.AddCommand(newTerminalSetupCommand(environment))
 	return command
+}
+
+func validateUISelection(uiMode, sourceName string, printMode bool) error {
+	if uiMode != "classic" && uiMode != "tactical" {
+		return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.ui", Message: "--ui must be classic or tactical"}
+	}
+	if uiMode == "tactical" {
+		if printMode {
+			return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.ui", Message: "tactical UI is interactive and cannot be used with --print"}
+		}
+		if sourceName != "scenario" {
+			return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "tactical UI currently requires --source=scenario"}
+		}
+		return nil
+	}
+	if sourceName != "" {
+		return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "--source is only valid with --ui=tactical"}
+	}
+	return nil
 }
 
 type contentRunner interface {
