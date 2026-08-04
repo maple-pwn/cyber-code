@@ -55,6 +55,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .mission-task-summary span { color: var(--cyber-muted); font: .7rem var(--cyber-font-mono); }
 .mission-actions { display: flex; gap: 6px; }
 .mission-actions button { width: 38px; height: 38px; display: grid; place-items: center; padding: 0; border-radius: 50%; background: rgb(255 255 255 / 6%); }
+.mission-agent-mobile { display: none; }
 .mission-stream-surface, .mission-inspector-surface { min-width: 0; min-height: 0; overflow: auto; border-radius: var(--cyber-radius-shell); }
 .mission-stream-surface { display: flex; flex-direction: column; padding: 14px; padding-bottom: 88px; }
 .mission-inspector-surface { padding: 12px; }
@@ -89,6 +90,8 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 
 @media (max-width: 767px) {
   .app-shell { padding-bottom: 68px; }
+  .route-mission-control { height: 100vh; min-height: 0; overflow: hidden; padding-bottom: 0; }
+  .route-mission-control .workspace { height: 100vh; overflow: hidden; }
   .topbar { top: 8px; left: 8px; right: 8px; min-height: 48px; padding: 6px 10px; }
   .product-context { display: none; }
   .connection-state { max-width: 110px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -109,6 +112,8 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   .mission-task-summary { display: none; }
   .mission-actions { grid-column: 2; grid-row: 1; flex-wrap: wrap; justify-content: flex-end; max-width: 82px; }
   .mission-actions button { width: 36px; height: 36px; }
+  .mission-agent-mobile { display: contents; }
+  .mission-agent-floating { display: none; }
   .mission-stream-surface { border-radius: 20px; padding: 10px; padding-bottom: 92px; }
   .mission-inspector-surface { position: fixed; z-index: 50; inset: 64px 8px 70px; display: none; border-radius: 22px; }
   .mission-inspector-surface[data-open="true"] { display: block; }

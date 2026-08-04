@@ -79,8 +79,9 @@
   .cyber-narrative li { grid-template-columns: 8px minmax(0, 1fr); }
   .cyber-narrative li time { grid-column: 2; }
   .cyber-dialog { inset: auto 0 0; max-height: 88vh; }
-  .cyber-active-agent { right: 12px; bottom: 70px; width: min(220px, calc(100vw - 24px)); }
-  .cyber-scope-review .cyber-definition-grid { grid-template-columns: minmax(0, 1fr); }
-  .cyber-scope-review .cyber-actions { display: grid; grid-template-columns: 1fr; }
+  .cyber-active-agent { position: static; grid-column: 1 / -1; width: 100%; }
+  .cyber-scope-review { padding: 14px; }
+  .cyber-scope-review .cyber-definition-grid { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+  .cyber-scope-review .cyber-actions { display: grid; grid-template-columns: 1fr; gap: 4px; margin-top: 0; }
   .cyber-scope-review .cyber-actions button { width: 100%; }
 }

@@ -57,7 +57,7 @@ test('Liquid Command golden path has stable desktop and phone visuals', async ({
     await scopeActions.scrollIntoViewIfNeeded();
     const actionBox = await scopeActions.boundingBox();
     const navBox = await page.getByRole('navigation', { name: 'Primary' }).boundingBox();
-    expect(actionBox && navBox && boxesOverlap(actionBox, navBox)).toBe(false);
+    expect(actionBox && navBox && boxesOverlap(actionBox, navBox), JSON.stringify({ actionBox, navBox })).toBe(false);
   }
 
   await page.getByRole('button', { name: 'Confirm scope' }).click();

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -29,12 +30,16 @@ func TestProcessEnvironmentFiltersSecrets(t *testing.T) {
 func TestProcessUsesFixedWorkspaceAndReportsPolicyOnlySandbox(t *testing.T) {
 	workspace := t.TempDir()
 	runner := NewRunner(Options{LookPath: func(string) (string, error) { return "", exec.ErrNotFound }})
-	result, err := runner.Run(context.Background(), ExecRequest{Command: "pwd", Workspace: workspace, Sandbox: true})
+	command := "pwd"
+	if runtime.GOOS == "windows" {
+		command = "cd"
+	}
+	result, err := runner.Run(context.Background(), ExecRequest{Command: command, Workspace: workspace, Sandbox: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	resolved, _ := filepath.EvalSymlinks(workspace)
-	if strings.TrimSpace(result.Stdout) != resolved {
+	if !strings.EqualFold(filepath.Clean(strings.TrimSpace(result.Stdout)), filepath.Clean(resolved)) {
 		t.Fatalf("stdout = %q, want workspace %q", result.Stdout, resolved)
 	}
 	if result.Isolation != IsolationPolicyOnly {

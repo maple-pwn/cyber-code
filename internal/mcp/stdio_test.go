@@ -223,6 +223,7 @@ func TestDefaultFactoryStartsRealManagedStdioProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	workspace := t.TempDir()
 	registry := toolpkg.NewRegistry()
 	manager, err := NewManager(ManagerOptions{
 		Registry: registry, Authorizer: allowAllAuthorizer(),
@@ -234,7 +235,7 @@ func TestDefaultFactoryStartsRealManagedStdioProcess(t *testing.T) {
 	t.Cleanup(func() { _ = manager.Close() })
 	if err := manager.Connect(context.Background(), ServerConfig{
 		Name: "real", Transport: TransportStdio, Command: executable,
-		Args: []string{"-test.run=^TestMCPStdioProcessHelper$", "--", "mcp-helper"}, Workspace: t.TempDir(),
+		Args: []string{"-test.run=^TestMCPStdioProcessHelper$", "--", "mcp-helper"}, Workspace: workspace,
 	}); err != nil {
 		t.Fatal(err)
 	}

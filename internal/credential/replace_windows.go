@@ -16,6 +16,10 @@ const (
 
 var moveFileEx = syscall.NewLazyDLL("kernel32.dll").NewProc("MoveFileExW")
 
+// FILE_ALL_ACCESS is not exported by x/sys/windows. Generic access bits must
+// be mapped before they are stored in a file-object ACE.
+const privateFileFullControl = 0x1F01FF
+
 func replaceFile(source, destination string) error {
 	sourcePointer, err := syscall.UTF16PtrFromString(source)
 	if err != nil {
@@ -42,7 +46,7 @@ func restrictFile(path string) error {
 		return err
 	}
 	acl, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{{
-		AccessPermissions: windows.GENERIC_ALL,
+		AccessPermissions: privateFileFullControl,
 		AccessMode:        windows.SET_ACCESS,
 		Inheritance:       windows.NO_INHERITANCE,
 		Trustee: windows.TRUSTEE{

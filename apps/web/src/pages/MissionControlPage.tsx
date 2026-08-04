@@ -82,6 +82,7 @@ export function MissionControlPage({ view, t, onDispatch, onReconnect, onDisconn
             <button type="button" title={t.t('task.cancel')} aria-label={t.t('task.cancel')} disabled={writesDisabled} onClick={() => void onDispatch({ type: 'task.cancel' })}><OctagonX aria-hidden="true" size={17} /></button>
             <button ref={inspectorTrigger} className="mission-inspector-trigger" type="button" title={inspectorOpen ? t.t('inspector.close') : t.t('inspector.open')} aria-label={inspectorOpen ? t.t('inspector.close') : t.t('inspector.open')} aria-expanded={inspectorOpen} aria-controls="mission-inspector" onClick={() => setInspectorOpen((open) => !open)}><PanelRightOpen aria-hidden="true" size={17} /></button>
           </div>
+          <div className="mission-agent-mobile"><ActiveAgentRibbon agent={activeAgent} onSelect={focusAgent} /></div>
         </header>
         <section className="mission-stream-surface cyber-glass" id="mission-stream">
           <div className="mission-system-banners">
@@ -111,7 +112,7 @@ export function MissionControlPage({ view, t, onDispatch, onReconnect, onDisconn
           onTabChange={setActiveTab}
         /></aside>
       </div>
-      <ActiveAgentRibbon agent={activeAgent} onSelect={focusAgent} />
+      <div className="mission-agent-floating"><ActiveAgentRibbon agent={activeAgent} onSelect={focusAgent} /></div>
     </div>
   </div>;
 }

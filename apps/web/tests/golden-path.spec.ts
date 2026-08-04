@@ -96,9 +96,12 @@ test('phone keeps observation, approval, pause, and cancel while report editing 
   await expect(page.getByRole('button', { name: 'Review parameters' })).toBeVisible();
   await page.getByRole('button', { name: 'Review parameters' }).click();
   await expect(page.getByRole('button', { name: 'Confirm allow once' })).toBeVisible();
-  const ribbonBox = await page.locator('.cyber-active-agent').boundingBox();
+  const headerBox = await page.locator('.mission-header').boundingBox();
+  const topbarBox = await page.getByRole('banner').boundingBox();
+  const ribbonBox = await page.locator('.mission-agent-mobile .cyber-active-agent').boundingBox();
   const actionBox = await page.locator('.cyber-approval .cyber-actions').boundingBox();
   const navBox = await page.getByRole('navigation', { name: 'Primary' }).boundingBox();
+  expect(headerBox && topbarBox && boxesOverlap(headerBox, topbarBox)).toBe(false);
   expect(ribbonBox && actionBox && boxesOverlap(ribbonBox, actionBox)).toBe(false);
   expect(ribbonBox && navBox && boxesOverlap(ribbonBox, navBox)).toBe(false);
   await page.getByRole('button', { name: 'Reports' }).click();

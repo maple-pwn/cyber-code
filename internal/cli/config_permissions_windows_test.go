@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"unsafe"
@@ -38,7 +39,10 @@ func TestSaveCommandConfigProtectsWindowsDACL(t *testing.T) {
 		t.Fatal(err)
 	}
 	aceSID := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
-	if !aceSID.Equals(currentUser.User.Sid) || ace.Mask != windows.GENERIC_ALL {
+	if !aceSID.Equals(currentUser.User.Sid) || ace.Mask != 0x1F01FF {
 		t.Fatalf("private config ACE does not grant only current user full access")
+	}
+	if _, err := os.ReadFile(path); err != nil {
+		t.Fatalf("current user cannot read private config: %v", err)
 	}
 }

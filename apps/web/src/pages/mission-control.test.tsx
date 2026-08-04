@@ -53,7 +53,7 @@ describe('MissionControlPage', () => {
     const approvalCard = screen.getByRole('article');
     await userEvent.click(within(approvalCard).getByRole('button', { name: 'Review parameters' }));
     await userEvent.click(within(approvalCard).getByRole('button', { name: 'Confirm allow once' }));
-    expect(screen.getByRole('button', { name: /Recon Agent/ })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Recon Agent/ })).toHaveLength(2);
 
     expect(onDispatch.mock.calls.map(([command]) => command)).toEqual(expect.arrayContaining([
       { type: 'task.pause' },

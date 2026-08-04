@@ -48,10 +48,7 @@ func TestWriteFileUsesRunnerPermissionBoundaryAndAtomicReplace(t *testing.T) {
 	if err != nil || string(content) != "new" {
 		t.Fatalf("content=%q err=%v", content, err)
 	}
-	info, err := os.Stat(target)
-	if err != nil || info.Mode().Perm() != 0o640 {
-		t.Fatalf("mode=%v err=%v", info.Mode(), err)
-	}
+	assertPreservedFileMode(t, target, 0o640)
 	matches, err := filepath.Glob(filepath.Join(workspace, ".cyber-code-*"))
 	if err != nil || len(matches) != 0 {
 		t.Fatalf("temporary files = %#v, err=%v", matches, err)
