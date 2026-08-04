@@ -42,11 +42,21 @@ func TestGoldenLayouts(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got != string(want) {
+			if got != normalizeGolden(string(want)) {
 				t.Fatalf("golden mismatch for %s; run UPDATE_GOLDEN=1 go test ./internal/ui/mission -run TestGoldenLayouts", test.name)
 			}
 		})
 	}
+}
+
+func TestNormalizeGoldenAcceptsWindowsLineEndings(t *testing.T) {
+	if got := normalizeGolden("first\r\nsecond\r\n"); got != "first\nsecond\n" {
+		t.Fatalf("normalizeGolden() = %q", got)
+	}
+}
+
+func normalizeGolden(value string) string {
+	return strings.ReplaceAll(value, "\r\n", "\n")
 }
 
 func cjkGoldenState() productstate.State {
