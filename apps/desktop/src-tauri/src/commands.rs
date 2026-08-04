@@ -1,0 +1,268 @@
+use serde::{Deserialize, Serialize};
+use std::path::Path;
+
+const OPERATIONS: [&str; 5] = [
+    "capabilities",
+    "notify",
+    "store_secret",
+    "delete_secret",
+    "export_report",
+];
+const NOTIFICATION_KINDS: [&str; 3] = ["approval_required", "task_succeeded", "task_failed"];
+const MAX_REPORT_BYTES: usize = 16 * 1024 * 1024;
+const KEYRING_SERVICE: &str = "com.cyber.code.desktop";
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilitiesResponse {
+    pub operations: [&'static str; 5],
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NotifyRequest {
+    pub kind: String,
+    pub title: String,
+    pub body: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NotifyReceipt {
+    pub accepted: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StoreSecretRequest {
+    pub id: String,
+    pub secret: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StoredSecretReceipt {
+    pub id: String,
+    pub stored: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DeleteSecretRequest {
+    pub id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DeletedSecretReceipt {
+    pub id: String,
+    pub deleted: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExportReportRequest {
+    pub suggested_name: String,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExportStatus {
+    Exported,
+    Cancelled,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExportReportReceipt {
+    pub status: ExportStatus,
+}
+
+#[tauri::command]
+pub fn capabilities() -> CapabilitiesResponse {
+    debug_assert!(
+        OPERATIONS
+            .iter()
+            .all(|operation| is_supported_operation(operation))
+    );
+    CapabilitiesResponse {
+        operations: OPERATIONS,
+    }
+}
+
+pub fn is_supported_operation(operation: &str) -> bool {
+    OPERATIONS.contains(&operation)
+}
+
+fn require_identifier(id: &str) -> Result<(), String> {
+    if id.is_empty()
+        || id.len() > 128
+        || !id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return Err("credential identifier is invalid".into());
+    }
+    Ok(())
+}
+
+pub fn validate_notification(request: &NotifyRequest) -> Result<(), String> {
+    if !NOTIFICATION_KINDS.contains(&request.kind.as_str())
+        || request.title.trim().is_empty()
+        || request.body.trim().is_empty()
+        || request.title.len() > 120
+        || request.body.len() > 1_000
+    {
+        return Err("notification request is invalid".into());
+    }
+    Ok(())
+}
+
+pub fn validate_export_request(request: &ExportReportRequest) -> Result<(), String> {
+    let name = request.suggested_name.as_str();
+    if name.trim().is_empty()
+        || name == "."
+        || name == ".."
+        || name.contains(['/', '\\'])
+        || request.bytes.is_empty()
+        || request.bytes.len() > MAX_REPORT_BYTES
+    {
+        return Err("report export request is invalid".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn notify(request: NotifyRequest) -> Result<NotifyReceipt, String> {
+    validate_notification(&request)?;
+    Ok(NotifyReceipt { accepted: true })
+}
+
+#[tauri::command]
+pub fn store_secret(request: StoreSecretRequest) -> Result<StoredSecretReceipt, String> {
+    require_identifier(&request.id)?;
+    if request.secret.is_empty() || request.secret.len() > 64 * 1024 {
+        return Err("credential value is invalid".into());
+    }
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &request.id)
+        .map_err(|_| "credential service is unavailable".to_string())?;
+    entry
+        .set_password(&request.secret)
+        .map_err(|_| "credential could not be stored".to_string())?;
+    Ok(StoredSecretReceipt {
+        id: request.id,
+        stored: true,
+    })
+}
+
+#[tauri::command]
+pub fn delete_secret(request: DeleteSecretRequest) -> Result<DeletedSecretReceipt, String> {
+    require_identifier(&request.id)?;
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &request.id)
+        .map_err(|_| "credential service is unavailable".to_string())?;
+    entry
+        .delete_credential()
+        .map_err(|_| "credential could not be deleted".to_string())?;
+    Ok(DeletedSecretReceipt {
+        id: request.id,
+        deleted: true,
+    })
+}
+
+fn write_selected_report(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if path
+        .symlink_metadata()
+        .is_ok_and(|metadata| metadata.file_type().is_symlink())
+    {
+        return Err("report destination cannot be a symbolic link".into());
+    }
+    std::fs::write(path, bytes).map_err(|_| "report could not be exported".to_string())
+}
+
+#[tauri::command]
+pub async fn export_report(request: ExportReportRequest) -> Result<ExportReportReceipt, String> {
+    validate_export_request(&request)?;
+    let suggested_name = request.suggested_name;
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        rfd::FileDialog::new()
+            .set_file_name(&suggested_name)
+            .save_file()
+    })
+    .await
+    .map_err(|_| "report destination selection failed".to_string())?;
+    let Some(path) = selected else {
+        return Ok(ExportReportReceipt {
+            status: ExportStatus::Cancelled,
+        });
+    };
+    write_selected_report(&path, &request.bytes)?;
+    Ok(ExportReportReceipt {
+        status: ExportStatus::Exported,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_operations_are_exactly_allowlisted() {
+        assert_eq!(
+            capabilities().operations,
+            [
+                "capabilities",
+                "notify",
+                "store_secret",
+                "delete_secret",
+                "export_report",
+            ]
+        );
+        assert!(!is_supported_operation("shell"));
+    }
+
+    #[test]
+    fn notifications_allow_only_approval_and_terminal_task_states() {
+        assert!(
+            validate_notification(&NotifyRequest {
+                kind: "approval_required".into(),
+                title: "Approval".into(),
+                body: "Review scope".into(),
+            })
+            .is_ok()
+        );
+        assert!(
+            validate_notification(&NotifyRequest {
+                kind: "chat_message".into(),
+                title: "Hello".into(),
+                body: "World".into(),
+            })
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn export_rejects_path_traversal_and_accepts_a_plain_file_name() {
+        assert!(
+            validate_export_request(&ExportReportRequest {
+                suggested_name: "../report.md".into(),
+                bytes: vec![1],
+            })
+            .is_err()
+        );
+        assert!(
+            validate_export_request(&ExportReportRequest {
+                suggested_name: "report.md".into(),
+                bytes: b"CYBER".to_vec(),
+            })
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn secret_receipts_never_serialize_secret_values() {
+        let receipt = StoredSecretReceipt {
+            id: "deepseek".into(),
+            stored: true,
+        };
+        let serialized = serde_json::to_string(&receipt).unwrap();
+        assert_eq!(serialized, r#"{"id":"deepseek","stored":true}"#);
+        assert!(!serialized.contains("top-secret"));
+    }
+}

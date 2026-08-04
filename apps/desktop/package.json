@@ -15,6 +15,7 @@
     "@cyber/runtime-client": "workspace:*",
     "@cyber/scenario-player": "workspace:*",
     "@cyber/ui": "workspace:*",
+    "@tauri-apps/api": "2.8.0",
     "react": "19.1.1",
     "react-dom": "19.1.1"
   },
