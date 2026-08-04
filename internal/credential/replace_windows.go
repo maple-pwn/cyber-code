@@ -40,7 +40,13 @@ func replaceFile(source, destination string) error {
 	return nil
 }
 
-func restrictFile(path string) error {
+func restrictDirectory(path string) error {
+	return restrictPath(path, windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT)
+}
+
+func restrictFile(path string) error { return restrictPath(path, windows.NO_INHERITANCE) }
+
+func restrictPath(path string, inheritance uint32) error {
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
 		return err
@@ -48,7 +54,7 @@ func restrictFile(path string) error {
 	acl, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{{
 		AccessPermissions: privateFileFullControl,
 		AccessMode:        windows.SET_ACCESS,
-		Inheritance:       windows.NO_INHERITANCE,
+		Inheritance:       inheritance,
 		Trustee: windows.TRUSTEE{
 			TrusteeForm:  windows.TRUSTEE_IS_SID,
 			TrusteeType:  windows.TRUSTEE_IS_USER,

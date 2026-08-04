@@ -388,7 +388,7 @@ func (manager *Manager) removeInstalledFiles(installed Installed) error {
 
 func materialize(ctx context.Context, source, destination string) (string, error) {
 	parsed, err := url.Parse(source)
-	if err == nil && parsed.Scheme != "" {
+	if !filepath.IsAbs(source) && err == nil && parsed.Scheme != "" {
 		if parsed.Scheme != "https" || parsed.Host == "" {
 			return "", fmt.Errorf("marketplace Git source must use HTTPS")
 		}

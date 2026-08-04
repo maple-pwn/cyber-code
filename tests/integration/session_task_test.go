@@ -83,7 +83,7 @@ func TestCLICompositionRunsConfiguredPromptHook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hookCommand := fmt.Sprintf("\"%s\" -test.run=^TestHookHelperProcess$ -- hook-helper", strings.ReplaceAll(executable, "\"", "\\\""))
+	hookCommand := fmt.Sprintf("\"%s\" -test.run=TestHookHelperProcess -- hook-helper", strings.ReplaceAll(executable, "\"", "\\\""))
 	hookConfig, err := json.Marshal(map[string][]string{"UserPromptSubmit": {hookCommand}})
 	if err != nil {
 		t.Fatal(err)
@@ -126,7 +126,7 @@ func TestCLIConfiguredHookRequiresPermission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hookCommand := fmt.Sprintf("\"%s\" -test.run=^TestHookHelperProcess$ -- hook-helper", strings.ReplaceAll(executable, "\"", "\\\""))
+	hookCommand := fmt.Sprintf("\"%s\" -test.run=TestHookHelperProcess -- hook-helper", strings.ReplaceAll(executable, "\"", "\\\""))
 	hookConfig, _ := json.Marshal(map[string][]string{"UserPromptSubmit": {hookCommand}})
 	if err := os.WriteFile(filepath.Join(stateDir, "hooks.json"), hookConfig, 0o600); err != nil {
 		t.Fatal(err)

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -36,12 +35,7 @@ func TestCredentialStorePersistsAndNeverIncludesSecretInErrors(t *testing.T) {
 	if _, _, err := reopened.Get(context.Background(), "missing"); err != nil && strings.Contains(err.Error(), "token-secret") {
 		t.Fatal("secret leaked in error")
 	}
-	if info, err := os.Stat(store.path); err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("credential file mode = %v, err=%v", info.Mode().Perm(), err)
-	}
-	if info, err := os.Stat(store.directory); err != nil || info.Mode().Perm() != 0o700 {
-		t.Fatalf("credential directory mode = %v, err=%v", info.Mode().Perm(), err)
-	}
+	assertCredentialStorePermissions(t, store)
 	if err := reopened.Delete(context.Background(), "server"); err != nil {
 		t.Fatal(err)
 	}

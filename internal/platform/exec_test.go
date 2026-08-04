@@ -27,7 +27,7 @@ func TestProcessEnvironmentFiltersSecrets(t *testing.T) {
 	}
 }
 
-func TestProcessUsesFixedWorkspaceAndReportsPolicyOnlySandbox(t *testing.T) {
+func TestProcessUsesFixedWorkspaceAndReportsPlatformSandbox(t *testing.T) {
 	workspace := t.TempDir()
 	runner := NewRunner(Options{LookPath: func(string) (string, error) { return "", exec.ErrNotFound }})
 	command := "pwd"
@@ -42,7 +42,7 @@ func TestProcessUsesFixedWorkspaceAndReportsPolicyOnlySandbox(t *testing.T) {
 	if !strings.EqualFold(filepath.Clean(strings.TrimSpace(result.Stdout)), filepath.Clean(resolved)) {
 		t.Fatalf("stdout = %q, want workspace %q", result.Stdout, resolved)
 	}
-	if result.Isolation != IsolationPolicyOnly {
+	if result.Isolation != expectedBestEffortIsolation() {
 		t.Fatalf("isolation = %q", result.Isolation)
 	}
 }

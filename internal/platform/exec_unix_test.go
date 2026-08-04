@@ -14,6 +14,8 @@ import (
 	"time"
 )
 
+func expectedBestEffortIsolation() Isolation { return IsolationPolicyOnly }
+
 func TestProcessCancellationTerminatesChildProcess(t *testing.T) {
 	workspace := t.TempDir()
 	pidFile := filepath.Join(workspace, "child.pid")
