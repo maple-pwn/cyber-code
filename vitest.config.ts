@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./apps/web/src/test-setup.ts'],
-    exclude: ['**/node_modules/**', '**/dist/**', 'editors/**', 'apps/web/tests/**'],
+    exclude: ['**/node_modules/**', '**/dist/**', 'editors/**', 'apps/web/tests/**', 'apps/desktop/tests/**'],
     coverage: {
       provider: 'v8',
       thresholds: {

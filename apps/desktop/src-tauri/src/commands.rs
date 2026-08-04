@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use tauri_plugin_notification::NotificationExt;
 
 const OPERATIONS: [&str; 5] = [
     "capabilities",
@@ -29,6 +30,21 @@ pub struct NotifyRequest {
 #[derive(Debug, Serialize)]
 pub struct NotifyReceipt {
     pub accepted: bool,
+}
+
+pub trait NotificationSink {
+    fn show(&self, title: &str, body: &str) -> Result<(), String>;
+}
+
+impl NotificationSink for tauri::AppHandle {
+    fn show(&self, title: &str, body: &str) -> Result<(), String> {
+        self.notification()
+            .builder()
+            .title(title)
+            .body(body)
+            .show()
+            .map_err(|_| "notification could not be delivered".to_string())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -115,6 +131,15 @@ pub fn validate_notification(request: &NotifyRequest) -> Result<(), String> {
     Ok(())
 }
 
+pub fn route_notification(
+    sink: &impl NotificationSink,
+    request: &NotifyRequest,
+) -> Result<NotifyReceipt, String> {
+    validate_notification(request)?;
+    sink.show(&request.title, &request.body)?;
+    Ok(NotifyReceipt { accepted: true })
+}
+
 pub fn validate_export_request(request: &ExportReportRequest) -> Result<(), String> {
     let name = request.suggested_name.as_str();
     if name.trim().is_empty()
@@ -130,9 +155,8 @@ pub fn validate_export_request(request: &ExportReportRequest) -> Result<(), Stri
 }
 
 #[tauri::command]
-pub fn notify(request: NotifyRequest) -> Result<NotifyReceipt, String> {
-    validate_notification(&request)?;
-    Ok(NotifyReceipt { accepted: true })
+pub fn notify(app: tauri::AppHandle, request: NotifyRequest) -> Result<NotifyReceipt, String> {
+    route_notification(&app, &request)
 }
 
 #[tauri::command]
@@ -201,6 +225,16 @@ pub async fn export_report(request: ExportReportRequest) -> Result<ExportReportR
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+
+    struct RecordingNotifications(RefCell<Vec<(String, String)>>);
+
+    impl NotificationSink for RecordingNotifications {
+        fn show(&self, title: &str, body: &str) -> Result<(), String> {
+            self.0.borrow_mut().push((title.into(), body.into()));
+            Ok(())
+        }
+    }
 
     #[test]
     fn native_operations_are_exactly_allowlisted() {
@@ -234,6 +268,26 @@ mod tests {
                 body: "World".into(),
             })
             .is_err()
+        );
+    }
+
+    #[test]
+    fn valid_notifications_are_routed_once_through_the_native_sink() {
+        let sink = RecordingNotifications(RefCell::new(Vec::new()));
+        let receipt = route_notification(
+            &sink,
+            &NotifyRequest {
+                kind: "task_failed".into(),
+                title: "Task failed".into(),
+                body: "Review the terminal state".into(),
+            },
+        )
+        .unwrap();
+
+        assert!(receipt.accepted);
+        assert_eq!(
+            sink.0.borrow().as_slice(),
+            &[("Task failed".into(), "Review the terminal state".into())]
         );
     }
 

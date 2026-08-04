@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
 
@@ -60,5 +60,24 @@ describe('App shell', () => {
     expect(within(navigation).getByRole('button', { name: '新建任务' })).toHaveAttribute('aria-current', 'page');
     expect(within(navigation).getAllByTestId('nav-icon')).toHaveLength(4);
     expect(screen.getByTestId('app-canvas')).toHaveClass('app-canvas');
+  });
+
+  test('restores Inspector focus after closing the command palette', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await user.click(screen.getByRole('button', { name: '任务控制' }));
+
+    const trigger = screen.getByRole('button', { name: '打开任务检查器' });
+    await user.click(trigger);
+    const inspectorTab = screen.getByRole('tab', { name: 'Agent 0' });
+    expect(inspectorTab).toHaveFocus();
+
+    await user.keyboard('{Control>}k{/Control}');
+    expect(screen.getByRole('dialog', { name: '打开命令面板' })).toBeInTheDocument();
+    expect(screen.getByLabelText('搜索页面或操作')).toHaveFocus();
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('dialog', { name: '打开命令面板' })).not.toBeInTheDocument();
+    await waitFor(() => expect(inspectorTab).toHaveFocus());
   });
 });

@@ -16,3 +16,19 @@ test('desktop bootstrap identifies the deterministic source as Demo and never Lo
   expect(screen.queryByText(/本地授权实验室|Local authorized lab/)).not.toBeInTheDocument();
   store.destroy();
 });
+
+test('desktop bootstrap restores only allowlisted routes and persists later navigation', () => {
+  window.localStorage.setItem('cyber.desktop.route.v1', 'findings');
+  const restored = createDesktopBootstrap({ speedMs: 0 });
+  expect(restored.store.getSnapshot().route).toBe('findings');
+
+  restored.store.navigate('reports');
+  expect(window.localStorage.getItem('cyber.desktop.route.v1')).toBe('reports');
+  restored.store.destroy();
+
+  window.localStorage.setItem('cyber.desktop.route.v1', 'javascript:alert(1)');
+  const rejected = createDesktopBootstrap({ speedMs: 0 });
+  expect(rejected.store.getSnapshot().route).toBe('new-task');
+  rejected.store.destroy();
+  window.localStorage.clear();
+});

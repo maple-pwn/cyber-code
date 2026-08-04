@@ -34,6 +34,7 @@ export function ProductApp({ store, runtimes }: ProductAppProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [locale, updateLocale] = useState<Locale>('zh-CN');
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const paletteRestoreFocus = useRef<HTMLElement | null>(null);
   const chord = useRef<{ key: string; timer?: number }>({ key: '' });
   const t = createTranslator(locale);
   const availableRuntimes = runtimes ?? [
@@ -44,9 +45,21 @@ export function ProductApp({ store, runtimes }: ProductAppProps) {
     ?? availableRuntimes[0];
 
   useEffect(() => {
+    const closePalette = () => {
+      setPaletteOpen(false);
+      const target = paletteRestoreFocus.current;
+      paletteRestoreFocus.current = null;
+      window.requestAnimationFrame(() => { if (target?.isConnected) target.focus(); });
+    };
     const onKeyDown = (event: KeyboardEvent) => {
+      if (paletteOpen && event.key === 'Escape') {
+        event.preventDefault(); closePalette(); return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault(); setPaletteOpen(true); return;
+        event.preventDefault();
+        if (!paletteOpen) paletteRestoreFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        setPaletteOpen(true);
+        return;
       }
       if (event.ctrlKey || event.metaKey || event.altKey || event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
       if (chord.current.key === 'g') {
@@ -60,7 +73,19 @@ export function ProductApp({ store, runtimes }: ProductAppProps) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => { window.removeEventListener('keydown', onKeyDown); window.clearTimeout(chord.current.timer); };
-  }, [store]);
+  }, [paletteOpen, store]);
+
+  const setPalette = (open: boolean) => {
+    if (open) {
+      if (!paletteOpen) paletteRestoreFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setPaletteOpen(true);
+      return;
+    }
+    setPaletteOpen(false);
+    const target = paletteRestoreFocus.current;
+    paletteRestoreFocus.current = null;
+    window.requestAnimationFrame(() => { if (target?.isConnected) target.focus(); });
+  };
 
   const setAppLocale = (next: Locale) => { setLocale(next); updateLocale(next); };
   const navigate = (route: AppRoute) => { store.navigate(route); setPaletteOpen(false); };
@@ -95,6 +120,6 @@ export function ProductApp({ store, runtimes }: ProductAppProps) {
       })}</nav>
       <main id="main-content" className="workspace">{renderPage()}</main>
     </div>
-    <CommandPalette open={paletteOpen} commands={routes.map((item) => ({ id: item.route, label: t.t(item.key) }))} t={t} onOpenChange={setPaletteOpen} onCommand={(id) => navigate(id as AppRoute)} />
+    <CommandPalette open={paletteOpen} commands={routes.map((item) => ({ id: item.route, label: t.t(item.key) }))} t={t} onOpenChange={setPalette} onCommand={(id) => navigate(id as AppRoute)} />
   </AppErrorBoundary>;
 }
