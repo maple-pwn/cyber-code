@@ -26,10 +26,13 @@ type windowsGuard struct {
 }
 
 func buildCommand(request ExecRequest, workspace string, environment []string, _ func(string) (string, error)) (*exec.Cmd, Isolation, error) {
-	command := exec.Command("cmd.exe", "/d", "/s", "/c", request.Command)
+	command := exec.Command("cmd.exe")
 	command.Dir = workspace
 	command.Env = environment
-	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
+	command.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow: true, CreationFlags: windows.CREATE_NEW_PROCESS_GROUP,
+		CmdLine: windowsShellCommandLine(request.Command),
+	}
 	return command, IsolationJobObject, nil
 }
 

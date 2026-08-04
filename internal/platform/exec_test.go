@@ -27,6 +27,14 @@ func TestProcessEnvironmentFiltersSecrets(t *testing.T) {
 	}
 }
 
+func TestWindowsShellCommandLinePreservesQuotedExecutable(t *testing.T) {
+	command := `"C:\Program Files\Cyber Code\hook.exe" -test.run=TestHook -- hook-helper`
+	want := `/d /s /c ""C:\Program Files\Cyber Code\hook.exe" -test.run=TestHook -- hook-helper"`
+	if got := windowsShellCommandLine(command); got != want {
+		t.Fatalf("command line = %q, want %q", got, want)
+	}
+}
+
 func TestProcessUsesFixedWorkspaceAndReportsPlatformSandbox(t *testing.T) {
 	workspace := t.TempDir()
 	runner := NewRunner(Options{LookPath: func(string) (string, error) { return "", exec.ErrNotFound }})
