@@ -10,12 +10,10 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@cyber/i18n": "workspace:*",
-    "@cyber/protocol": "workspace:*",
+    "@cyber/product-app": "workspace:*",
     "@cyber/runtime-client": "workspace:*",
     "@cyber/scenario-player": "workspace:*",
     "@cyber/ui": "workspace:*",
-    "lucide-react": "1.28.0",
     "react": "19.1.1",
     "react-dom": "19.1.1"
   }

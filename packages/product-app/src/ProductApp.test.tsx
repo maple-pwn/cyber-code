@@ -5,7 +5,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { RuntimeClient } from '@cyber/runtime-client';
 import { ScenarioPlayer } from '@cyber/scenario-player';
 
-import { App } from './App';
+import { ProductApp } from './ProductApp';
 import { createAppStore } from './app-store';
 
 const renderApp = async () => {
@@ -13,7 +13,7 @@ const renderApp = async () => {
   const client = new RuntimeClient(player);
   const store = createAppStore(client, 'new-task');
   await store.connect();
-  return { ...render(<App store={store} />), store };
+  return { ...render(<ProductApp store={store} />), store };
 };
 
 describe('App shell', () => {

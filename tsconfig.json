@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./apps/web" },
+    { "path": "./packages/product-app" },
     { "path": "./packages/protocol" },
     { "path": "./packages/runtime-client" },
     { "path": "./packages/scenario-player" },

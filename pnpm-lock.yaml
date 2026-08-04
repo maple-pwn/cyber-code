@@ -71,12 +71,9 @@ importers:
 
   apps/web:
     dependencies:
-      '@cyber/i18n':
+      '@cyber/product-app':
         specifier: workspace:*
-        version: link:../../packages/i18n
-      '@cyber/protocol':
-        specifier: workspace:*
-        version: link:../../packages/protocol
+        version: link:../../packages/product-app
       '@cyber/runtime-client':
         specifier: workspace:*
         version: link:../../packages/runtime-client
@@ -86,6 +83,29 @@ importers:
       '@cyber/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      react:
+        specifier: 19.1.1
+        version: 19.1.1
+      react-dom:
+        specifier: 19.1.1
+        version: 19.1.1(react@19.1.1)
+
+  packages/i18n: {}
+
+  packages/product-app:
+    dependencies:
+      '@cyber/i18n':
+        specifier: workspace:*
+        version: link:../i18n
+      '@cyber/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@cyber/runtime-client':
+        specifier: workspace:*
+        version: link:../runtime-client
+      '@cyber/ui':
+        specifier: workspace:*
+        version: link:../ui
       lucide-react:
         specifier: 1.28.0
         version: 1.28.0(react@19.1.1)
@@ -95,8 +115,10 @@ importers:
       react-dom:
         specifier: 19.1.1
         version: 19.1.1(react@19.1.1)
-
-  packages/i18n: {}
+    devDependencies:
+      '@cyber/scenario-player':
+        specifier: workspace:*
+        version: link:../scenario-player
 
   packages/protocol:
     dependencies:

@@ -5,7 +5,7 @@ import { describe, expect, test } from 'vitest';
 import { RuntimeClient } from '@cyber/runtime-client';
 import { ScenarioPlayer } from '@cyber/scenario-player';
 
-import { App } from '../App';
+import { ProductApp } from '../ProductApp';
 import { createAppStore } from '../app-store';
 
 describe('authorized scope review flow', () => {
@@ -15,7 +15,7 @@ describe('authorized scope review flow', () => {
     const store = createAppStore(client, 'new-task');
     await store.connect();
     const user = userEvent.setup();
-    render(<App store={store} />);
+    render(<ProductApp store={store} />);
 
     expect(screen.getByTestId('new-task-surface')).toHaveClass('cyber-glass');
     expect(screen.getByLabelText('本地授权实验室')).toBeChecked();

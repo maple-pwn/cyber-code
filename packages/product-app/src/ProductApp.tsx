@@ -27,7 +27,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error?: Erro
   render() { return this.state.error ? <main><h1>CYBER</h1><p role="alert">{this.state.error.message}</p></main> : this.props.children; }
 }
 
-export function App({ store }: { store: AppStore }) {
+export function ProductApp({ store }: { store: AppStore }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [locale, updateLocale] = useState<Locale>('zh-CN');
   const [paletteOpen, setPaletteOpen] = useState(false);

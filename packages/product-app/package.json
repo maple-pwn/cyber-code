@@ -1,0 +1,29 @@
+{
+  "name": "@cyber/product-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./styles.css": "./src/styles.css"
+  },
+  "scripts": {
+    "build": "tsc -b --pretty false",
+    "test": "vitest --root ../.. run packages/product-app/src",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@cyber/i18n": "workspace:*",
+    "@cyber/protocol": "workspace:*",
+    "@cyber/runtime-client": "workspace:*",
+    "@cyber/ui": "workspace:*",
+    "lucide-react": "1.28.0"
+  },
+  "devDependencies": {
+    "@cyber/scenario-player": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  }
+}
