@@ -1,4 +1,5 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
+import type { LocalRequest } from '@cyber/runtime-client';
 
 export const nativeOperations = [
   'capabilities',
@@ -6,6 +7,10 @@ export const nativeOperations = [
   'store_secret',
   'delete_secret',
   'export_report',
+  'runtime_start',
+  'runtime_request',
+  'runtime_restart',
+  'runtime_stop',
 ] as const;
 
 export type NativeOperation = (typeof nativeOperations)[number];
@@ -28,6 +33,26 @@ function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): 
 
 function isNativeOperation(value: string): value is NativeOperation {
   return nativeOperations.some((operation) => operation === value);
+}
+
+function validLocalRequest(value: unknown): value is LocalRequest {
+  if (!isRecord(value) || typeof value.id !== 'string' || !value.id.trim()
+    || typeof value.type !== 'string') return false;
+  switch (value.type) {
+    case 'handshake':
+      return hasExactKeys(value, ['id', 'type', 'handshake']) && isRecord(value.handshake);
+    case 'events':
+      return hasExactKeys(value, ['id', 'type', 'afterCursor'])
+        && Number.isSafeInteger(value.afterCursor) && (value.afterCursor as number) >= 0;
+    case 'snapshot':
+    case 'health':
+    case 'close':
+      return hasExactKeys(value, ['id', 'type']);
+    case 'command':
+      return hasExactKeys(value, ['id', 'type', 'command']) && isRecord(value.command);
+    default:
+      return false;
+  }
 }
 
 export function createNativeClient(invoke: NativeInvoke = tauriInvoke) {
@@ -96,6 +121,24 @@ export function createNativeClient(invoke: NativeInvoke = tauriInvoke) {
         throw new Error('invalid export_report response');
       }
       return { status: response.status };
+    },
+    async runtimeStart(): Promise<unknown> {
+      return call('runtime_start');
+    },
+    async runtimeRequest(request: LocalRequest): Promise<unknown> {
+      if (!validLocalRequest(request)) throw new Error('invalid runtime_request request');
+      return call('runtime_request', { request: structuredClone(request) });
+    },
+    async runtimeRestart(): Promise<unknown> {
+      return call('runtime_restart');
+    },
+    async runtimeStop(): Promise<{ stopped: boolean }> {
+      const response = await call('runtime_stop');
+      if (!isRecord(response) || !hasExactKeys(response, ['stopped'])
+        || typeof response.stopped !== 'boolean') {
+        throw new Error('invalid runtime_stop response');
+      }
+      return { stopped: response.stopped };
     },
   };
 }

@@ -50,6 +50,7 @@ class FakeEventSource implements EventSource {
   rejectionCode?: string;
   snapshot: RuntimeSnapshot;
   private listener?: (event: RawProductEvent) => void;
+  private errorListener?: (error: unknown) => void;
 
   constructor(readonly events: RawProductEvent[] = [], snapshot?: RuntimeSnapshot) {
     this.snapshot = snapshot ?? { cursor: 0, state: initialProductState() };
@@ -72,13 +73,19 @@ class FakeEventSource implements EventSource {
     };
   }
 
-  async subscribe(afterCursor: number, onEvent: (event: RawProductEvent) => void): Promise<Unsubscribe> {
+  async subscribe(
+    afterCursor: number,
+    onEvent: (event: RawProductEvent) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe> {
     this.subscribeCalls.push(afterCursor);
     if (this.subscribeError) throw this.subscribeError;
     this.listener = onEvent;
+    this.errorListener = onError;
     for (const raw of this.events) if ((raw.cursor as number) > afterCursor) onEvent(raw);
     return () => {
       if (this.listener === onEvent) this.listener = undefined;
+      if (this.errorListener === onError) this.errorListener = undefined;
     };
   }
 
@@ -107,6 +114,10 @@ class FakeEventSource implements EventSource {
 
   emit(raw: RawProductEvent): void {
     this.listener?.(raw);
+  }
+
+  emitError(error: unknown): void {
+    this.errorListener?.(error);
   }
 }
 
@@ -212,6 +223,22 @@ describe('RuntimeClient', () => {
       lastTrustedCursor: 0,
       errorCode: message,
     });
+  });
+
+  test('keeps trusted state visible and disables writes after an established source fails', async () => {
+    const source = new FakeEventSource([event(1)]);
+    const client = new RuntimeClient(source);
+    await client.connect();
+
+    source.emitError(new Error('local_transport_unavailable'));
+
+    expect(client.getView().connection).toEqual({
+      status: 'degraded',
+      lastTrustedCursor: 1,
+      errorCode: 'local_transport_unavailable',
+    });
+    expect(client.getView().product.task?.title).toBe('Authorized lab');
+    await expect(client.dispatch({ type: 'task.pause' })).rejects.toThrow('writes_disabled:degraded');
   });
 
   test('marks invalid source events incompatible without advancing trusted state', async () => {

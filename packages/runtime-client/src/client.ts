@@ -23,6 +23,9 @@ import {
 } from './conformance';
 
 const blockedStatuses = new Set<ConnectionStatus>([
+  'connecting',
+  'degraded',
+  'reconnecting',
   'resyncing',
   'offline',
   'incompatible',
@@ -118,6 +121,7 @@ export class RuntimeClient {
       const unsubscribe = await this.source.subscribe(
         this.connection.lastTrustedCursor,
         (raw) => this.receive(raw, revision),
+        (error) => this.sourceFailed(error, revision),
       );
       if (this.subscribingRevision === revision) this.subscribingRevision = undefined;
 
@@ -177,6 +181,12 @@ export class RuntimeClient {
       this.setConnection('incompatible', errorCode(error));
       this.stopSubscription();
     }
+  }
+
+  private sourceFailed(error: unknown, revision: number): void {
+    if (revision !== this.lifecycleRevision) return;
+    this.stopSubscription();
+    this.setConnection(this.mapSourceError(error), errorCode(error));
   }
 
   private async recoverSnapshot(revision: number): Promise<void> {

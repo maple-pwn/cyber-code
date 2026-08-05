@@ -5,7 +5,17 @@ import { createNativeClient, type NativeOperation, type NotificationKind } from 
 describe('desktop native capability boundary', () => {
   test('exposes only the documented native operations', async () => {
     const invoke = vi.fn().mockResolvedValue({
-      operations: ['capabilities', 'notify', 'store_secret', 'delete_secret', 'export_report'],
+      operations: [
+        'capabilities',
+        'notify',
+        'store_secret',
+        'delete_secret',
+        'export_report',
+        'runtime_start',
+        'runtime_request',
+        'runtime_restart',
+        'runtime_stop',
+      ],
     });
     const client = createNativeClient(invoke);
 
@@ -15,6 +25,10 @@ describe('desktop native capability boundary', () => {
       'store_secret',
       'delete_secret',
       'export_report',
+      'runtime_start',
+      'runtime_request',
+      'runtime_restart',
+      'runtime_stop',
     ]);
     expect(invoke).toHaveBeenCalledWith('capabilities');
   });
@@ -87,5 +101,37 @@ describe('desktop native capability boundary', () => {
 
     await expect(client.deleteSecret('deepseek')).resolves.toEqual({ id: 'deepseek', deleted: true });
     expect(invoke).toHaveBeenCalledWith('delete_secret', { request: { id: 'deepseek' } });
+  });
+
+  test('exposes the narrow runtime process bridge without accepting a bearer', async () => {
+    const invoke = vi.fn()
+      .mockResolvedValueOnce({ id: 'desktop-startup', type: 'handshake', handshake: {} })
+      .mockResolvedValueOnce({ id: 'local-1', type: 'events', events: [] })
+      .mockResolvedValueOnce({ id: 'desktop-restart', type: 'handshake', handshake: {} })
+      .mockResolvedValueOnce({ stopped: true });
+    const client = createNativeClient(invoke);
+
+    await client.runtimeStart();
+    await client.runtimeRequest({ id: 'local-1', type: 'events', afterCursor: 0 });
+    await client.runtimeRestart();
+    await expect(client.runtimeStop()).resolves.toEqual({ stopped: true });
+
+    expect(invoke.mock.calls).toEqual([
+      ['runtime_start'],
+      ['runtime_request', { request: { id: 'local-1', type: 'events', afterCursor: 0 } }],
+      ['runtime_restart'],
+      ['runtime_stop'],
+    ]);
+    await expect(client.runtimeRequest({
+      id: 'forged',
+      type: 'health',
+      bearer: 'forged',
+    } as never)).rejects.toThrow('invalid runtime_request request');
+  });
+
+  test('rejects malformed runtime stop receipts', async () => {
+    const client = createNativeClient(vi.fn().mockResolvedValue({ stopped: 'yes' }));
+
+    await expect(client.runtimeStop()).rejects.toThrow('invalid runtime_stop response');
   });
 });

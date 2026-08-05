@@ -42,7 +42,11 @@ export type Unsubscribe = () => void;
 
 export interface EventSource {
   handshake(request: RuntimeHandshakeRequest): Promise<RuntimeHandshakeResponse>;
-  subscribe(afterCursor: number, onEvent: (event: RawProductEvent) => void): Promise<Unsubscribe>;
+  subscribe(
+    afterCursor: number,
+    onEvent: (event: RawProductEvent) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<Unsubscribe>;
   getSnapshot(): Promise<RuntimeSnapshot>;
   send(envelope: RuntimeCommandEnvelope): Promise<RuntimeCommandReceipt>;
   close(): Promise<void>;
@@ -55,6 +59,12 @@ export type RuntimeView = {
 };
 
 export { RuntimeClient } from './client';
+export { LocalEventSource } from './local-event-source';
+export type {
+  LocalEventSourceOptions,
+  LocalRequest,
+  LocalTransport,
+} from './local-event-source';
 export {
   classifyEventSequence,
   negotiateHandshake,
