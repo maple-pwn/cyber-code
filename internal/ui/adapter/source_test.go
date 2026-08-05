@@ -13,6 +13,7 @@ import (
 
 	"cyber-code/internal/productprotocol"
 	"cyber-code/internal/productstate"
+	"cyber-code/internal/runtimeapi"
 	"cyber-code/internal/ui/mission"
 )
 
@@ -73,6 +74,28 @@ func TestClientRecoversCursorGapFromSnapshotAndResubscribes(t *testing.T) {
 	}
 	if !reflect.DeepEqual(source.after, []int{0, 1}) || source.snapshotCalls != 1 {
 		t.Fatalf("subscribe cursors = %v, snapshots = %d", source.after, source.snapshotCalls)
+	}
+}
+
+func TestClientRejectsSourceModeThatDiffersFromTrustedHandshake(t *testing.T) {
+	t.Parallel()
+	source := &scriptedSource{handshake: &runtimeapi.HandshakeResponse{
+		ProtocolVersion: runtimeapi.ProtocolVersion,
+		RuntimeID:       "runtime-remote",
+		Principal:       "remote-operator",
+		Role:            "operator",
+		Capabilities:    []string{"events"},
+		Source: runtimeapi.SourceMetadata{
+			Mode: runtimeapi.SourceModeRemote, RuntimeID: "runtime-remote",
+			Principal: "remote-operator", Capabilities: []string{"events"},
+		},
+	}}
+	client := NewClient(source, ClientOptions{ClientID: "tui-client", ExpectedMode: runtimeapi.SourceModeLocal})
+	if err := client.Connect(context.Background()); err == nil || err.Error() != "runtime source mode mismatch: expected local, got remote" {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	if source.handshakeCalls != 1 || len(source.after) != 0 {
+		t.Fatalf("handshakes = %d, subscriptions = %v", source.handshakeCalls, source.after)
 	}
 }
 
@@ -319,12 +342,29 @@ func contains(values []string, want string) bool {
 }
 
 type scriptedSource struct {
-	subscribe     func(int, func(json.RawMessage)) error
-	snapshot      Snapshot
-	after         []int
-	snapshotCalls int
-	sent          []Command
-	unsubscribed  int
+	handshake      *runtimeapi.HandshakeResponse
+	handshakeCalls int
+	subscribe      func(int, func(json.RawMessage)) error
+	snapshot       Snapshot
+	after          []int
+	snapshotCalls  int
+	sent           []Command
+	unsubscribed   int
+}
+
+func (source *scriptedSource) Handshake(_ context.Context, request runtimeapi.HandshakeRequest) (runtimeapi.HandshakeResponse, error) {
+	source.handshakeCalls++
+	if source.handshake != nil {
+		return *source.handshake, nil
+	}
+	metadata := runtimeapi.SourceMetadata{
+		Mode: runtimeapi.SourceModeDemo, RuntimeID: "scenario-local", Principal: "authorized-operator",
+		Capabilities: []string{"events", "snapshot", "commands"},
+	}
+	return runtimeapi.HandshakeResponse{
+		ProtocolVersion: runtimeapi.ProtocolVersion, RuntimeID: metadata.RuntimeID, Principal: metadata.Principal,
+		Role: "operator", Capabilities: append([]string(nil), metadata.Capabilities...), Source: metadata,
+	}, nil
 }
 
 func (source *scriptedSource) Subscribe(_ context.Context, after int, receive func(json.RawMessage)) (func(), error) {

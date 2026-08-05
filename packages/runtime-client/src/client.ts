@@ -82,7 +82,9 @@ export class RuntimeClient {
       idempotencyKey: `cmd-${globalThis.crypto.randomUUID()}-${(++this.commandSequence).toString(36)}`,
       command,
     };
-    const receipt = validateCommandReceipt(await this.source.send(envelope), envelope);
+    const receipt = command.type === 'task.create'
+      ? await this.dispatchTaskCreate(envelope)
+      : validateCommandReceipt(await this.source.send(envelope), envelope);
     if (receipt.status === 'rejected') {
       throw new Error(`command_rejected:${receipt.errorCode}`);
     }
@@ -150,6 +152,38 @@ export class RuntimeClient {
       if (this.recoveringRevision === revision) throw error;
       this.setConnection(this.mapSourceError(error), errorCode(error));
     }
+  }
+
+  private async dispatchTaskCreate(
+    envelope: Parameters<typeof validateCommandReceipt>[1],
+  ): Promise<RuntimeCommandReceipt> {
+    const revision = ++this.lifecycleRevision;
+    const previousProduct = this.product;
+    const previousConnection = this.connection;
+    this.stopSubscription();
+    this.setConnection('connecting');
+    let receipt: RuntimeCommandReceipt;
+    try {
+      receipt = validateCommandReceipt(await this.source.send(envelope), envelope);
+    } catch (error) {
+      this.product = previousProduct;
+      this.connection = previousConnection;
+      this.notify();
+      await this.establishSubscription('reconnecting', revision);
+      throw error;
+    }
+    if (receipt.status === 'rejected') {
+      this.product = previousProduct;
+      this.connection = previousConnection;
+      this.notify();
+      await this.establishSubscription('reconnecting', revision);
+      return receipt;
+    }
+    this.product = initialProductState();
+    this.connection = { status: 'connecting', lastTrustedCursor: 0 };
+    this.notify();
+    await this.establishSubscription('connecting', revision);
+    return receipt;
   }
 
   private receive(raw: RawProductEvent, revision: number): void {

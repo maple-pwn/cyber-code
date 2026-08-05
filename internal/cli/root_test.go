@@ -80,7 +80,7 @@ func TestRootCommandExposesExplicitTacticalScenarioFlags(t *testing.T) {
 	}
 }
 
-func TestValidateUISelectionKeepsScenarioExplicitAndInteractive(t *testing.T) {
+func TestValidateUISelectionUsesHonestTacticalSourceCatalog(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -90,11 +90,12 @@ func TestValidateUISelectionKeepsScenarioExplicitAndInteractive(t *testing.T) {
 		wantError        bool
 	}{
 		{name: "classic", ui: "classic"},
-		{name: "tactical default scenario", ui: "tactical"},
-		{name: "tactical explicit scenario", ui: "tactical", source: "scenario"},
+		{name: "tactical default demo", ui: "tactical"},
+		{name: "tactical explicit demo", ui: "tactical", source: "demo"},
+		{name: "tactical local", ui: "tactical", source: "local"},
 		{name: "unknown ui", ui: "movie", wantError: true},
 		{name: "unknown tactical source", ui: "tactical", source: "remote", wantError: true},
-		{name: "scenario classic", ui: "classic", source: "scenario", wantError: true},
+		{name: "demo classic", ui: "classic", source: "demo", wantError: true},
 		{name: "default print", ui: "tactical", printMode: true},
 		{name: "explicit tactical print", ui: "tactical", printMode: true, uiExplicit: true, wantError: true},
 	}

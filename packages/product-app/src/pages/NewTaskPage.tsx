@@ -2,8 +2,16 @@ import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 
 import { createTranslator, type Translator } from '@cyber/i18n';
 import type { RuntimeCommand } from '@cyber/runtime-client';
+import type { RuntimeSourceMode } from '@cyber/runtime-client';
 
-export type RuntimeOption = { id: string; label: string; capabilities: readonly string[] };
+export type RuntimeOption = {
+  id: string;
+  mode: RuntimeSourceMode;
+  label: string;
+  capabilities: readonly string[];
+  available: boolean;
+  setupStatus?: string;
+};
 export type NewTaskPageProps = {
   runtimes: readonly RuntimeOption[];
   t?: Translator;
@@ -12,16 +20,25 @@ export type NewTaskPageProps = {
 
 export function NewTaskPage({ runtimes, t = createTranslator(), onCreate }: NewTaskPageProps) {
   const [objective, setObjective] = useState('');
-  const [runtimeId, setRuntimeId] = useState(runtimes[0]?.id ?? '');
+  const [runtimeId, setRuntimeId] = useState(runtimes.find((runtime) => runtime.available)?.id ?? '');
   const [workspace, setWorkspace] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!objective.trim()) return;
-    await onCreate({
-      type: 'task.create', objective: objective.trim(), runtimeId,
-      ...(workspace.trim() ? { workspace: workspace.trim() } : {}),
-    });
+    if (submittingRef.current || !objective.trim() || !runtimes.find((runtime) => runtime.id === runtimeId)?.available) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    try {
+      await onCreate({
+        type: 'task.create', objective: objective.trim(), runtimeId,
+        ...(workspace.trim() ? { workspace: workspace.trim() } : {}),
+      });
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
   };
   const onKeyDown = (event: KeyboardEvent<HTMLFormElement>) => {
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
@@ -35,12 +52,14 @@ export function NewTaskPage({ runtimes, t = createTranslator(), onCreate }: NewT
       <label>{t.t('task.objective')}<textarea required value={objective} onChange={(event) => setObjective(event.currentTarget.value)} /></label>
       <fieldset><legend>{t.t('runtime.label')}</legend>
         {runtimes.map((runtime) => <label key={runtime.id} className="runtime-choice">
-          <input aria-label={runtime.label} type="radio" name="runtime" value={runtime.id} checked={runtimeId === runtime.id} onChange={() => setRuntimeId(runtime.id)} />
-          <span><strong>{runtime.label}</strong><small>{runtime.capabilities.join(' · ')}</small></span>
+          <input aria-label={runtime.label} type="radio" name="runtime" value={runtime.id} disabled={!runtime.available} checked={runtimeId === runtime.id} onChange={() => setRuntimeId(runtime.id)} />
+          <span><strong>{runtime.label}</strong><small>{runtime.mode.toUpperCase()} · {runtime.capabilities.join(' · ')}</small>
+            {runtime.setupStatus && <small className="runtime-setup-status" role={runtime.available ? undefined : 'status'}>{runtime.setupStatus}</small>}
+          </span>
         </label>)}
       </fieldset>
       <label className="local-workspace-control">{t.t('task.workspace')}<input value={workspace} onChange={(event) => setWorkspace(event.currentTarget.value)} /></label>
-      <button type="submit">{t.t('task.create')}</button>
+      <button type="submit" disabled={submitting}>{t.t('task.create')}</button>
     </form>
   </section>;
 }

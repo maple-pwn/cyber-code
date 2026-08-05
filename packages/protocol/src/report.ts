@@ -4,6 +4,14 @@ import type { FrozenReport, ImmutableEvidence, ReportState } from './index';
 
 export type ReportFormat = 'markdown' | 'html' | 'pdf' | 'json';
 export type ReportValidation = { valid: true } | { valid: false; errors: string[] };
+export type ReportAuditMetadata = {
+  source: {
+    mode: 'demo' | 'local' | 'remote';
+    runtimeId: string;
+    principal: string;
+    capabilities: readonly string[];
+  } | null;
+};
 
 const canonical = (value: unknown): string => JSON.stringify(value, (_key, item: unknown) =>
   item && typeof item === 'object' && !Array.isArray(item)
@@ -67,11 +75,26 @@ export function freezeReport(
 }
 
 const includedFindings = (report: FrozenReport) => report.findings.filter((entry) => entry.included);
-const markdownFor = (report: FrozenReport): string => [
+const sourceLabel = (audit: ReportAuditMetadata): string | null => audit.source === null
+  ? null
+  : `${audit.source.mode.charAt(0).toUpperCase()}${audit.source.mode.slice(1)} (${audit.source.runtimeId})`;
+
+const sourceAuditLines = (audit: ReportAuditMetadata): string[] => {
+  const label = sourceLabel(audit);
+  if (label === null || audit.source === null) return [];
+  return [
+    `Runtime source: ${label}`,
+    `Runtime principal: ${audit.source.principal}`,
+    `Runtime capabilities: ${audit.source.capabilities.join(', ') || 'none'}`,
+  ];
+};
+
+const markdownFor = (report: FrozenReport, audit: ReportAuditMetadata): string => [
   `# ${report.id}`,
   '',
   `Task: ${report.taskId}`,
   `Report version: ${report.version}`,
+  ...sourceAuditLines(audit),
   '',
   report.narrative,
   '',
@@ -91,20 +114,29 @@ const markdownFor = (report: FrozenReport): string => [
 
 const escapeHtml = (value: string) => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 
-export async function exportReport(report: FrozenReport, format: ReportFormat): Promise<Blob> {
+export async function exportReport(
+  report: FrozenReport,
+  format: ReportFormat,
+  audit: ReportAuditMetadata = { source: null },
+): Promise<Blob> {
   if (report.status !== 'frozen' || !Object.isFrozen(report)) throw new Error('report_not_frozen');
-  if (format === 'json') return new Blob([`${JSON.stringify(report, null, 2)}\n`], { type: 'application/json' });
-  if (format === 'markdown') return new Blob([markdownFor(report)], { type: 'text/markdown' });
+  if (format === 'json') return new Blob([`${JSON.stringify({ report, audit }, null, 2)}\n`], { type: 'application/json' });
+  if (format === 'markdown') return new Blob([markdownFor(report, audit)], { type: 'text/markdown' });
   if (format === 'html') {
     const findings = includedFindings(report).map((entry) => `<article><h2>${escapeHtml(entry.finding.title)}</h2><p>${escapeHtml(entry.finding.severity)} / ${escapeHtml(entry.finding.status)}</p></article>`).join('');
-    const html = `<!doctype html><html><body><h1>${escapeHtml(report.id)}</h1><p>Task ${escapeHtml(report.taskId)}</p><p>Report version ${report.version}</p>${findings}</body></html>`;
+    const source = sourceAuditLines(audit).map((line) => `<p>${escapeHtml(line)}</p>`).join('');
+    const html = `<!doctype html><html><body><h1>${escapeHtml(report.id)}</h1><p>Task ${escapeHtml(report.taskId)}</p><p>Report version ${report.version}</p>${source}${findings}</body></html>`;
     return new Blob([html], { type: 'text/html' });
   }
 
   const document = await PDFDocument.create();
+  const label = sourceLabel(audit);
+  if (label !== null && audit.source !== null) {
+    document.setSubject(`${label}; principal ${audit.source.principal}; capabilities ${audit.source.capabilities.join(', ') || 'none'}`);
+  }
   const page = document.addPage([612, 792]);
   const font = await document.embedFont(StandardFonts.Helvetica);
-  const lines = [report.id, `Task: ${report.taskId}`, `Report version: ${report.version}`, ...includedFindings(report).map((entry) => `${entry.finding.severity.toUpperCase()}: ${entry.finding.title}`)];
+  const lines = [report.id, `Task: ${report.taskId}`, `Report version: ${report.version}`, ...sourceAuditLines(audit), ...includedFindings(report).map((entry) => `${entry.finding.severity.toUpperCase()}: ${entry.finding.title}`)];
   lines.forEach((line, index) => page.drawText(line.slice(0, 90), { x: 48, y: 740 - index * 24, size: index === 0 ? 18 : 11, font, color: rgb(0.1, 0.12, 0.14) }));
   const bytes = await document.save();
   return new Blob([Uint8Array.from(bytes).buffer], { type: 'application/pdf' });

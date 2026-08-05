@@ -12,6 +12,7 @@ import (
 
 	"cyber-code/internal/productprotocol"
 	"cyber-code/internal/productstate"
+	"cyber-code/internal/runtimeapi"
 	"cyber-code/internal/ui/mission"
 )
 
@@ -44,6 +45,7 @@ var ErrUnsupportedAction = errors.New("unsupported tactical action")
 var ErrWritesDisabled = errors.New("tactical source is read-only")
 
 type Source interface {
+	Handshake(context.Context, runtimeapi.HandshakeRequest) (runtimeapi.HandshakeResponse, error)
 	Subscribe(context.Context, int, func(json.RawMessage)) (func(), error)
 	Snapshot(context.Context) (Snapshot, error)
 	Send(context.Context, Command) error
@@ -76,14 +78,22 @@ type View struct {
 	State      productstate.State
 	Connection Connection
 	ReadOnly   bool
+	Source     *runtimeapi.SourceMetadata
+	Role       string
 }
 
-type ClientOptions struct{ ClientID string }
+type ClientOptions struct {
+	ClientID     string
+	ExpectedMode runtimeapi.SourceMode
+}
 
 type Client struct {
 	mu            sync.Mutex
 	source        Source
 	clientID      string
+	expectedMode  runtimeapi.SourceMode
+	sourceInfo    *runtimeapi.SourceMetadata
+	role          string
 	state         productstate.State
 	connection    Connection
 	unsubscribe   func()
@@ -94,12 +104,15 @@ type Client struct {
 
 func NewClient(source Source, options ClientOptions) *Client {
 	return &Client{
-		source: source, clientID: options.ClientID, state: productstate.Initial(),
+		source: source, clientID: options.ClientID, expectedMode: options.ExpectedMode, state: productstate.Initial(),
 		connection: Connection{Status: ConnectionOffline},
 	}
 }
 
 func (client *Client) Connect(ctx context.Context) error {
+	if err := client.handshake(ctx); err != nil {
+		return err
+	}
 	return client.subscribe(ctx, ConnectionConnecting)
 }
 
@@ -124,7 +137,49 @@ func (client *Client) Dispatch(ctx context.Context, command Command) error {
 func (client *Client) View() View {
 	client.mu.Lock()
 	defer client.mu.Unlock()
-	return View{State: client.state, Connection: client.connection, ReadOnly: !client.writableLocked(Command{Type: CommandTaskPause})}
+	var source *runtimeapi.SourceMetadata
+	if client.sourceInfo != nil {
+		copy := *client.sourceInfo
+		copy.Capabilities = append([]string(nil), copy.Capabilities...)
+		source = &copy
+	}
+	return View{
+		State: client.state, Connection: client.connection,
+		ReadOnly: !client.writableLocked(Command{Type: CommandTaskPause}), Source: source, Role: client.role,
+	}
+}
+
+func (client *Client) handshake(ctx context.Context) error {
+	client.mu.Lock()
+	after := client.connection.LastTrustedCursor
+	client.mu.Unlock()
+	request := runtimeapi.HandshakeRequest{
+		SupportedProtocolVersions: []int{runtimeapi.ProtocolVersion}, AfterCursor: after,
+	}
+	response, err := client.source.Handshake(ctx, request)
+	if err != nil {
+		client.mu.Lock()
+		client.connection.Status = ConnectionDegraded
+		client.connection.ErrorCode = err.Error()
+		client.mu.Unlock()
+		return err
+	}
+	metadata, err := runtimeapi.NegotiateHandshake(request, response)
+	if err == nil && client.expectedMode != "" && metadata.Mode != client.expectedMode {
+		err = fmt.Errorf("runtime source mode mismatch: expected %s, got %s", client.expectedMode, metadata.Mode)
+	}
+	if err != nil {
+		client.mu.Lock()
+		client.connection.Status = ConnectionIncompatible
+		client.connection.ErrorCode = err.Error()
+		client.mu.Unlock()
+		return err
+	}
+	client.mu.Lock()
+	client.sourceInfo = &metadata
+	client.role = response.Role
+	client.mu.Unlock()
+	return nil
 }
 
 func (client *Client) subscribe(ctx context.Context, status ConnectionStatus) error {
@@ -294,6 +349,21 @@ func NewScenarioSource(options ScenarioOptions) (*ScenarioSource, error) {
 			DeniedActions:  []string{"destructive", "persistence", "credential-stuffing"}, RiskCeiling: "medium",
 		},
 	}, nil
+}
+
+func (source *ScenarioSource) Handshake(_ context.Context, request runtimeapi.HandshakeRequest) (runtimeapi.HandshakeResponse, error) {
+	metadata := runtimeapi.SourceMetadata{
+		Mode: runtimeapi.SourceModeDemo, RuntimeID: source.options.RuntimeID, Principal: "authorized-operator",
+		Capabilities: []string{"events", "snapshot", "commands", "deterministic"},
+	}
+	response := runtimeapi.HandshakeResponse{
+		ProtocolVersion: runtimeapi.ProtocolVersion, RuntimeID: metadata.RuntimeID, Principal: metadata.Principal,
+		Role: "operator", Capabilities: append([]string(nil), metadata.Capabilities...), Source: metadata,
+	}
+	if _, err := runtimeapi.NegotiateHandshake(request, response); err != nil {
+		return runtimeapi.HandshakeResponse{}, err
+	}
+	return response, nil
 }
 
 func (source *ScenarioSource) Subscribe(_ context.Context, after int, receive func(json.RawMessage)) (func(), error) {

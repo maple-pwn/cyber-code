@@ -30,6 +30,24 @@ describe('App shell', () => {
     expect(await screen.findByRole('heading', { name: 'Mission Control' })).toBeInTheDocument();
   });
 
+  test('disables unavailable sources and explains how to enable them', async () => {
+    const player = new ScenarioPlayer({ runtimeId: 'scenario-local', speedMs: 0 });
+    const store = createAppStore(new RuntimeClient(player), 'new-task');
+    await store.connect();
+    render(<ProductApp store={store} runtimes={[
+      { id: 'demo', mode: 'demo', label: 'Demo', capabilities: ['deterministic'], available: true },
+      {
+        id: 'local', mode: 'local', label: 'Local', capabilities: ['real-runtime'], available: false,
+        setupStatus: 'Install cyber-code and configure the desktop runtime path.',
+      },
+    ]} />);
+
+    expect(screen.getByRole('radio', { name: 'Local' })).toBeDisabled();
+    expect(screen.getByText('Install cyber-code and configure the desktop runtime path.')).toBeInTheDocument();
+    expect(screen.getByText('Demo')).toBeInTheDocument();
+    store.destroy();
+  });
+
   test('supports command palette and timeout-safe g navigation chords', async () => {
     const user = userEvent.setup();
     await renderApp();

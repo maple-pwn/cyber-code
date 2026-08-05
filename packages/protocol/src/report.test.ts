@@ -1,3 +1,4 @@
+import { PDFDocument } from 'pdf-lib';
 import { describe, expect, test } from 'vitest';
 
 import type { FindingState, ImmutableEvidence, ReportState } from './index';
@@ -90,4 +91,30 @@ describe('report integrity', () => {
     const bytes = new Uint8Array(await readBlob(pdf));
     expect(new TextDecoder('latin1').decode(bytes.slice(0, 5))).toBe('%PDF-');
   });
+});
+
+test('includes trusted runtime source metadata in every audit export', async () => {
+  const report = freezeReport(draft(), { [evidence.id]: evidence });
+  const source = {
+    mode: 'local' as const,
+    runtimeId: 'runtime-local-1',
+    principal: 'local-user',
+    capabilities: ['events', 'commands'],
+  };
+
+  const json = await exportReport(report, 'json', { source });
+  const exported = JSON.parse(await readText(json)) as Record<string, unknown>;
+
+  expect(exported).toMatchObject({
+    report: { id: report.id },
+    audit: { source },
+  });
+  await expect(readText(await exportReport(report, 'markdown', { source })))
+    .resolves.toContain('Runtime source: Local (runtime-local-1)');
+  await expect(readText(await exportReport(report, 'html', { source })))
+    .resolves.toContain('Runtime source: Local (runtime-local-1)');
+
+  const pdf = await exportReport(report, 'pdf', { source });
+  const document = await PDFDocument.load(await readBlob(pdf));
+  expect(document.getSubject()).toContain('Local (runtime-local-1); principal local-user');
 });

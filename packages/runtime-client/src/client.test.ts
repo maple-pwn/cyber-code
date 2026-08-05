@@ -48,6 +48,7 @@ class FakeEventSource implements EventSource {
   subscribeError?: Error;
   snapshotError?: Error;
   rejectionCode?: string;
+  onSend?: (envelope: RuntimeCommandEnvelope) => void;
   snapshot: RuntimeSnapshot;
   private listener?: (event: RawProductEvent) => void;
   private errorListener?: (error: unknown) => void;
@@ -97,6 +98,7 @@ class FakeEventSource implements EventSource {
 
   async send(envelope: RuntimeCommandEnvelope): Promise<RuntimeCommandReceipt> {
     this.sent.push(envelope);
+    this.onSend?.(envelope);
     if (this.rejectionCode) {
       return {
         idempotencyKey: envelope.idempotencyKey,
@@ -304,6 +306,27 @@ describe('RuntimeClient', () => {
     await expect(client.dispatch({ type: 'control.take', expectedRevision: 4 }))
       .rejects.toThrow('command_rejected:stale_lease');
     expect(source.sent).toHaveLength(1);
+  });
+
+  test('resets task-local state and cursor after a new task is accepted', async () => {
+    const source = new FakeEventSource([
+      event(1, { eventId: 'task-1-created', type: 'task.created', payload: { title: 'First task' } }),
+      event(2, { eventId: 'task-1-started' }),
+    ]);
+    const client = new RuntimeClient(source);
+    await client.connect();
+    source.onSend = (envelope) => {
+      if (envelope.command.type !== 'task.create') return;
+      source.events.splice(0, source.events.length, event(1, {
+        eventId: 'task-2-created', taskId: 'task-2', type: 'task.created', payload: { title: 'Second task' },
+      }));
+    };
+
+    await client.dispatch({ type: 'task.create', objective: 'Second task', runtimeId: 'runtime-1' });
+
+    expect(source.subscribeCalls).toEqual([0, 0]);
+    expect(client.getView().connection).toEqual({ status: 'healthy', lastTrustedCursor: 1 });
+    expect(client.getView().product.task).toMatchObject({ id: 'task-2', title: 'Second task' });
   });
 
   test('disconnects into offline mode, closes the source, and blocks commands', async () => {

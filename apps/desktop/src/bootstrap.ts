@@ -1,10 +1,10 @@
-import { createAppStore, type AppRoute, type RuntimeOption } from '@cyber/product-app';
-import { RuntimeClient } from '@cyber/runtime-client';
-import { ScenarioPlayer } from '@cyber/scenario-player';
+import { createAppStore, type AppRoute } from '@cyber/product-app';
 
-export const desktopRuntimes: readonly RuntimeOption[] = [
-  { id: 'scenario-local', label: 'Demo', capabilities: ['deterministic', 'demo-only'] },
-];
+import {
+  createDesktopSourceFactory,
+  readDesktopRuntimeConfiguration,
+  type DesktopRuntimeConfiguration,
+} from './source-factory';
 const desktopRouteKey = 'cyber.desktop.route.v1';
 const desktopRoutes: readonly AppRoute[] = ['new-task', 'scope-review', 'mission-control', 'findings', 'reports'];
 
@@ -17,9 +17,10 @@ function restoredDesktopRoute(): AppRoute {
   }
 }
 
-export function createDesktopBootstrap(options: { speedMs?: number } = {}) {
-  const source = new ScenarioPlayer({ runtimeId: 'scenario-local', speedMs: options.speedMs ?? 80 });
-  const store = createAppStore(new RuntimeClient(source), restoredDesktopRoute());
+export function createDesktopBootstrap(options: { speedMs?: number; runtime?: DesktopRuntimeConfiguration } = {}) {
+  const runtime = options.runtime ?? readDesktopRuntimeConfiguration();
+  const sources = createDesktopSourceFactory({ ...runtime, demoSpeedMs: options.speedMs });
+  const store = createAppStore(sources, restoredDesktopRoute());
   store.subscribe(() => {
     try {
       window.localStorage.setItem(desktopRouteKey, store.getSnapshot().route);
@@ -27,5 +28,5 @@ export function createDesktopBootstrap(options: { speedMs?: number } = {}) {
       // A disabled storage backend must not prevent the desktop shell from running.
     }
   });
-  return { source, store, runtimes: desktopRuntimes };
+  return { sources, store, runtimes: sources.options() };
 }

@@ -7,10 +7,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface, type Interface } from 'node:readline';
 
-import { afterAll, beforeAll, expect } from 'vitest';
+import { afterAll, beforeAll, expect, test } from 'vitest';
 
 import {
   LocalEventSource,
+  RuntimeClient,
+  RuntimeSourceFactory,
   type LocalRequest,
   type LocalTransport,
 } from './index';
@@ -133,4 +135,38 @@ defineLocalEventSourceConformance('built cyber-code local runtime', async () => 
     source: new LocalEventSource(transport, { pollIntervalMs: 60_000 }),
     verifyClosed: () => transport.assertCredentialDidNotLeak(),
   };
+}, 120_000);
+
+test('source factory executes a task through the built local runtime process', async () => {
+  const transport = new BinaryRuntimeTransport();
+  const factory = new RuntimeSourceFactory([{
+    id: 'local', mode: 'local', label: 'Local', capabilities: ['real-runtime'], available: true,
+    create: () => new LocalEventSource(transport, { pollIntervalMs: 60_000 }),
+  }]);
+  const source = factory.create('local');
+  const client = new RuntimeClient(source);
+  try {
+    await client.connect();
+    expect(client.getView().connection).toEqual({ status: 'healthy', lastTrustedCursor: 0 });
+    expect(client.getView().source).toMatchObject({ mode: 'local', principal: 'local-user' });
+    await client.dispatch({
+      type: 'task.create', objective: 'Inspect the authorized workspace',
+      runtimeId: client.getView().source?.runtimeId ?? '',
+    });
+    await expect(source.getSnapshot()).resolves.toMatchObject({
+      cursor: 2,
+      state: { task: { title: 'Inspect the authorized workspace' }, committedCursor: 2 },
+    });
+    await client.dispatch({
+      type: 'task.create', objective: 'Inspect the second authorized task',
+      runtimeId: client.getView().source?.runtimeId ?? '',
+    });
+    expect(client.getView()).toMatchObject({
+      connection: { status: 'healthy', lastTrustedCursor: 2 },
+      product: { task: { id: 'task-2', title: 'Inspect the second authorized task' }, committedCursor: 2 },
+    });
+  } finally {
+    await client.disconnect().catch(() => undefined);
+    transport.assertCredentialDidNotLeak();
+  }
 }, 120_000);

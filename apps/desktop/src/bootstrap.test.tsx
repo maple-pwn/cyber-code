@@ -12,8 +12,8 @@ test('desktop bootstrap identifies the deterministic source as Demo and never Lo
   render(<ProductApp store={store} runtimes={runtimes} />);
 
   expect(screen.getByRole('radio', { name: 'Demo' })).toBeChecked();
-  expect(screen.getByText('deterministic · demo-only')).toBeInTheDocument();
-  expect(screen.queryByText(/本地授权实验室|Local authorized lab/)).not.toBeInTheDocument();
+  expect(screen.getByText('DEMO · deterministic · demo-only')).toBeInTheDocument();
+  expect(screen.getByRole('radio', { name: 'Local' })).toBeEnabled();
   store.destroy();
 });
 

@@ -4,11 +4,15 @@ import { describe, expect, test } from 'vitest';
 
 import { createTranslator } from '@cyber/i18n';
 import { initialProductState, type ProductState } from '@cyber/protocol';
+import type { RuntimeSourceMetadata } from '@cyber/runtime-client';
 
 import { FindingsPage } from './FindingsPage';
 import { ReportsPage } from './ReportsPage';
 
 const t = createTranslator('en');
+const source: RuntimeSourceMetadata = {
+  mode: 'local', runtimeId: 'runtime-local-1', principal: 'local-user', capabilities: ['events'],
+};
 const product = (): ProductState => ({
   ...initialProductState(),
   task: { id: 'task-1', title: 'Authorized assessment', status: 'completed' },
@@ -35,8 +39,9 @@ describe('Finding, Evidence, and Reports pages', () => {
   });
 
   test('requires an audited exclusion reason, labels authorship, and freezes a valid report', async () => {
-    render(<ReportsPage product={product()} t={t} />);
+    render(<ReportsPage product={product()} source={source} t={t} />);
     expect(screen.getByTestId('report-editor')).toHaveClass('cyber-glass');
+    expect(screen.getByText(/Local · runtime-local-1/)).toBeInTheDocument();
     expect(screen.getByText('Verified impact')).toBeInTheDocument();
     expect(screen.getByText('Generated')).toBeInTheDocument();
     expect(screen.getByText('Human note')).toBeInTheDocument();

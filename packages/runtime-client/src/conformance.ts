@@ -42,8 +42,18 @@ export type RuntimeCommandReceipt =
 const nonEmpty = (value: unknown): value is string =>
   typeof value === 'string' && value.trim().length > 0;
 
+const auditableText = (value: unknown): value is string => {
+  if (!nonEmpty(value)) return false;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f)
+      || codePoint === 0x2028 || codePoint === 0x2029) return false;
+  }
+  return true;
+};
+
 const stringList = (value: unknown): value is string[] =>
-  Array.isArray(value) && value.every(nonEmpty);
+  Array.isArray(value) && value.every(auditableText);
 
 const safeCursor = (value: unknown): value is number =>
   Number.isSafeInteger(value) && (value as number) >= 0;
@@ -86,8 +96,8 @@ const validCommand = (value: unknown): value is RuntimeCommand => {
 
 export function validateSourceMetadata(value: RuntimeSourceMetadata): RuntimeSourceMetadata {
   if (!['demo', 'local', 'remote'].includes(value.mode)
-    || !nonEmpty(value.runtimeId)
-    || !nonEmpty(value.principal)
+    || !auditableText(value.runtimeId)
+    || !auditableText(value.principal)
     || !stringList(value.capabilities)) {
     throw new Error('invalid_source_metadata');
   }
@@ -107,9 +117,9 @@ export function negotiateHandshake(
   if (!request.supportedProtocolVersions.includes(response.protocolVersion)) {
     throw new Error('incompatible');
   }
-  if (!nonEmpty(response.runtimeId)
-    || !nonEmpty(response.principal)
-    || !nonEmpty(response.role)
+  if (!auditableText(response.runtimeId)
+    || !auditableText(response.principal)
+    || !auditableText(response.role)
     || !stringList(response.capabilities)) {
     throw new Error('invalid_handshake_response');
   }

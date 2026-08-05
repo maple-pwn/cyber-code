@@ -20,6 +20,7 @@ test('shared product app preserves Web route transitions and runtime commands', 
   await user.click(screen.getByRole('button', { name: '创建任务' }));
 
   expect(await screen.findByRole('heading', { name: '范围审查' })).toBeInTheDocument();
+  expect(screen.getByText('Demo').closest('.scope-runtime-context')).toHaveTextContent('Demo scenario-local');
   expect(dispatch).toHaveBeenNthCalledWith(1, {
     type: 'task.create',
     objective: '评估 juice-shop.lab',

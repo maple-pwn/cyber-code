@@ -1,0 +1,75 @@
+import {
+  FetchRemoteTransport,
+  LocalEventSource,
+  RemoteEventSource,
+  RuntimeSourceFactory,
+} from '@cyber/runtime-client';
+import { ScenarioPlayer } from '@cyber/scenario-player';
+
+import { createNativeClient } from './native';
+import {
+  createDesktopRemoteTokenProvider,
+  createDesktopRuntimeTransport,
+  type DesktopCredentialBridge,
+  type DesktopRuntimeBridge,
+} from './runtime-transport';
+
+export type DesktopSourceBridge = DesktopRuntimeBridge & DesktopCredentialBridge;
+export type DesktopRuntimeConfiguration = {
+  bridge?: DesktopSourceBridge;
+  remote?: { endpoint: string; credentialId: string };
+  demoSpeedMs?: number;
+};
+
+export function readDesktopRuntimeConfiguration(
+  environment: Record<string, string | undefined> = (import.meta as ImportMeta & {
+    env: Record<string, string | undefined>;
+  }).env,
+): DesktopRuntimeConfiguration {
+  const endpoint = environment.VITE_CYBER_REMOTE_ENDPOINT?.trim();
+  const credentialId = environment.VITE_CYBER_REMOTE_CREDENTIAL_ID?.trim();
+  if (!endpoint || !credentialId) return {};
+  return { remote: { endpoint, credentialId } };
+}
+
+const isSecureRemoteEndpoint = (endpoint: string | undefined): boolean => {
+  if (endpoint === undefined) return false;
+  try {
+    const parsed = new URL(endpoint);
+    return parsed.protocol === 'https:' && !parsed.username && !parsed.password && !parsed.hash;
+  } catch {
+    return false;
+  }
+};
+
+export function createDesktopSourceFactory(
+  configuration: DesktopRuntimeConfiguration = {},
+): RuntimeSourceFactory {
+  const bridge = configuration.bridge ?? createNativeClient();
+  const remoteAvailable = isSecureRemoteEndpoint(configuration.remote?.endpoint)
+    && Boolean(configuration.remote?.credentialId.trim());
+  return new RuntimeSourceFactory([
+    {
+      id: 'demo', mode: 'demo', label: 'Demo', capabilities: ['deterministic', 'demo-only'],
+      available: true,
+      create: () => new ScenarioPlayer({ runtimeId: 'scenario-local', speedMs: configuration.demoSpeedMs ?? 80 }),
+    },
+    {
+      id: 'local', mode: 'local', label: 'Local', capabilities: ['real-runtime', 'native'],
+      available: true,
+      create: () => new LocalEventSource(createDesktopRuntimeTransport(bridge)),
+    },
+    {
+      id: 'remote', mode: 'remote', label: 'Remote', capabilities: ['real-runtime', 'managed'],
+      available: remoteAvailable,
+      ...(!remoteAvailable ? { setupStatus: 'Configure a remote HTTPS endpoint and credential in the OS keychain.' } : {}),
+      create: () => {
+        if (configuration.remote === undefined) throw new Error('runtime_source_unavailable:remote');
+        return new RemoteEventSource(new FetchRemoteTransport(
+          configuration.remote.endpoint,
+          createDesktopRemoteTokenProvider(configuration.remote.credentialId, bridge),
+        ));
+      },
+    },
+  ]);
+}

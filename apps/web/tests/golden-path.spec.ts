@@ -10,7 +10,7 @@ const useEnglish = async (page: Page) => {
 
 const createAuthorizedTask = async (page: Page) => {
   await page.getByLabel('Objective').fill('Assess juice-shop.lab');
-  await page.getByLabel('Local authorized lab').check();
+  await expect(page.getByLabel('Demo')).toBeChecked();
   await page.getByRole('button', { name: 'Create task' }).click();
   await expect(page.getByRole('heading', { name: 'Scope Review' })).toBeVisible();
   await page.getByRole('button', { name: 'Confirm scope' }).click();

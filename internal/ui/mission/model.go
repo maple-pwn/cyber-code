@@ -52,6 +52,7 @@ type Options struct {
 	Width      int
 	Height     int
 	Demo       bool
+	SourceMode string
 	Runtime    string
 	Connection string
 	NoColor    bool
@@ -62,6 +63,7 @@ type Model struct {
 	width            int
 	height           int
 	demo             bool
+	sourceMode       string
 	runtime          string
 	connection       string
 	connectionDetail string
@@ -90,9 +92,14 @@ func NewModel(state productstate.State, options Options) *Model {
 	}
 	input := components.NewInput("Instruction >", "Send guidance to the active task...", options.Width)
 	return &Model{
-		state: state, width: options.Width, height: options.Height, demo: options.Demo,
+		state: state, width: options.Width, height: options.Height, demo: options.Demo, sourceMode: strings.ToLower(strings.TrimSpace(options.SourceMode)),
 		runtime: options.Runtime, connection: options.Connection, noColor: options.NoColor, panel: panelStream, input: input,
 	}
+}
+
+func (model *Model) SetSource(mode, runtimeID string) {
+	model.sourceMode = strings.ToLower(strings.TrimSpace(mode))
+	model.runtime = strings.TrimSpace(runtimeID)
 }
 
 func (model *Model) Init() tea.Cmd { return nil }

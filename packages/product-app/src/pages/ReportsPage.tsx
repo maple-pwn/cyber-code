@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import type { Translator } from '@cyber/i18n';
 import { exportReport, freezeReport, validateReport, type FrozenReport, type ProductState, type ReportFormat, type ReportState } from '@cyber/protocol';
+import type { RuntimeSourceMetadata } from '@cyber/runtime-client';
 import { ReportEditor } from '@cyber/ui';
 
 const createDraft = (product: ProductState): ReportState => ({
@@ -21,7 +22,7 @@ const createDraft = (product: ProductState): ReportState => ({
   })),
 });
 
-export function ReportsPage({ product, t }: { product: ProductState; t: Translator }) {
+export function ReportsPage({ product, source = null, t }: { product: ProductState; source?: RuntimeSourceMetadata | null; t: Translator }) {
   const [report, setReport] = useState<ReportState>(() => product.report ?? createDraft(product));
   const [dirty, setDirty] = useState(false);
   useEffect(() => {
@@ -40,7 +41,7 @@ export function ReportsPage({ product, t }: { product: ProductState; t: Translat
   const freeze = () => { setDirty(true); setReport(freezeReport(report, product.evidence)); };
   const download = async (format: ReportFormat) => {
     if (report.status !== 'frozen') return;
-    const blob = await exportReport(report as FrozenReport, format);
+    const blob = await exportReport(report as FrozenReport, format, { source });
     if (typeof URL.createObjectURL !== 'function') return;
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -51,7 +52,9 @@ export function ReportsPage({ product, t }: { product: ProductState; t: Translat
   };
 
   const confirmed = report.findings.some((entry) => entry.finding.status === 'confirmed');
+  const sourceLabel = source ? `${source.mode.charAt(0).toUpperCase()}${source.mode.slice(1)} · ${source.runtimeId}` : t.t('common.none');
   return <section className="page page-reports"><h1>{t.t('nav.reports')}</h1>
+    <p className="report-source-context">{t.t('runtime.label')}: <strong>{sourceLabel}</strong></p>
     <section className={`report-integrity ${confirmed ? 'cyber-status-success' : 'cyber-status-warning'}`} aria-label={confirmed ? t.t('report.verifiedImpact') : t.t('report.verificationLimitation')}>
       <strong>{confirmed ? t.t('report.verifiedImpact') : t.t('report.verificationLimitation')}</strong>
       {!confirmed && report.findings.map((entry) => entry.finding.rejectionReason && <p key={entry.finding.id}>{entry.finding.rejectionReason}</p>)}

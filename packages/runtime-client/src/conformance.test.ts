@@ -57,6 +57,26 @@ describe('runtime source conformance contract', () => {
   });
 
   test.each([
+    ['runtimeId', 'runtime-1\nforged'],
+    ['principal', 'operator\rforged'],
+    ['role', 'owner\tforged'],
+    ['capabilities', ['events', 'reports\u0000forged']],
+  ] as const)('rejects control characters in handshake %s', (field, value) => {
+    const fixtureValue = fixture<{
+      request: RuntimeHandshakeRequest;
+      response: RuntimeHandshakeResponse;
+    }>('handshake.json');
+    const response = { ...fixtureValue.response, [field]: value };
+    if (field === 'runtimeId' || field === 'principal') {
+      response.source = { ...response.source, [field]: value };
+    }
+    if (field === 'capabilities') {
+      response.source = { ...response.source, capabilities: [...value] };
+    }
+    expect(() => negotiateHandshake(fixtureValue.request, response)).toThrow('invalid_handshake_response');
+  });
+
+  test.each([
     ['duplicate-replay.json', ['applied', 'duplicate']],
     ['gap-recovery.json', ['applied', 'resync-required', 'applied', 'applied']],
     ['unknown-event.json', ['applied', 'applied']],

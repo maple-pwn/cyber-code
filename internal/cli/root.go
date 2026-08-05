@@ -122,12 +122,26 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 			}
 			prompt := strings.Join(args, " ")
 			if !printMode && uiMode == "tactical" {
-				source, err := adapter.NewScenarioSource(adapter.ScenarioOptions{RuntimeID: "scenario-local"})
+				workspace := cwd
+				if strings.TrimSpace(workspace) == "" {
+					var err error
+					workspace, err = os.Getwd()
+					if err != nil {
+						return fmt.Errorf("resolve tactical workspace: %w", err)
+					}
+				}
+				factory, err := adapter.NewSourceFactory(adapter.SourceFactoryOptions{
+					StateDir: environment.stateDir, Workspace: workspace, ClientID: "tui-client",
+				})
 				if err != nil {
 					return err
 				}
-				defer source.Close(context.Background())
-				return runTactical(environment, source, prompt)
+				selection, err := factory.Create(sourceName)
+				if err != nil {
+					return err
+				}
+				defer selection.Source.Close(context.Background())
+				return runTactical(environment, selection, prompt)
 			}
 			runner := environment.options.Runner
 			var shutdown func(context.Context) error
@@ -189,7 +203,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	command.Flags().StringArrayVar(&imagePaths, "image", nil, "attach an image from the workspace to the first turn")
 	command.Flags().StringVar(&resumeSession, "resume", "", "resume a persisted session")
 	command.Flags().StringVar(&uiMode, "ui", "tactical", "interactive UI: tactical or classic (legacy)")
-	command.Flags().StringVar(&sourceName, "source", "", "Tactical Ops event source: scenario")
+	command.Flags().StringVar(&sourceName, "source", "", "Tactical Ops event source: demo or local")
 	command.Flags().IntVar(&maxTurns, "max-turns", 100, "maximum agent turns")
 	command.AddCommand(newConfigCommand(environment))
 	command.AddCommand(newDoctorCommand(environment))
@@ -217,8 +231,8 @@ func validateUISelection(uiMode, sourceName string, printMode, uiExplicit bool) 
 		return nil
 	}
 	if uiMode == "tactical" {
-		if sourceName != "" && sourceName != "scenario" {
-			return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "tactical UI currently supports only --source=scenario"}
+		if sourceName != "" && sourceName != "demo" && sourceName != "local" {
+			return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "--source must be demo or local"}
 		}
 		return nil
 	}

@@ -31,6 +31,18 @@ func TestViewRendersStableMissionRegions(t *testing.T) {
 	}
 }
 
+func TestViewDisplaysRealSourceModeIndependentlyFromRuntimeID(t *testing.T) {
+	t.Parallel()
+
+	model := NewModel(productstate.Initial(), Options{
+		Width: 100, Height: 30, SourceMode: "local", Runtime: "runtime-a1b2c3", Connection: "healthy",
+	})
+	view := modelView(model)
+	if !strings.Contains(view, "LOCAL") || !strings.Contains(view, "runtime-a1b2c3") || strings.Contains(view, "DEMO") {
+		t.Fatalf("source identity is not honest:\n%s", view)
+	}
+}
+
 func TestViewSanitizesControlANSIAndBidiText(t *testing.T) {
 	t.Parallel()
 

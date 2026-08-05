@@ -38,11 +38,10 @@ export function ProductApp({ store, runtimes }: ProductAppProps) {
   const chord = useRef<{ key: string; timer?: number }>({ key: '' });
   const t = createTranslator(locale);
   const availableRuntimes = runtimes ?? [
-    { id: 'scenario-local', label: t.t('runtime.local'), capabilities: ['isolated', 'deterministic'] },
-    { id: 'scenario-remote', label: t.t('runtime.remote'), capabilities: ['connected', 'managed'] },
+    { id: 'scenario-local', mode: 'demo' as const, label: t.t('runtime.local'), capabilities: ['isolated', 'deterministic'], available: true },
+    { id: 'scenario-remote', mode: 'demo' as const, label: t.t('runtime.remote'), capabilities: ['connected', 'managed'], available: true },
   ];
-  const activeRuntime = availableRuntimes.find((runtime) => runtime.id === snapshot.view.product.activeRuntime?.id)
-    ?? availableRuntimes[0];
+  const trustedSource = snapshot.view.source;
 
   useEffect(() => {
     const closePalette = () => {
@@ -93,11 +92,14 @@ export function ProductApp({ store, runtimes }: ProductAppProps) {
     switch (snapshot.route) {
       case 'new-task': return <NewTaskPage t={t} runtimes={availableRuntimes} onCreate={async (command) => { await store.dispatch(command); navigate('scope-review'); }} />;
       case 'scope-review': return snapshot.view.product.scope
-        ? <ScopeReviewPage scope={snapshot.view.product.scope} runtime={{ id: activeRuntime?.id ?? 'unavailable', label: activeRuntime?.label ?? t.t('common.none') }} t={t} onEdit={() => void store.dispatch({ type: 'instruction.send', content: 'request_scope_revision' })} onConfirm={async (scopeId) => { await store.dispatch({ type: 'scope.confirm', scopeId }); navigate('mission-control'); }} />
+        ? <ScopeReviewPage scope={snapshot.view.product.scope} runtime={{
+            id: trustedSource?.runtimeId ?? 'unavailable',
+            label: trustedSource ? `${trustedSource.mode.charAt(0).toUpperCase()}${trustedSource.mode.slice(1)}` : t.t('common.none'),
+          }} t={t} onEdit={() => void store.dispatch({ type: 'instruction.send', content: 'request_scope_revision' })} onConfirm={async (scopeId) => { await store.dispatch({ type: 'scope.confirm', scopeId }); navigate('mission-control'); }} />
         : <p>{t.t('common.loading')}</p>;
       case 'mission-control': return <MissionControlPage view={snapshot.view} t={t} onDispatch={(command) => store.dispatch(command)} onReconnect={() => void store.reconnect()} onDisconnect={() => void store.disconnect()} />;
       case 'findings': return <FindingsPage product={snapshot.view.product} t={t} />;
-      case 'reports': return <ReportsPage product={snapshot.view.product} t={t} />;
+      case 'reports': return <ReportsPage product={snapshot.view.product} source={snapshot.view.source} t={t} />;
     }
   };
 

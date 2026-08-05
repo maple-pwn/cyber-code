@@ -87,6 +87,9 @@ func (model *Model) renderHeader() string {
 	if model.demo {
 		parts = append(parts, warningStyle.Render("DEMO"))
 	}
+	if model.sourceMode != "" && !(model.demo && model.sourceMode == "demo") {
+		parts = append(parts, strings.ToUpper(clean(model.sourceMode)))
+	}
 	parts = append(parts, strings.ToUpper(clean(model.runtime)))
 	if model.state.Task == nil {
 		parts = append(parts, "NO ACTIVE TASK")
@@ -255,7 +258,11 @@ func (model *Model) renderConnection() string {
 	} else if status == "OFFLINE" || status == "DISCONNECTED" {
 		style = dangerStyle
 	}
-	line := style.Render(status) + "  " + clean(model.runtime) + " runtime"
+	source := clean(model.runtime)
+	if model.sourceMode != "" {
+		source = strings.ToUpper(clean(model.sourceMode)) + " · " + source
+	}
+	line := style.Render(status) + "  " + source + " runtime"
 	if detail := clean(model.connectionDetail); detail != "" {
 		line += "  " + detail
 	}

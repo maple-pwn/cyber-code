@@ -8,6 +8,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"unicode"
 )
 
 const ProtocolVersion = 1
@@ -73,7 +74,7 @@ func NegotiateHandshake(request HandshakeRequest, response HandshakeResponse) (S
 	if !slices.Contains(request.SupportedProtocolVersions, response.ProtocolVersion) {
 		return SourceMetadata{}, ErrIncompatible
 	}
-	if !validText(response.RuntimeID) || !validText(response.Principal) || !validText(response.Role) ||
+	if !validIdentityText(response.RuntimeID) || !validIdentityText(response.Principal) || !validIdentityText(response.Role) ||
 		!validStrings(response.Capabilities) || !validMetadata(response.Source) {
 		return SourceMetadata{}, ErrInvalidHandshake
 	}
@@ -145,7 +146,7 @@ func ValidateCommandReceipt(receipt CommandReceipt, envelope CommandEnvelope) er
 
 func validMetadata(metadata SourceMetadata) bool {
 	return (metadata.Mode == SourceModeDemo || metadata.Mode == SourceModeLocal || metadata.Mode == SourceModeRemote) &&
-		validText(metadata.RuntimeID) && validText(metadata.Principal) && validStrings(metadata.Capabilities)
+		validIdentityText(metadata.RuntimeID) && validIdentityText(metadata.Principal) && validStrings(metadata.Capabilities)
 }
 
 func exactCommandKeys(command map[string]json.RawMessage, required, optional []string) bool {
@@ -192,7 +193,7 @@ func validStrings(values []string) bool {
 		return false
 	}
 	for _, value := range values {
-		if !validText(value) {
+		if !validIdentityText(value) {
 			return false
 		}
 	}
@@ -201,4 +202,16 @@ func validStrings(values []string) bool {
 
 func validText(value string) bool {
 	return strings.TrimSpace(value) != ""
+}
+
+func validIdentityText(value string) bool {
+	if !validText(value) {
+		return false
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) || character == '\u2028' || character == '\u2029' {
+			return false
+		}
+	}
+	return true
 }

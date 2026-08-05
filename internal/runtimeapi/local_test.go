@@ -50,6 +50,39 @@ func TestLocalServerRejectsSourceIdentityDifferentFromAuthority(t *testing.T) {
 	}
 }
 
+func TestLocalServerRejectsControlCharactersInIdentity(t *testing.T) {
+	t.Parallel()
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store, "runtime-1", "operator", time.Now)
+	for name, options := range map[string]LocalServerOptions{
+		"runtime ID": {
+			Service: service, Bearer: "launch-secret", Role: "owner",
+			Source: SourceMetadata{Mode: SourceModeLocal, RuntimeID: "runtime-1\nforged", Principal: "operator", Capabilities: []string{"events"}},
+		},
+		"principal": {
+			Service: service, Bearer: "launch-secret", Role: "owner",
+			Source: SourceMetadata{Mode: SourceModeLocal, RuntimeID: "runtime-1", Principal: "operator\rforged", Capabilities: []string{"events"}},
+		},
+		"role": {
+			Service: service, Bearer: "launch-secret", Role: "owner\tforged",
+			Source: SourceMetadata{Mode: SourceModeLocal, RuntimeID: "runtime-1", Principal: "operator", Capabilities: []string{"events"}},
+		},
+		"capability": {
+			Service: service, Bearer: "launch-secret", Role: "owner",
+			Source: SourceMetadata{Mode: SourceModeLocal, RuntimeID: "runtime-1", Principal: "operator", Capabilities: []string{"events\x00forged"}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := NewLocalServer(options); err == nil {
+				t.Fatal("NewLocalServer accepted a control character in runtime identity")
+			}
+		})
+	}
+}
+
 func TestLocalServerPersistsCommandsAndReplaysEventsAfterCursor(t *testing.T) {
 	t.Parallel()
 	server := newTestLocalServer(t)
@@ -78,6 +111,32 @@ func TestLocalServerPersistsCommandsAndReplaysEventsAfterCursor(t *testing.T) {
 	snapshot := server.Handle(context.Background(), LocalRequest{ID: "5", Type: "snapshot", Bearer: "launch-secret", TaskID: "task-1"})
 	if snapshot.Snapshot == nil || snapshot.Snapshot.Cursor != 2 || snapshot.Snapshot.State.CommittedCursor != 2 {
 		t.Fatalf("snapshot = %+v", snapshot)
+	}
+}
+
+func TestLocalServerAllowsSubscriptionAndSnapshotBeforeFirstTask(t *testing.T) {
+	t.Parallel()
+
+	server := newTestLocalServer(t)
+	events := server.Handle(context.Background(), LocalRequest{
+		ID: "before-events", Type: "events", Bearer: "launch-secret", AfterCursor: 0,
+	})
+	if events.Type != "events" || len(events.Events) != 0 {
+		t.Fatalf("events before first task = %+v", events)
+	}
+	encodedEvents, err := json.Marshal(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(encodedEvents, []byte(`"events":[]`)) {
+		t.Fatalf("empty events response omitted protocol field: %s", encodedEvents)
+	}
+	snapshot := server.Handle(context.Background(), LocalRequest{
+		ID: "before-snapshot", Type: "snapshot", Bearer: "launch-secret",
+	})
+	if snapshot.Type != "snapshot" || snapshot.Snapshot == nil || snapshot.Snapshot.Cursor != 0 ||
+		snapshot.Snapshot.State.CommittedCursor != 0 {
+		t.Fatalf("snapshot before first task = %+v", snapshot)
 	}
 }
 

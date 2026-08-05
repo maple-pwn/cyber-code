@@ -8,10 +8,10 @@ import (
 	"cyber-code/internal/ui/adapter"
 )
 
-func runTactical(environment *commandEnvironment, source adapter.Source, initialObjective string) error {
-	model := adapter.NewModel(source, adapter.ModelOptions{
-		Context: environment.ctx, ClientID: "tui-client", RuntimeID: "scenario-local",
-		InitialObjective: initialObjective, Demo: true,
+func runTactical(environment *commandEnvironment, selection adapter.SourceSelection, initialObjective string) error {
+	model := adapter.NewModel(selection.Source, adapter.ModelOptions{
+		Context: environment.ctx, ClientID: "tui-client", RuntimeID: selection.RuntimeID,
+		InitialObjective: initialObjective, Demo: selection.Demo, SourceMode: selection.Mode,
 	})
 	program := tea.NewProgram(
 		model, tea.WithAltScreen(), tea.WithMouseCellMotion(),

@@ -60,6 +60,20 @@ type LocalResponse struct {
 	Ready     *bool                   `json:"ready,omitempty"`
 }
 
+func (response LocalResponse) MarshalJSON() ([]byte, error) {
+	type responseAlias LocalResponse
+	if response.Type != "events" {
+		return json.Marshal(responseAlias(response))
+	}
+	return json.Marshal(struct {
+		responseAlias
+		Events []productprotocol.Event `json:"events"`
+	}{
+		responseAlias: responseAlias(response),
+		Events:        response.Events,
+	})
+}
+
 type localReceipt struct {
 	Digest  string         `json:"digest"`
 	Receipt CommandReceipt `json:"receipt"`
@@ -100,7 +114,7 @@ func newRuntimeServer(options LocalServerOptions, requiredMode SourceMode) (*Loc
 	if strings.TrimSpace(options.Bearer) == "" {
 		return nil, fmt.Errorf("local runtime bearer is required")
 	}
-	if strings.TrimSpace(options.Role) == "" || !validMetadata(options.Source) || options.Source.Mode != requiredMode {
+	if !validIdentityText(options.Role) || !validMetadata(options.Source) || options.Source.Mode != requiredMode {
 		return nil, fmt.Errorf("valid runtime identity is required")
 	}
 	if options.Source.RuntimeID != options.Service.runtimeID || options.Source.Principal != options.Service.principal {
@@ -191,6 +205,11 @@ func (s *LocalServer) handleAuthorizedForClient(ctx context.Context, request Loc
 		response.Handshake = &handshake
 	case "events":
 		request.TaskID = s.resolveTaskID(request.TaskID)
+		if request.TaskID == "" {
+			response.Type = "events"
+			response.Events = []productprotocol.Event{}
+			break
+		}
 		events, err := s.service.Store().EventsAfter(ctx, request.TaskID, request.AfterCursor)
 		if err != nil {
 			return localError(request.ID, localErrorCode(err))
@@ -199,6 +218,12 @@ func (s *LocalServer) handleAuthorizedForClient(ctx context.Context, request Loc
 		response.Events = events
 	case "snapshot":
 		request.TaskID = s.resolveTaskID(request.TaskID)
+		if request.TaskID == "" {
+			state := productstate.Initial()
+			response.Type = "snapshot"
+			response.Snapshot = &RuntimeSnapshot{Cursor: 0, State: state}
+			break
+		}
 		_, state, err := s.service.Store().Load(ctx, request.TaskID)
 		if err != nil {
 			return localError(request.ID, localErrorCode(err))

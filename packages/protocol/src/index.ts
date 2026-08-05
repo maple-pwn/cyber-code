@@ -46,7 +46,7 @@ export type ProjectionResult = { kind: 'applied'; state: ProductState } | { kind
 
 export function initialProductState(): ProductState { return { activeRuntime: null, task: null, scope: null, controlLease: null, highestCommittedLeaseRevision: 0, agents: {}, timeline: [], approvals: {}, findings: {}, evidence: {}, report: null, rawEvents: [], committedCursor: 0, canonicalEvents: {} }; }
 export { validateEvent } from './validation';
-export { exportReport, freezeReport, validateReport, type ReportFormat, type ReportValidation } from './report';
+export { exportReport, freezeReport, validateReport, type ReportAuditMetadata, type ReportFormat, type ReportValidation } from './report';
 
 const canonicalize = (value: unknown): string => JSON.stringify(value, (_key, item: unknown) => item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.entries(item as JsonObject).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : item);
 const deepFreeze = <T>(value: T): T => { if (value && typeof value === 'object' && !Object.isFrozen(value)) { Object.freeze(value); for (const child of Object.values(value as object)) deepFreeze(child); } return value; };
