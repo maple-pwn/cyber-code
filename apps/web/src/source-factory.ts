@@ -10,6 +10,7 @@ import { ScenarioPlayer } from '@cyber/scenario-player';
 import { createWebLoopbackTransport, type WebLoopbackBridge } from './loopback-transport';
 
 export type WebRuntimeConfiguration = {
+  realSourcesEnabled?: boolean;
   loopbackBridge?: WebLoopbackBridge;
   remote?: { endpoint: string; tokenProvider: AccessTokenProvider };
   demoSpeedMs?: number;
@@ -22,6 +23,7 @@ export function readWebRuntimeConfiguration(host: unknown = globalThis): WebRunt
   if (!isRecord(host) || !isRecord(host.__CYBER_RUNTIME_CONFIG__)) return {};
   const configured = host.__CYBER_RUNTIME_CONFIG__;
   const result: WebRuntimeConfiguration = {};
+  if (configured.realSourcesEnabled === true) result.realSourcesEnabled = true;
   if (isRecord(configured.remote)
     && typeof configured.remote.endpoint === 'string'
     && typeof configured.remote.tokenProvider === 'function') {
@@ -77,5 +79,5 @@ export function createWebSourceFactory(
         ));
       },
     },
-  ]);
+  ], { realSourcesEnabled: configuration.realSourcesEnabled });
 }

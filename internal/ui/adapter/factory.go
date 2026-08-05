@@ -15,9 +15,10 @@ import (
 )
 
 type SourceFactoryOptions struct {
-	StateDir  string
-	Workspace string
-	ClientID  string
+	StateDir          string
+	Workspace         string
+	ClientID          string
+	EnableRealSources bool
 }
 
 type SourceOption struct {
@@ -52,9 +53,13 @@ func NewSourceFactory(options SourceFactoryOptions) (*SourceFactory, error) {
 }
 
 func (factory *SourceFactory) Options() []SourceOption {
+	local := SourceOption{Name: "local", Mode: "local", Available: factory.options.EnableRealSources}
+	if !local.Available {
+		local.SetupStatus = "enable the real runtime capability to use Local"
+	}
 	return []SourceOption{
 		{Name: "demo", Mode: "demo", Available: true},
-		{Name: "local", Mode: "local", Available: true},
+		local,
 	}
 }
 
@@ -67,6 +72,9 @@ func (factory *SourceFactory) Create(name string) (SourceSelection, error) {
 		source, err := NewScenarioSource(ScenarioOptions{RuntimeID: "scenario-local"})
 		return SourceSelection{Source: source, RuntimeID: "scenario-local", Mode: "demo", Demo: true}, err
 	case "local":
+		if !factory.options.EnableRealSources {
+			return SourceSelection{}, fmt.Errorf("runtime source local is unavailable; enable the real runtime capability first")
+		}
 		return factory.createLocal()
 	case "remote":
 		return SourceSelection{}, fmt.Errorf("runtime source remote is unavailable; configure a remote runtime endpoint first")

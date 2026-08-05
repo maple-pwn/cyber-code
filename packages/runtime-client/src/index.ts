@@ -67,7 +67,7 @@ export type {
 } from './local-event-source';
 export { FetchRemoteTransport, RemoteEventSource } from './remote-event-source';
 export { RuntimeSourceFactory } from './source-factory';
-export type { RuntimeSourceDefinition, RuntimeSourceOption } from './source-factory';
+export type { RuntimeSourceDefinition, RuntimeSourceFactoryOptions, RuntimeSourceOption } from './source-factory';
 export type {
   AccessTokenProvider,
   FetchRemoteTransportOptions,

@@ -3,6 +3,7 @@ package adapter
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -10,7 +11,7 @@ func TestSourceFactoryCreatesHonestDemoAndRealLocalSources(t *testing.T) {
 	t.Parallel()
 
 	factory, err := NewSourceFactory(SourceFactoryOptions{
-		StateDir: t.TempDir(), Workspace: filepath.Join(t.TempDir(), "workspace"), ClientID: "tui-client",
+		StateDir: t.TempDir(), Workspace: filepath.Join(t.TempDir(), "workspace"), ClientID: "tui-client", EnableRealSources: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -37,6 +38,21 @@ func TestSourceFactoryCreatesHonestDemoAndRealLocalSources(t *testing.T) {
 	view := client.View()
 	if view.State.Task == nil || view.State.Scope == nil || view.State.CommittedCursor != 2 {
 		t.Fatalf("local runtime view = %#v", view)
+	}
+}
+
+func TestSourceFactoryCapabilityGatesRealSourcesByDefault(t *testing.T) {
+	t.Parallel()
+	factory, err := NewSourceFactory(SourceFactoryOptions{StateDir: t.TempDir(), Workspace: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := factory.Options()
+	if len(options) != 2 || !options[0].Available || options[1].Available || options[1].SetupStatus == "" {
+		t.Fatalf("gated source options = %#v", options)
+	}
+	if _, err := factory.Create("local"); err == nil || !strings.Contains(err.Error(), "capability") {
+		t.Fatalf("Create(local) error = %v", err)
 	}
 }
 

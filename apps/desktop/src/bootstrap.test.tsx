@@ -5,7 +5,7 @@ import { ProductApp } from '@cyber/product-app';
 
 import { createDesktopBootstrap } from './bootstrap';
 
-test('desktop bootstrap identifies the deterministic source as Demo and never Local', async () => {
+test('desktop bootstrap defaults to Demo and capability-gates Local', async () => {
   const { store, runtimes } = createDesktopBootstrap({ speedMs: 0 });
   await store.connect();
 
@@ -13,7 +13,8 @@ test('desktop bootstrap identifies the deterministic source as Demo and never Lo
 
   expect(screen.getByRole('radio', { name: 'Demo' })).toBeChecked();
   expect(screen.getByText('DEMO · deterministic · demo-only')).toBeInTheDocument();
-  expect(screen.getByRole('radio', { name: 'Local' })).toBeEnabled();
+  expect(screen.getByRole('radio', { name: 'Local' })).toBeDisabled();
+  expect(screen.getAllByText(/real runtime capability/i)).toHaveLength(2);
   store.destroy();
 });
 

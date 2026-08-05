@@ -159,6 +159,36 @@ func TestLocalServerRejectsIdempotencySubstitutionAndRuntimeMismatch(t *testing.
 	}
 }
 
+func TestLocalServerBindsIdempotencyToControllerAndAuthority(t *testing.T) {
+	t.Parallel()
+	server := newTestLocalServer(t)
+	envelope := mustLocalEnvelope(t, "shared-key", map[string]any{
+		"type": "task.create", "objective": "Controller A task", "runtimeId": "runtime-1",
+	})
+
+	first := server.handleAuthorizedForClient(context.Background(), LocalRequest{
+		ID: "controller-a", Type: "command", Command: &envelope,
+	}, "controller-a")
+	if first.Receipt == nil || first.Receipt.Status != "accepted" {
+		t.Fatalf("first controller receipt = %+v", first)
+	}
+
+	replay := server.handleAuthorizedForClient(context.Background(), LocalRequest{
+		ID: "controller-b", Type: "command", Command: &envelope,
+	}, "controller-b")
+	if replay.Receipt == nil || replay.Receipt.Status != "rejected" || replay.Receipt.ErrorCode != "idempotency_conflict" {
+		t.Fatalf("cross-controller replay = %+v", replay)
+	}
+
+	server.role = "auditor"
+	authorityReplay := server.handleAuthorizedForClient(context.Background(), LocalRequest{
+		ID: "changed-authority", Type: "command", Command: &envelope,
+	}, "controller-a")
+	if authorityReplay.Receipt == nil || authorityReplay.Receipt.Status != "rejected" || authorityReplay.Receipt.ErrorCode != "idempotency_conflict" {
+		t.Fatalf("cross-authority replay = %+v", authorityReplay)
+	}
+}
+
 func TestLocalServerPreservesIdempotencyAcrossRestart(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

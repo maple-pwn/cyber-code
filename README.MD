@@ -106,6 +106,14 @@ Anthropic、Bedrock、Vertex、Azure 与更多 OpenAI-compatible 配置见 [Prov
 
 Tactical Ops 当前明确标记为 `DEMO`，只运行确定性的 `juice-shop.lab` 安全场景，不会调用 Provider，也不会在本地失败时回退远端。快捷键、恢复语义和迁移说明见 [Tactical Ops 指南](docs/tactical-ops.md)。
 
+真实 Runtime Source 默认关闭，必须由可信宿主或操作者显式启用。本机 Tactical Ops 运行时使用：
+
+```bash
+./cyber-code --enable-real-sources --source local
+```
+
+Web 宿主需要在启动前设置 `__CYBER_RUNTIME_CONFIG__.realSourcesEnabled = true`，并提供可信的 loopback bridge 或 HTTPS Remote 配置；Desktop 构建需要设置 `VITE_CYBER_REAL_SOURCES_ENABLED=true`。真实来源握手、凭据与失败回退边界见 [Phase 4 Runtime 威胁模型](docs/security/phase4-runtime-threat-model.md)。
+
 也可以跳过 TUI，直接获得适合脚本和管道处理的输出：
 
 ```bash
@@ -267,6 +275,7 @@ GOOS=windows GOARCH=amd64 go build -o cyber-code-windows-amd64.exe ./cmd/cli
 | [配置参考](docs/configuration.md) | 配置优先级、权限、沙箱、Context、Skills、Hooks、MCP 和插件市场。 |
 | [Provider 指南](docs/providers.md) | Anthropic、OpenAI-compatible、DeepSeek 与受管云 Provider。 |
 | [安全模型](docs/security.md) | Permission Broker、路径边界、脱敏、审计和进程隔离。 |
+| [Runtime 威胁模型](docs/security/phase4-runtime-threat-model.md) | Local/Remote Runtime 的认证、重放、Scope、Evidence、cursor 与 capability gate。 |
 | [本机 SDK](docs/sdk.md) | JSONL 协议、IDE context、diff、VS Code 扩展和 Bridge。 |
 | [Tactical Ops](docs/tactical-ops.md) | 默认 Demo、快捷键、恢复语义和经典 TUI 迁移。 |
 

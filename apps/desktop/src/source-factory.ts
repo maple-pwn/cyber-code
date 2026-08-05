@@ -16,6 +16,7 @@ import {
 
 export type DesktopSourceBridge = DesktopRuntimeBridge & DesktopCredentialBridge;
 export type DesktopRuntimeConfiguration = {
+  realSourcesEnabled?: boolean;
   bridge?: DesktopSourceBridge;
   remote?: { endpoint: string; credentialId: string };
   demoSpeedMs?: number;
@@ -28,8 +29,11 @@ export function readDesktopRuntimeConfiguration(
 ): DesktopRuntimeConfiguration {
   const endpoint = environment.VITE_CYBER_REMOTE_ENDPOINT?.trim();
   const credentialId = environment.VITE_CYBER_REMOTE_CREDENTIAL_ID?.trim();
-  if (!endpoint || !credentialId) return {};
-  return { remote: { endpoint, credentialId } };
+  const realSourcesEnabled = environment.VITE_CYBER_REAL_SOURCES_ENABLED?.trim() === 'true';
+  return {
+    ...(realSourcesEnabled ? { realSourcesEnabled: true } : {}),
+    ...(!endpoint || !credentialId ? {} : { remote: { endpoint, credentialId } }),
+  };
 }
 
 const isSecureRemoteEndpoint = (endpoint: string | undefined): boolean => {
@@ -71,5 +75,5 @@ export function createDesktopSourceFactory(
         ));
       },
     },
-  ]);
+  ], { realSourcesEnabled: configuration.realSourcesEnabled });
 }

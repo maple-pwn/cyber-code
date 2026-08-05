@@ -72,11 +72,15 @@ func TestRootCommandExposesExplicitTacticalScenarioFlags(t *testing.T) {
 	})
 	uiFlag := command.Flags().Lookup("ui")
 	sourceFlag := command.Flags().Lookup("source")
+	realSourcesFlag := command.Flags().Lookup("enable-real-sources")
 	if uiFlag == nil || uiFlag.DefValue != "tactical" {
 		t.Fatalf("--ui flag = %#v", uiFlag)
 	}
 	if sourceFlag == nil || sourceFlag.DefValue != "" {
 		t.Fatalf("--source flag = %#v", sourceFlag)
+	}
+	if realSourcesFlag == nil || realSourcesFlag.DefValue != "false" {
+		t.Fatalf("--enable-real-sources flag = %#v", realSourcesFlag)
 	}
 }
 
@@ -85,6 +89,7 @@ func TestValidateUISelectionUsesHonestTacticalSourceCatalog(t *testing.T) {
 
 	tests := []struct {
 		name, ui, source string
+		realSources      bool
 		printMode        bool
 		uiExplicit       bool
 		wantError        bool
@@ -92,7 +97,8 @@ func TestValidateUISelectionUsesHonestTacticalSourceCatalog(t *testing.T) {
 		{name: "classic", ui: "classic"},
 		{name: "tactical default demo", ui: "tactical"},
 		{name: "tactical explicit demo", ui: "tactical", source: "demo"},
-		{name: "tactical local", ui: "tactical", source: "local"},
+		{name: "tactical local gated", ui: "tactical", source: "local", wantError: true},
+		{name: "tactical local enabled", ui: "tactical", source: "local", realSources: true},
 		{name: "unknown ui", ui: "movie", wantError: true},
 		{name: "unknown tactical source", ui: "tactical", source: "remote", wantError: true},
 		{name: "demo classic", ui: "classic", source: "demo", wantError: true},
@@ -101,7 +107,7 @@ func TestValidateUISelectionUsesHonestTacticalSourceCatalog(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := validateUISelection(test.ui, test.source, test.printMode, test.uiExplicit)
+			err := validateUISelection(test.ui, test.source, test.printMode, test.uiExplicit, test.realSources)
 			if (err != nil) != test.wantError {
 				t.Fatalf("validateUISelection() error = %v, wantError = %v", err, test.wantError)
 			}

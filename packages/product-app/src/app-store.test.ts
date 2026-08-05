@@ -28,7 +28,7 @@ test('rejects a source whose trusted handshake mode differs from its factory def
   const disguisedDemo = new ScenarioPlayer({ runtimeId: 'scenario-local', speedMs: 0 });
   const factory = new RuntimeSourceFactory([
     { id: 'local', mode: 'local', label: 'Local', capabilities: ['real-runtime'], available: true, create: () => disguisedDemo },
-  ]);
+  ], { realSourcesEnabled: true });
   const store = createAppStore(factory, 'new-task');
 
   await expect(store.connect()).rejects.toThrow('runtime_source_mode_mismatch:local:demo');
@@ -45,7 +45,7 @@ test('keeps the connected source when a replacement cannot be created', async ()
       id: 'broken-local', mode: 'local', label: 'Broken Local', capabilities: ['real-runtime'], available: true,
       create: () => { throw new Error('local_runtime_start_failed'); },
     },
-  ]);
+  ], { realSourcesEnabled: true });
   const store = createAppStore(factory, 'new-task');
   await store.connect();
 
@@ -68,7 +68,7 @@ test('keeps the connected source when a replacement cannot establish a trusted h
   const factory = new RuntimeSourceFactory([
     { id: 'demo', mode: 'demo', label: 'Demo', capabilities: ['deterministic'], available: true, create: () => demo },
     { id: 'broken-local', mode: 'local', label: 'Broken Local', capabilities: ['real-runtime'], available: true, create: () => broken },
-  ]);
+  ], { realSourcesEnabled: true });
   const store = createAppStore(factory, 'new-task');
   await store.connect();
 

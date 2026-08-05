@@ -142,7 +142,7 @@ test('source factory executes a task through the built local runtime process', a
   const factory = new RuntimeSourceFactory([{
     id: 'local', mode: 'local', label: 'Local', capabilities: ['real-runtime'], available: true,
     create: () => new LocalEventSource(transport, { pollIntervalMs: 60_000 }),
-  }]);
+  }], { realSourcesEnabled: true });
   const source = factory.create('local');
   const client = new RuntimeClient(source);
   try {

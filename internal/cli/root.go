@@ -106,7 +106,7 @@ func errorExitCode(err error) int {
 }
 
 func newRootCommand(environment *commandEnvironment) *cobra.Command {
-	var printMode, jsonMode, verbose bool
+	var printMode, jsonMode, verbose, enableRealSources bool
 	var profile, permissionMode, model, cwd, resumeSession, uiMode, sourceName string
 	var imagePaths []string
 	var maxTurns int
@@ -117,7 +117,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 		Args:          cobra.ArbitraryArgs,
 		Version:       environment.options.Version,
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := validateUISelection(uiMode, sourceName, printMode, command.Flags().Changed("ui")); err != nil {
+			if err := validateUISelection(uiMode, sourceName, printMode, command.Flags().Changed("ui"), enableRealSources); err != nil {
 				return err
 			}
 			prompt := strings.Join(args, " ")
@@ -132,6 +132,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 				}
 				factory, err := adapter.NewSourceFactory(adapter.SourceFactoryOptions{
 					StateDir: environment.stateDir, Workspace: workspace, ClientID: "tui-client",
+					EnableRealSources: enableRealSources,
 				})
 				if err != nil {
 					return err
@@ -204,6 +205,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	command.Flags().StringVar(&resumeSession, "resume", "", "resume a persisted session")
 	command.Flags().StringVar(&uiMode, "ui", "tactical", "interactive UI: tactical or classic (legacy)")
 	command.Flags().StringVar(&sourceName, "source", "", "Tactical Ops event source: demo or local")
+	command.Flags().BoolVar(&enableRealSources, "enable-real-sources", false, "enable capability-gated Local and Remote runtime sources")
 	command.Flags().IntVar(&maxTurns, "max-turns", 100, "maximum agent turns")
 	command.AddCommand(newConfigCommand(environment))
 	command.AddCommand(newDoctorCommand(environment))
@@ -217,7 +219,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	return command
 }
 
-func validateUISelection(uiMode, sourceName string, printMode, uiExplicit bool) error {
+func validateUISelection(uiMode, sourceName string, printMode, uiExplicit, enableRealSources bool) error {
 	if uiMode != "classic" && uiMode != "tactical" {
 		return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.ui", Message: "--ui must be classic or tactical"}
 	}
@@ -228,16 +230,25 @@ func validateUISelection(uiMode, sourceName string, printMode, uiExplicit bool) 
 		if sourceName != "" {
 			return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "--source is unavailable in print mode"}
 		}
+		if enableRealSources {
+			return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "--enable-real-sources is unavailable in print mode"}
+		}
 		return nil
 	}
 	if uiMode == "tactical" {
 		if sourceName != "" && sourceName != "demo" && sourceName != "local" {
 			return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "--source must be demo or local"}
 		}
+		if sourceName == "local" && !enableRealSources {
+			return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "--source local requires --enable-real-sources"}
+		}
 		return nil
 	}
 	if sourceName != "" {
 		return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "--source is only valid with --ui=tactical"}
+	}
+	if enableRealSources {
+		return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "--enable-real-sources is only valid with --ui=tactical"}
 	}
 	return nil
 }

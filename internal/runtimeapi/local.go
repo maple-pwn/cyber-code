@@ -288,10 +288,9 @@ func (s *LocalServer) handleCommand(ctx context.Context, taskID string, envelope
 	if err := ValidateCommandEnvelope(envelope); err != nil {
 		return rejectedReceipt(envelope.IdempotencyKey, "invalid_command_envelope")
 	}
-	digestBytes := sha256.Sum256(envelope.Command)
-	digest := hex.EncodeToString(digestBytes[:])
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	digest := s.idempotencyDigest(taskID, envelope.Command, clientID)
 	if existing, ok := s.receipts[envelope.IdempotencyKey]; ok {
 		if subtle.ConstantTimeCompare([]byte(existing.Digest), []byte(digest)) != 1 {
 			return rejectedReceipt(envelope.IdempotencyKey, "idempotency_conflict")
@@ -306,6 +305,29 @@ func (s *LocalServer) handleCommand(ctx context.Context, taskID string, envelope
 		return rejectedReceipt(envelope.IdempotencyKey, "persistence_failed")
 	}
 	return receipt
+}
+
+func (s *LocalServer) idempotencyDigest(taskID string, command json.RawMessage, clientID string) string {
+	var commandType struct {
+		Type string `json:"type"`
+	}
+	_ = json.Unmarshal(command, &commandType)
+	if taskID == "" && commandType.Type != "task.create" {
+		taskID = s.activeTask
+	}
+	bound, _ := json.Marshal(struct {
+		Command    json.RawMessage `json:"command"`
+		TaskID     string          `json:"taskId"`
+		Controller string          `json:"controller"`
+		RuntimeID  string          `json:"runtimeId"`
+		Principal  string          `json:"principal"`
+		Role       string          `json:"role"`
+	}{
+		Command: command, TaskID: taskID, Controller: clientID,
+		RuntimeID: s.source.RuntimeID, Principal: s.source.Principal, Role: s.role,
+	})
+	digest := sha256.Sum256(bound)
+	return hex.EncodeToString(digest[:])
 }
 
 func (s *LocalServer) loadState() error {

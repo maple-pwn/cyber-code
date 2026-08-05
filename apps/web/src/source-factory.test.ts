@@ -9,6 +9,7 @@ describe('Web runtime source factory', () => {
     const tokenProvider = vi.fn(() => 'memory-only-token');
     const configuration = readWebRuntimeConfiguration({
       __CYBER_RUNTIME_CONFIG__: {
+        realSourcesEnabled: true,
         remote: { endpoint: 'https://runtime.example.test/v1/runtime', tokenProvider },
       },
     });
@@ -16,12 +17,13 @@ describe('Web runtime source factory', () => {
     expect(configuration.remote).toEqual({
       endpoint: 'https://runtime.example.test/v1/runtime', tokenProvider,
     });
+    expect(configuration.realSourcesEnabled).toBe(true);
     expect(createWebSourceFactory(configuration).options().find((option) => option.id === 'remote'))
       .toMatchObject({ available: true });
   });
 
   test('keeps real sources disabled with actionable setup status without trusted configuration', () => {
-    const factory = createWebSourceFactory();
+    const factory = createWebSourceFactory({ realSourcesEnabled: true });
 
     expect(factory.options()).toEqual([
       expect.objectContaining({ id: 'demo', mode: 'demo', available: true }),
@@ -32,6 +34,7 @@ describe('Web runtime source factory', () => {
 
   test('keeps an insecure remote endpoint disabled before source creation', () => {
     const factory = createWebSourceFactory({
+      realSourcesEnabled: true,
       remote: { endpoint: 'http://runtime.example.test/v1/runtime', tokenProvider: () => 'token' },
     });
 
@@ -50,6 +53,7 @@ describe('Web runtime source factory', () => {
     const tokenProvider = vi.fn(() => 'memory-only-token');
     const setItem = vi.spyOn(Storage.prototype, 'setItem');
     const factory = createWebSourceFactory({
+      realSourcesEnabled: true,
       loopbackBridge: bridge,
       remote: { endpoint: 'https://runtime.example.test/v1/runtime', tokenProvider },
     });
@@ -58,6 +62,20 @@ describe('Web runtime source factory', () => {
     expect(factory.create('remote')).toBeInstanceOf(RemoteEventSource);
     expect(setItem).not.toHaveBeenCalled();
     setItem.mockRestore();
+  });
+
+  test('does not expose configured real transports until the trusted capability flag is enabled', () => {
+    const factory = createWebSourceFactory({
+      loopbackBridge: {
+        start: vi.fn(), request: vi.fn(), restart: vi.fn(), stop: vi.fn(),
+      },
+      remote: { endpoint: 'https://runtime.example.test/v1/runtime', tokenProvider: () => 'token' },
+    });
+
+    expect(factory.options().filter((option) => option.mode !== 'demo')).toEqual([
+      expect.objectContaining({ id: 'local', available: false, setupStatus: expect.stringContaining('capability') }),
+      expect.objectContaining({ id: 'remote', available: false, setupStatus: expect.stringContaining('capability') }),
+    ]);
   });
 
   test('keeps Demo execution deterministic across factory-created sessions', async () => {
