@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 
 import type { LocalRequest } from '@cyber/runtime-client';
 
-import { createDesktopRuntimeTransport } from './runtime-transport';
+import { createDesktopRemoteTokenProvider, createDesktopRuntimeTransport } from './runtime-transport';
 
 describe('desktop runtime transport', () => {
   test('delegates only the four local runtime lifecycle operations', async () => {
@@ -25,4 +25,14 @@ describe('desktop runtime transport', () => {
     await expect(transport.stop()).resolves.toEqual({ stopped: true });
     expect(native.runtimeRequest).toHaveBeenCalledWith(request);
   });
+});
+
+test('resolves remote access tokens from the native credential service', async () => {
+  const bridge = {
+    loadSecret: vi.fn().mockResolvedValue({ id: 'remote-primary', secret: 'remote-token' }),
+  };
+  const provider = createDesktopRemoteTokenProvider('remote-primary', bridge);
+
+  await expect(provider()).resolves.toBe('remote-token');
+  expect(bridge.loadSecret).toHaveBeenCalledWith('remote-primary');
 });

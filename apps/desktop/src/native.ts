@@ -5,6 +5,7 @@ export const nativeOperations = [
   'capabilities',
   'notify',
   'store_secret',
+  'load_secret',
   'delete_secret',
   'export_report',
   'runtime_start',
@@ -16,6 +17,7 @@ export const nativeOperations = [
 export type NativeOperation = (typeof nativeOperations)[number];
 export type NativeInvoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
 export type SecretReceipt = { id: string; stored: true };
+export type LoadedSecret = { id: string; secret: string };
 export type NotificationKind = 'approval_required' | 'task_succeeded' | 'task_failed';
 
 const notificationKinds: readonly string[] = ['approval_required', 'task_succeeded', 'task_failed'];
@@ -84,6 +86,17 @@ export function createNativeClient(invoke: NativeInvoke = tauriInvoke) {
         throw new Error('invalid store_secret response');
       }
       return { id: response.id, stored: true };
+    },
+    async loadSecret(id: string): Promise<LoadedSecret> {
+      if (!id.trim()) {
+        throw new Error('invalid load_secret request');
+      }
+      const response = await call('load_secret', { request: { id } });
+      if (!isRecord(response) || !hasExactKeys(response, ['id', 'secret'])
+        || response.id !== id || typeof response.secret !== 'string' || !response.secret) {
+        throw new Error('invalid load_secret response');
+      }
+      return { id: response.id, secret: response.secret };
     },
     async deleteSecret(id: string): Promise<{ id: string; deleted: true }> {
       if (!id.trim()) {

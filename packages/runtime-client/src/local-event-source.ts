@@ -40,7 +40,7 @@ export type LocalEventSourceOptions = {
 };
 
 type RecordValue = Record<string, unknown>;
-type ParsedResponse =
+export type ParsedRuntimeResponse =
   | { id: string; type: 'handshake'; handshake: RuntimeHandshakeResponse }
   | { id: string; type: 'events'; events: RawProductEvent[] }
   | { id: string; type: 'snapshot'; snapshot: RuntimeSnapshot }
@@ -173,7 +173,7 @@ function parseReceipt(value: unknown): RuntimeCommandReceipt {
   throw new Error('invalid_command_receipt');
 }
 
-function parseResponse(value: unknown, expectedId?: string): ParsedResponse {
+export function parseRuntimeResponse(value: unknown, expectedId?: string): ParsedRuntimeResponse {
   if (!isRecord(value) || !nonEmpty(value.id) || !nonEmpty(value.type)) {
     throw new Error('runtime_response_invalid');
   }
@@ -244,17 +244,17 @@ export class LocalEventSource implements EventSource {
   async handshake(request: RuntimeHandshakeRequest): Promise<RuntimeHandshakeResponse> {
     let lifecycleChanged = false;
     try {
-      let response: ParsedResponse;
+      let response: ParsedRuntimeResponse;
       let restarted = false;
       if (!this.started) {
         const raw = await this.transportCall(() => this.transport.start());
         this.started = true;
         lifecycleChanged = true;
-        response = parseResponse(raw);
+        response = parseRuntimeResponse(raw);
       } else if (this.restartRequired) {
         const raw = await this.transportCall(() => this.transport.restart());
         lifecycleChanged = true;
-        response = parseResponse(raw);
+        response = parseRuntimeResponse(raw);
         restarted = true;
       } else {
         response = await this.request({ type: 'handshake', handshake: request });
@@ -356,7 +356,7 @@ export class LocalEventSource implements EventSource {
     }
   }
 
-  private async request(request: Omit<LocalRequest, 'id'>): Promise<ParsedResponse> {
+  private async request(request: Omit<LocalRequest, 'id'>): Promise<ParsedRuntimeResponse> {
     if (!this.started) throw new Error('local_runtime_not_started');
     const value: LocalRequest = {
       id: `local-${(++this.requestSequence).toString(36)}`,
@@ -369,7 +369,7 @@ export class LocalEventSource implements EventSource {
       this.restartRequired = true;
       throw new Error('local_transport_unavailable');
     }
-    return parseResponse(raw, value.id);
+    return parseRuntimeResponse(raw, value.id);
   }
 
   private async transportCall<T>(operation: () => Promise<T>): Promise<T> {

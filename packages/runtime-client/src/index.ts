@@ -65,6 +65,14 @@ export type {
   LocalRequest,
   LocalTransport,
 } from './local-event-source';
+export { FetchRemoteTransport, RemoteEventSource } from './remote-event-source';
+export type {
+  AccessTokenProvider,
+  FetchRemoteTransportOptions,
+  RemoteEventSourceOptions,
+  RemoteRequest,
+  RemoteTransport,
+} from './remote-event-source';
 export {
   classifyEventSequence,
   negotiateHandshake,

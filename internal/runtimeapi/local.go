@@ -29,6 +29,9 @@ type LocalServerOptions struct {
 	Workspace       string
 	Source          SourceMetadata
 	MaxMessageBytes int
+	StateFileName   string
+	TaskPrefix      string
+	ClientID        string
 }
 
 type LocalRequest struct {
@@ -77,6 +80,8 @@ type LocalServer struct {
 	source          SourceMetadata
 	maxMessageBytes int
 	statePath       string
+	taskPrefix      string
+	clientID        string
 
 	mu         sync.Mutex
 	receipts   map[string]localReceipt
@@ -85,14 +90,18 @@ type LocalServer struct {
 }
 
 func NewLocalServer(options LocalServerOptions) (*LocalServer, error) {
+	return newRuntimeServer(options, SourceModeLocal)
+}
+
+func newRuntimeServer(options LocalServerOptions, requiredMode SourceMode) (*LocalServer, error) {
 	if options.Service == nil {
 		return nil, fmt.Errorf("runtime service is required")
 	}
 	if strings.TrimSpace(options.Bearer) == "" {
 		return nil, fmt.Errorf("local runtime bearer is required")
 	}
-	if strings.TrimSpace(options.Role) == "" || !validMetadata(options.Source) || options.Source.Mode != SourceModeLocal {
-		return nil, fmt.Errorf("valid local runtime identity is required")
+	if strings.TrimSpace(options.Role) == "" || !validMetadata(options.Source) || options.Source.Mode != requiredMode {
+		return nil, fmt.Errorf("valid runtime identity is required")
 	}
 	if options.Source.RuntimeID != options.Service.runtimeID || options.Source.Principal != options.Service.principal {
 		return nil, fmt.Errorf("local runtime source identity must match its authority")
@@ -104,11 +113,32 @@ func NewLocalServer(options LocalServerOptions) (*LocalServer, error) {
 	if limit < 1 {
 		return nil, fmt.Errorf("local runtime message limit must be positive")
 	}
+	stateFileName := options.StateFileName
+	if stateFileName == "" {
+		stateFileName = "local-runtime-state.json"
+	}
+	if filepath.Base(stateFileName) != stateFileName || !strings.HasSuffix(stateFileName, ".json") {
+		return nil, fmt.Errorf("runtime state file name is invalid")
+	}
+	taskPrefix := options.TaskPrefix
+	if taskPrefix == "" {
+		taskPrefix = "task-"
+	}
+	if !validRuntimeIdentifier(taskPrefix) {
+		return nil, fmt.Errorf("runtime task prefix is invalid")
+	}
+	clientID := options.ClientID
+	if clientID == "" {
+		clientID = options.Source.Principal
+	}
+	if !validText(clientID) {
+		return nil, fmt.Errorf("runtime client identity is invalid")
+	}
 	server := &LocalServer{
 		service: options.Service, bearerDigest: sha256.Sum256([]byte(options.Bearer)), role: options.Role,
 		workspace: options.Workspace, source: options.Source, maxMessageBytes: limit,
 		receipts:  make(map[string]localReceipt),
-		statePath: filepath.Join(options.Service.Store().Root(), "local-runtime-state.json"),
+		statePath: filepath.Join(options.Service.Store().Root(), stateFileName), taskPrefix: taskPrefix, clientID: clientID,
 	}
 	if err := server.loadState(); err != nil {
 		return nil, err
@@ -116,13 +146,28 @@ func NewLocalServer(options LocalServerOptions) (*LocalServer, error) {
 	return server, nil
 }
 
-func (s *LocalServer) Handle(ctx context.Context, request LocalRequest) LocalResponse {
-	response := LocalResponse{ID: request.ID}
-	if !s.authorized(request.Bearer) {
-		response.Type = "error"
-		response.ErrorCode = "unauthorized"
-		return response
+func validRuntimeIdentifier(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
 	}
+	for _, character := range value {
+		if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') &&
+			(character < '0' || character > '9') && character != '-' && character != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *LocalServer) Handle(ctx context.Context, request LocalRequest) LocalResponse {
+	if !s.authorized(request.Bearer) {
+		return localError(request.ID, "unauthorized")
+	}
+	return s.handleAuthorizedForClient(ctx, request, s.clientID)
+}
+
+func (s *LocalServer) handleAuthorizedForClient(ctx context.Context, request LocalRequest, clientID string) LocalResponse {
+	response := LocalResponse{ID: request.ID}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -165,7 +210,7 @@ func (s *LocalServer) Handle(ctx context.Context, request LocalRequest) LocalRes
 			return localError(request.ID, "invalid_command_envelope")
 		}
 		response.Type = "command"
-		response.Receipt = s.handleCommand(ctx, request.TaskID, *request.Command)
+		response.Receipt = s.handleCommand(ctx, request.TaskID, *request.Command, clientID)
 	case "close":
 		response.Type = "closed"
 	default:
@@ -214,7 +259,7 @@ func (s *LocalServer) authorized(bearer string) bool {
 	return subtle.ConstantTimeCompare(digest[:], s.bearerDigest[:]) == 1
 }
 
-func (s *LocalServer) handleCommand(ctx context.Context, taskID string, envelope CommandEnvelope) *CommandReceipt {
+func (s *LocalServer) handleCommand(ctx context.Context, taskID string, envelope CommandEnvelope, clientID string) *CommandReceipt {
 	if err := ValidateCommandEnvelope(envelope); err != nil {
 		return rejectedReceipt(envelope.IdempotencyKey, "invalid_command_envelope")
 	}
@@ -229,7 +274,7 @@ func (s *LocalServer) handleCommand(ctx context.Context, taskID string, envelope
 		copy := existing.Receipt
 		return &copy
 	}
-	receipt := s.dispatchCommand(ctx, taskID, envelope)
+	receipt := s.dispatchCommand(ctx, taskID, envelope, clientID)
 	s.receipts[envelope.IdempotencyKey] = localReceipt{Digest: digest, Receipt: *receipt}
 	if err := s.saveState(); err != nil {
 		delete(s.receipts, envelope.IdempotencyKey)
@@ -296,7 +341,7 @@ func (s *LocalServer) saveState() error {
 	return syncDirectory(filepath.Dir(s.statePath))
 }
 
-func (s *LocalServer) dispatchCommand(ctx context.Context, taskID string, envelope CommandEnvelope) *CommandReceipt {
+func (s *LocalServer) dispatchCommand(ctx context.Context, taskID string, envelope CommandEnvelope, clientID string) *CommandReceipt {
 	var base struct {
 		Type string `json:"type"`
 	}
@@ -325,7 +370,7 @@ func (s *LocalServer) dispatchCommand(ctx context.Context, taskID string, envelo
 			workspace = s.workspace
 		}
 		s.nextTask++
-		taskID = fmt.Sprintf("task-%d", s.nextTask)
+		taskID = fmt.Sprintf("%s%d", s.taskPrefix, s.nextTask)
 		if _, err = s.service.CreateTask(ctx, taskID, command.Objective); err == nil {
 			scope := productprotocol.ScopeSnapshot{
 				ID: "scope-1", Principal: s.source.Principal, Workspace: workspace, Validity: "task",
@@ -360,7 +405,7 @@ func (s *LocalServer) dispatchCommand(ctx context.Context, taskID string, envelo
 			ExpectedRevision int `json:"expectedRevision"`
 		}
 		_ = json.Unmarshal(envelope.Command, &command)
-		_, err = s.service.TakeControl(ctx, taskID, s.source.Principal, command.ExpectedRevision)
+		_, err = s.service.TakeControl(ctx, taskID, clientID, command.ExpectedRevision)
 	case "instruction.send":
 		return rejectedReceipt(envelope.IdempotencyKey, "unsupported_command")
 	default:

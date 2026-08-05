@@ -2,10 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tauri_plugin_notification::NotificationExt;
 
-const OPERATIONS: [&str; 9] = [
+const OPERATIONS: [&str; 10] = [
     "capabilities",
     "notify",
     "store_secret",
+    "load_secret",
     "delete_secret",
     "export_report",
     "runtime_start",
@@ -20,7 +21,7 @@ const KEYRING_SERVICE: &str = "com.cyber.code.desktop";
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CapabilitiesResponse {
-    pub operations: [&'static str; 9],
+    pub operations: [&'static str; 10],
 }
 
 #[derive(Debug, Deserialize)]
@@ -62,6 +63,18 @@ pub struct StoreSecretRequest {
 pub struct StoredSecretReceipt {
     pub id: String,
     pub stored: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LoadSecretRequest {
+    pub id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LoadedSecret {
+    pub id: String,
+    pub secret: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -181,6 +194,23 @@ pub fn store_secret(request: StoreSecretRequest) -> Result<StoredSecretReceipt, 
 }
 
 #[tauri::command]
+pub fn load_secret(request: LoadSecretRequest) -> Result<LoadedSecret, String> {
+    require_identifier(&request.id)?;
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &request.id)
+        .map_err(|_| "credential service is unavailable".to_string())?;
+    let secret = entry
+        .get_password()
+        .map_err(|_| "credential is unavailable".to_string())?;
+    if secret.is_empty() || secret.len() > 64 * 1024 {
+        return Err("credential value is invalid".into());
+    }
+    Ok(LoadedSecret {
+        id: request.id,
+        secret,
+    })
+}
+
+#[tauri::command]
 pub fn delete_secret(request: DeleteSecretRequest) -> Result<DeletedSecretReceipt, String> {
     require_identifier(&request.id)?;
     let entry = keyring::Entry::new(KEYRING_SERVICE, &request.id)
@@ -248,6 +278,7 @@ mod tests {
                 "capabilities",
                 "notify",
                 "store_secret",
+                "load_secret",
                 "delete_secret",
                 "export_report",
                 "runtime_start",

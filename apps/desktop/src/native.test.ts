@@ -9,6 +9,7 @@ describe('desktop native capability boundary', () => {
         'capabilities',
         'notify',
         'store_secret',
+        'load_secret',
         'delete_secret',
         'export_report',
         'runtime_start',
@@ -23,6 +24,7 @@ describe('desktop native capability boundary', () => {
       'capabilities',
       'notify',
       'store_secret',
+      'load_secret',
       'delete_secret',
       'export_report',
       'runtime_start',
@@ -59,6 +61,19 @@ describe('desktop native capability boundary', () => {
     expect(invoke).toHaveBeenCalledWith('store_secret', {
       request: { id: 'deepseek', secret: 'top-secret' },
     });
+  });
+
+  test('loads a credential only into caller memory', async () => {
+    const invoke = vi.fn().mockResolvedValue({ id: 'remote-primary', secret: 'remote-token' });
+    const client = createNativeClient(invoke);
+
+    await expect(client.loadSecret('remote-primary')).resolves.toEqual({
+      id: 'remote-primary',
+      secret: 'remote-token',
+    });
+    expect(invoke).toHaveBeenCalledWith('load_secret', { request: { id: 'remote-primary' } });
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
   });
 
   test('allows notifications only for approvals and terminal task states', async () => {

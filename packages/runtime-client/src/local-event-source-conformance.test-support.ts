@@ -14,8 +14,25 @@ export function defineLocalEventSourceConformance(
   createFixture: () => Promise<LocalSourceFixture>,
   timeout = 10_000,
 ): void {
+  defineEventSourceConformance(name, 'local', createFixture, timeout);
+}
+
+export function defineRemoteEventSourceConformance(
+  name: string,
+  createFixture: () => Promise<LocalSourceFixture>,
+  timeout = 10_000,
+): void {
+  defineEventSourceConformance(name, 'remote', createFixture, timeout);
+}
+
+function defineEventSourceConformance(
+  name: string,
+  mode: 'local' | 'remote',
+  createFixture: () => Promise<LocalSourceFixture>,
+  timeout: number,
+): void {
   describe(name, () => {
-    test('completes the authenticated local runtime golden path', async () => {
+    test(`completes the authenticated ${mode} runtime golden path`, async () => {
       const fixture = await createFixture();
       const { source } = fixture;
       const events: RawProductEvent[] = [];
@@ -27,7 +44,7 @@ export function defineLocalEventSourceConformance(
           afterCursor: 0,
         });
         expect(handshake.source).toMatchObject({
-          mode: 'local',
+          mode,
           runtimeId: handshake.runtimeId,
           principal: handshake.principal,
         });
