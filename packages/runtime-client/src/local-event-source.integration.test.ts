@@ -116,7 +116,7 @@ class BinaryRuntimeTransport implements LocalTransport {
 }
 
 beforeAll(() => {
-  execFileSync('go', ['build', '-o', binary, './cmd/cli'], {
+  execFileSync('go', ['build', '-buildvcs=false', '-o', binary, './cmd/cli'], {
     cwd: process.cwd(),
     env: { ...process.env, GOCACHE: goCache },
     stdio: 'pipe',
