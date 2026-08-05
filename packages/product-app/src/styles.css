@@ -28,10 +28,10 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .page { width: min(1180px, 100%); margin: 0 auto; }
 .page > h1 { margin: 0 0 18px; font-size: 1.45rem; letter-spacing: 0; }
 .page-new-task { padding-top: clamp(14px, 4vh, 42px); }
-.page-new-task form { display: grid; gap: 18px; width: min(760px, 100%); border-radius: var(--cyber-radius-shell); padding: clamp(18px, 3vw, 30px); }
+.page-new-task form { display: grid; gap: 18px; width: 100%; border-radius: var(--cyber-radius-shell); padding: clamp(18px, 3vw, 30px); }
 .page-new-task label { display: grid; gap: 8px; }
 .page-new-task textarea { min-height: 132px; resize: vertical; background: rgb(4 8 11 / 45%); }
-.page-new-task fieldset { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; border: 0; padding: 0; }
+.page-new-task fieldset { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; border: 0; padding: 0; }
 .page-new-task legend { padding-bottom: 8px; }
 .runtime-choice { min-height: 70px; grid-template-columns: auto 1fr !important; align-items: center; padding: 12px; border: 1px solid rgb(255 255 255 / 10%); border-radius: 14px; background: rgb(255 255 255 / 3%); }
 .runtime-choice:has(input:checked) { border-color: rgb(117 217 195 / 42%); background: rgb(117 217 195 / 8%); }
@@ -87,6 +87,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .cyber-report-editor > label { display: grid; gap: 8px; }
 
 @media (min-width: 768px) and (max-width: 1279px) {
+  .page-new-task fieldset { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mission-command-deck { grid-template-columns: minmax(0, 1fr); }
   .mission-inspector-surface { position: fixed; z-index: 30; top: 72px; right: 16px; bottom: 16px; width: min(360px, calc(100vw - 32px)); display: none; }
   .mission-inspector-surface[data-open="true"] { display: block; animation: mission-inspector-in var(--cyber-motion-snap); }
