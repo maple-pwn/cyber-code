@@ -137,6 +137,17 @@ test('creates a fresh task context when reusing the selected source', async () =
 });
 
 describe('AppStore', () => {
+  test('keeps editor content ephemeral while delegating reads to the active runtime client', async () => {
+    const readEditorDraft = vi.fn().mockResolvedValue({ draftId: 'draft-1', revision: 1, baseSha256: 'a'.repeat(64), data: 'aGVsbG8=', byteLength: 5, encoding: 'utf-8' });
+    const player = Object.assign(new ScenarioPlayer({ runtimeId: 'scenario-local', speedMs: 0 }), { readEditorDraft });
+    const store = createAppStore(new RuntimeClient(player), 'findings');
+    await store.connect();
+
+    await expect(store.readEditorDraft('task-1', 'draft-1', 1)).resolves.toMatchObject({ draftId: 'draft-1' });
+    expect(readEditorDraft).toHaveBeenCalledWith('task-1', 'draft-1', 1);
+    expect(JSON.stringify(store.getSnapshot())).not.toContain('aGVsbG8=');
+  });
+
   test('projects runtime snapshots and exposes explicit navigation', async () => {
     const player = new ScenarioPlayer({ runtimeId: 'scenario-local', speedMs: 0 });
     const client = new RuntimeClient(player);

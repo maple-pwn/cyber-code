@@ -12,6 +12,7 @@ import type {
   EventSource,
   RuntimeCommand,
   RuntimeView,
+  EditorReadResult,
   Unsubscribe,
 } from './index';
 import {
@@ -89,6 +90,15 @@ export class RuntimeClient {
       throw new Error(`command_rejected:${receipt.errorCode}`);
     }
     return receipt;
+  }
+
+  async readEditorDraft(taskId: string, draftId: string, expectedLeaseRevision: number): Promise<EditorReadResult> {
+    if (blockedStatuses.has(this.connection.status)) throw new Error(`reads_disabled:${this.connection.status}`);
+    if (!taskId.trim() || !draftId.trim() || !Number.isSafeInteger(expectedLeaseRevision) || expectedLeaseRevision < 1) {
+      throw new Error('invalid_editor_request');
+    }
+    if (this.source.readEditorDraft === undefined) throw new Error('editor_bridge_unavailable');
+    return this.source.readEditorDraft(taskId, draftId, expectedLeaseRevision);
   }
 
   getView(): RuntimeView {

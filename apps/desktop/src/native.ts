@@ -52,6 +52,11 @@ function validLocalRequest(value: unknown): value is LocalRequest {
       return hasExactKeys(value, ['id', 'type']);
     case 'command':
       return hasExactKeys(value, ['id', 'type', 'command']) && isRecord(value.command);
+    case 'editor':
+      return hasExactKeys(value, ['id', 'type', 'taskId', 'draftId', 'expectedLeaseRevision'])
+        && typeof value.taskId === 'string' && value.taskId.trim().length > 0
+        && typeof value.draftId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value.draftId)
+        && Number.isSafeInteger(value.expectedLeaseRevision) && (value.expectedLeaseRevision as number) >= 1;
     default:
       return false;
   }

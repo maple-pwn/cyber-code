@@ -58,6 +58,7 @@ export interface EventSource {
   ): Promise<Unsubscribe>;
   getSnapshot(): Promise<RuntimeSnapshot>;
   send(envelope: RuntimeCommandEnvelope): Promise<RuntimeCommandReceipt>;
+  readEditorDraft?(taskId: string, draftId: string, expectedLeaseRevision: number): Promise<EditorReadResult>;
   close(): Promise<void>;
 }
 

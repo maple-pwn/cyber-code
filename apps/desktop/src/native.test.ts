@@ -144,6 +144,22 @@ describe('desktop native capability boundary', () => {
     } as never)).rejects.toThrow('invalid runtime_request request');
   });
 
+  test('allows only a bounded editor draft read through the runtime bridge', async () => {
+    const invoke = vi.fn().mockResolvedValue({ id: 'editor-1', type: 'editor', editor: {} });
+    const client = createNativeClient(invoke);
+
+    await client.runtimeRequest({
+      id: 'editor-1', type: 'editor', taskId: 'task-1', draftId: 'draft-1', expectedLeaseRevision: 2,
+    });
+
+    expect(invoke).toHaveBeenCalledWith('runtime_request', { request: {
+      id: 'editor-1', type: 'editor', taskId: 'task-1', draftId: 'draft-1', expectedLeaseRevision: 2,
+    } });
+    await expect(client.runtimeRequest({
+      id: 'editor-bad', type: 'editor', taskId: '../task', draftId: 'draft-1', expectedLeaseRevision: 0,
+    })).rejects.toThrow('invalid runtime_request request');
+  });
+
   test('rejects malformed runtime stop receipts', async () => {
     const client = createNativeClient(vi.fn().mockResolvedValue({ stopped: 'yes' }));
 

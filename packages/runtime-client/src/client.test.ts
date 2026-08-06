@@ -10,6 +10,7 @@ import {
 
 import {
   RuntimeClient,
+  type EditorReadResult,
   type EventSource,
   type RuntimeSnapshot,
   type Unsubscribe,
@@ -45,6 +46,7 @@ class FakeEventSource implements EventSource {
   readonly handshakeCalls: RuntimeHandshakeRequest[] = [];
   closeCalls = 0;
   snapshotCalls = 0;
+  readonly editorReadCalls: unknown[] = [];
   subscribeError?: Error;
   snapshotError?: Error;
   rejectionCode?: string;
@@ -109,6 +111,11 @@ class FakeEventSource implements EventSource {
     return { idempotencyKey: envelope.idempotencyKey, status: 'accepted' };
   }
 
+  async readEditorDraft(taskId: string, draftId: string, expectedLeaseRevision: number): Promise<EditorReadResult> {
+    this.editorReadCalls.push({ taskId, draftId, expectedLeaseRevision });
+    return { draftId, revision: 1, baseSha256: 'a'.repeat(64), data: 'aGVsbG8=', byteLength: 5, encoding: 'utf-8' };
+  }
+
   async close(): Promise<void> {
     this.closeCalls += 1;
     this.listener = undefined;
@@ -124,6 +131,17 @@ class FakeEventSource implements EventSource {
 }
 
 describe('RuntimeClient', () => {
+  test('reads editor content only while connected through a capable source bridge', async () => {
+    const source = new FakeEventSource();
+    const client = new RuntimeClient(source);
+    await client.connect();
+
+    await expect(client.readEditorDraft('task-1', 'draft-1', 2)).resolves.toMatchObject({ draftId: 'draft-1' });
+    expect(source.editorReadCalls).toEqual([{ taskId: 'task-1', draftId: 'draft-1', expectedLeaseRevision: 2 }]);
+    await client.disconnect();
+    await expect(client.readEditorDraft('task-1', 'draft-1', 2)).rejects.toThrow('reads_disabled:offline');
+  });
+
   test('handshakes before subscribing and exposes trusted source metadata', async () => {
     const source = new FakeEventSource();
     const client = new RuntimeClient(source);

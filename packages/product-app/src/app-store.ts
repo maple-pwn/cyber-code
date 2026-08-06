@@ -56,6 +56,10 @@ export class AppStore {
     return operation;
   }
 
+  readEditorDraft(taskId: string, draftId: string, expectedLeaseRevision: number) {
+    return this.client.readEditorDraft(taskId, draftId, expectedLeaseRevision);
+  }
+
   private async dispatchCommand(command: RuntimeCommand): Promise<void> {
     if (command.type === 'task.create' && this.sourceFactory !== undefined) {
       const replace = command.runtimeId !== this.sourceId || this.client.getView().product.task !== null;
