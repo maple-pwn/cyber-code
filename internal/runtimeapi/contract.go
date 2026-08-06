@@ -139,6 +139,21 @@ func ValidateCommandEnvelope(envelope CommandEnvelope) error {
 			commandHasInteger(command, "columns", 1, 1000) && commandHasInteger(command, "rows", 1, 1000) && commandHasInteger(command, "expectedLeaseRevision", 1, int(^uint(0)>>1))
 	case "terminal.cancel":
 		valid = exactCommandKeys(command, []string{"type", "sessionId", "expectedLeaseRevision"}, nil) && commandHasIdentityText(command, "sessionId") && commandHasInteger(command, "expectedLeaseRevision", 1, int(^uint(0)>>1))
+	case "editor.open":
+		valid = exactCommandKeys(command, []string{"type", "draftId", "path", "scopeId", "evidenceReferences", "expectedLeaseRevision"}, nil) &&
+			commandHasIdentityText(command, "draftId") && commandHasIdentityText(command, "path") && commandHasIdentityText(command, "scopeId") && commandHasEditorReferences(command, "evidenceReferences") && commandHasInteger(command, "expectedLeaseRevision", 1, int(^uint(0)>>1))
+	case "editor.save":
+		var data string
+		var byteLength int
+		dataOK := json.Unmarshal(command["data"], &data) == nil
+		lengthOK := json.Unmarshal(command["byteLength"], &byteLength) == nil
+		decoded, decodeErr := base64.StdEncoding.DecodeString(data)
+		valid = exactCommandKeys(command, []string{"type", "draftId", "revision", "baseSha256", "data", "byteLength", "expectedLeaseRevision"}, nil) &&
+			commandHasIdentityText(command, "draftId") && commandHasInteger(command, "revision", 1, int(^uint(0)>>1)) && commandHasEditorDigest(command, "baseSha256") && dataOK && lengthOK && byteLength >= 0 && byteLength <= 64*1024*1024 && decodeErr == nil && len(decoded) == byteLength && commandHasInteger(command, "expectedLeaseRevision", 1, int(^uint(0)>>1))
+	case "editor.apply":
+		valid = exactCommandKeys(command, []string{"type", "draftId", "revision", "proposedSha256", "expectedLeaseRevision"}, nil) && commandHasIdentityText(command, "draftId") && commandHasInteger(command, "revision", 1, int(^uint(0)>>1)) && commandHasEditorDigest(command, "proposedSha256") && commandHasInteger(command, "expectedLeaseRevision", 1, int(^uint(0)>>1))
+	case "editor.discard":
+		valid = exactCommandKeys(command, []string{"type", "draftId", "expectedLeaseRevision"}, nil) && commandHasIdentityText(command, "draftId") && commandHasInteger(command, "expectedLeaseRevision", 1, int(^uint(0)>>1))
 	}
 	if !valid {
 		return ErrInvalidCommandEnvelope
@@ -149,6 +164,41 @@ func ValidateCommandEnvelope(envelope CommandEnvelope) error {
 func commandHasTerminalIdentifier(command map[string]json.RawMessage, key string) bool {
 	value, ok := commandString(command, key)
 	return ok && validRuntimeIdentifier(value)
+}
+
+func commandHasEditorDigest(command map[string]json.RawMessage, key string) bool {
+	value, ok := commandString(command, key)
+	return ok && validEditorDigest(value)
+}
+
+func validEditorDigest(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, character := range value {
+		if !(character >= '0' && character <= '9') && !(character >= 'a' && character <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func commandHasEditorReferences(command map[string]json.RawMessage, key string) bool {
+	var references []struct {
+		FindingID  string `json:"findingId"`
+		EvidenceID string `json:"evidenceId"`
+		StartLine  int    `json:"startLine"`
+		EndLine    int    `json:"endLine"`
+	}
+	if json.Unmarshal(command[key], &references) != nil {
+		return false
+	}
+	for _, reference := range references {
+		if !validIdentityText(reference.FindingID) || !validIdentityText(reference.EvidenceID) || reference.StartLine <= 0 || reference.EndLine < reference.StartLine {
+			return false
+		}
+	}
+	return true
 }
 
 func ValidateCommandReceipt(receipt CommandReceipt, envelope CommandEnvelope) error {

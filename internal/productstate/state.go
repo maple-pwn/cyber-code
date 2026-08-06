@@ -25,6 +25,7 @@ type State struct {
 	Findings                      map[string]productprotocol.FindingState         `json:"findings"`
 	Evidence                      map[string]productprotocol.ImmutableEvidence    `json:"evidence"`
 	Terminals                     map[string]productprotocol.TerminalSessionState `json:"terminals"`
+	EditorDrafts                  map[string]productprotocol.EditorDraftState     `json:"editorDrafts"`
 	Report                        *productprotocol.ReportState                    `json:"report"`
 	RawEvents                     []productprotocol.Event                         `json:"rawEvents"`
 	CommittedCursor               int                                             `json:"committedCursor"`
@@ -39,6 +40,7 @@ func Initial() State {
 		Findings:        make(map[string]productprotocol.FindingState),
 		Evidence:        make(map[string]productprotocol.ImmutableEvidence),
 		Terminals:       make(map[string]productprotocol.TerminalSessionState),
+		EditorDrafts:    make(map[string]productprotocol.EditorDraftState),
 		RawEvents:       make([]productprotocol.Event, 0),
 		CanonicalEvents: make(map[string]string),
 	}

@@ -15,7 +15,7 @@ const isJsonArray = (value: unknown[]): boolean => {
 const isJsonValue = (value: unknown): boolean => value === null || typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value)) || (Array.isArray(value) && isJsonArray(value)) || (isPlainObject(value) && Object.getOwnPropertySymbols(value).length === 0 && Object.values(value).every(isJsonValue));
 const isString = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
 const isStrings = (value: unknown): value is string[] => Array.isArray(value) && value.every(isString);
-const knownTypes = new Set<KnownEventType>(['task.created', 'task.started', 'task.paused', 'task.resumed', 'task.cancel.requested', 'task.cancelled', 'task.completed', 'task.failed', 'task.blocked', 'scope.proposed', 'scope.confirmed', 'runtime.capabilities.updated', 'control.acquired', 'control.transferred', 'control.released', 'approval.requested', 'approval.resolved', 'question.requested', 'question.resolved', 'agent.started', 'agent.progressed', 'agent.completed', 'agent.failed', 'tool.started', 'tool.completed', 'tool.failed', 'evidence.committed', 'finding.created', 'finding.verifying', 'finding.confirmed', 'finding.rejected', 'finding.mitigated', 'report.drafted', 'report.edited', 'report.validation.failed', 'report.validated', 'report.frozen', 'report.exported', 'terminal.opened', 'terminal.output', 'terminal.input.accepted', 'terminal.resized', 'terminal.exited']);
+const knownTypes = new Set<KnownEventType>(['task.created', 'task.started', 'task.paused', 'task.resumed', 'task.cancel.requested', 'task.cancelled', 'task.completed', 'task.failed', 'task.blocked', 'scope.proposed', 'scope.confirmed', 'runtime.capabilities.updated', 'control.acquired', 'control.transferred', 'control.released', 'approval.requested', 'approval.resolved', 'question.requested', 'question.resolved', 'agent.started', 'agent.progressed', 'agent.completed', 'agent.failed', 'tool.started', 'tool.completed', 'tool.failed', 'evidence.committed', 'finding.created', 'finding.verifying', 'finding.confirmed', 'finding.rejected', 'finding.mitigated', 'report.drafted', 'report.edited', 'report.validation.failed', 'report.validated', 'report.frozen', 'report.exported', 'terminal.opened', 'terminal.output', 'terminal.input.accepted', 'terminal.resized', 'terminal.exited', 'editor.draft.opened', 'editor.draft.saved', 'editor.patch.applied', 'editor.patch.verified', 'editor.draft.discarded']);
 const isKnownType = (type: string): type is KnownEventType => knownTypes.has(type as KnownEventType);
 const has = (payload: JsonObject, ...keys: string[]) => keys.every((key) => payload[key] !== undefined);
 const validScope = (value: unknown) => isObject(value) && isString(value.id) && isString(value.principal) && isString(value.workspace) && isString(value.validity) && isStrings(value.targets) && isStrings(value.allowedActions) && isStrings(value.deniedActions) && isString(value.riskCeiling);
@@ -39,6 +39,18 @@ const safeTerminalIdentifier = (value: unknown): value is string =>
   typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 const positiveInteger = (value: unknown, maximum = Number.MAX_SAFE_INTEGER) => Number.isSafeInteger(value) && (value as number) > 0 && (value as number) <= maximum;
 const terminalSize = (value: unknown) => positiveInteger(value, 1000);
+const editorByteLength = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= 64 * 1024 * 1024;
+const sha256 = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+const validEditorReference = (value: unknown) => isObject(value)
+  && exactKeys(value, ['findingId', 'evidenceId', 'startLine', 'endLine'])
+  && auditableText(value.findingId) && auditableText(value.evidenceId)
+  && positiveInteger(value.startLine) && positiveInteger(value.endLine)
+  && (value.startLine as number) <= (value.endLine as number);
+const validEditorDraft = (value: unknown) => isObject(value)
+  && exactKeys(value, ['id', 'path', 'scopeId', 'ownerClientId', 'leaseRevision', 'baseSha256', 'baseByteLength', 'encoding', 'evidenceReferences'])
+  && ['id', 'path', 'scopeId', 'ownerClientId'].every((key) => auditableText(value[key]))
+  && positiveInteger(value.leaseRevision) && sha256(value.baseSha256) && editorByteLength(value.baseByteLength)
+  && value.encoding === 'utf-8' && Array.isArray(value.evidenceReferences) && value.evidenceReferences.every(validEditorReference);
 const decodedBase64Length = (value: string): number | null => {
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) return null;
   return (value.length / 4) * 3 - (value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0);
@@ -83,6 +95,11 @@ function isValidPayload(type: KnownEventType, payload: JsonObject): boolean {
     case 'terminal.input.accepted': return exactKeys(payload, ['sessionId', 'sequence', 'byteLength', 'sha256']) && auditableText(payload.sessionId) && positiveInteger(payload.sequence) && positiveInteger(payload.byteLength, 1024 * 1024) && typeof payload.sha256 === 'string' && /^[a-f0-9]{64}$/.test(payload.sha256);
     case 'terminal.resized': return exactKeys(payload, ['sessionId', 'columns', 'rows']) && auditableText(payload.sessionId) && terminalSize(payload.columns) && terminalSize(payload.rows);
     case 'terminal.exited': return exactKeys(payload, ['sessionId', 'exitCode', 'reason']) && auditableText(payload.sessionId) && Number.isSafeInteger(payload.exitCode) && auditableText(payload.reason);
+    case 'editor.draft.opened': return exactKeys(payload, ['draft']) && validEditorDraft(payload.draft);
+    case 'editor.draft.saved': return exactKeys(payload, ['draftId', 'revision', 'baseSha256', 'proposedSha256', 'proposedByteLength']) && auditableText(payload.draftId) && positiveInteger(payload.revision) && sha256(payload.baseSha256) && sha256(payload.proposedSha256) && editorByteLength(payload.proposedByteLength);
+    case 'editor.patch.applied': return exactKeys(payload, ['draftId', 'revision', 'baseSha256', 'proposedSha256', 'resultSha256', 'reviewer']) && auditableText(payload.draftId) && positiveInteger(payload.revision) && sha256(payload.baseSha256) && sha256(payload.proposedSha256) && sha256(payload.resultSha256) && auditableText(payload.reviewer);
+    case 'editor.patch.verified': return exactKeys(payload, ['draftId', 'revision', 'verificationId', 'success', 'evidenceIds']) && auditableText(payload.draftId) && positiveInteger(payload.revision) && auditableText(payload.verificationId) && typeof payload.success === 'boolean' && isStrings(payload.evidenceIds);
+    case 'editor.draft.discarded': return exactKeys(payload, ['draftId', 'reason']) && auditableText(payload.draftId) && auditableText(payload.reason);
     default: return Object.keys(payload).length === 0;
   }
 }

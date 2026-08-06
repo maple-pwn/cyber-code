@@ -114,6 +114,40 @@ type TerminalSessionState struct {
 	ExitReason         string                `json:"exitReason,omitempty"`
 }
 
+type EditorEvidenceReference struct {
+	FindingID  string `json:"findingId"`
+	EvidenceID string `json:"evidenceId"`
+	StartLine  int    `json:"startLine"`
+	EndLine    int    `json:"endLine"`
+}
+
+type EditorVerificationState struct {
+	ID          string   `json:"id"`
+	Revision    int      `json:"revision"`
+	Success     bool     `json:"success"`
+	EvidenceIDs []string `json:"evidenceIds"`
+}
+
+type EditorDraftState struct {
+	ID                 string                    `json:"id"`
+	Path               string                    `json:"path"`
+	ScopeID            string                    `json:"scopeId"`
+	OwnerClientID      string                    `json:"ownerClientId"`
+	LeaseRevision      int                       `json:"leaseRevision"`
+	BaseSHA256         string                    `json:"baseSha256"`
+	BaseByteLength     int                       `json:"baseByteLength"`
+	Encoding           string                    `json:"encoding"`
+	EvidenceReferences []EditorEvidenceReference `json:"evidenceReferences"`
+	Status             string                    `json:"status"`
+	NextRevision       int                       `json:"nextRevision"`
+	ProposedSHA256     string                    `json:"proposedSha256,omitempty"`
+	ProposedByteLength int                       `json:"proposedByteLength,omitempty"`
+	ResultSHA256       string                    `json:"resultSha256,omitempty"`
+	Reviewer           string                    `json:"reviewer,omitempty"`
+	Verification       *EditorVerificationState  `json:"verification,omitempty"`
+	DiscardReason      string                    `json:"discardReason,omitempty"`
+}
+
 type ReportFinding struct {
 	Finding         FindingState        `json:"finding"`
 	Evidence        []ImmutableEvidence `json:"evidence"`

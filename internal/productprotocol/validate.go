@@ -34,6 +34,8 @@ var knownEventTypes = map[string]struct{}{
 	"report.exported": {},
 	"terminal.opened": {}, "terminal.output": {}, "terminal.input.accepted": {},
 	"terminal.resized": {}, "terminal.exited": {},
+	"editor.draft.opened": {}, "editor.draft.saved": {}, "editor.patch.applied": {},
+	"editor.patch.verified": {}, "editor.draft.discarded": {},
 }
 
 func Validate(raw json.RawMessage) (Event, error) {
@@ -264,6 +266,28 @@ func validKnownPayload(eventType string, payload map[string]any) bool {
 		_, exitCodeOK := safeInteger(payload["exitCode"])
 		return exactKeys(payload, []string{"sessionId", "exitCode", "reason"}) && hasAuditableString(payload, "sessionId") &&
 			exitCodeOK && hasAuditableString(payload, "reason")
+	case "editor.draft.opened":
+		return exactKeys(payload, []string{"draft"}) && validEditorDraft(payload["draft"])
+	case "editor.draft.saved":
+		revision, revisionOK := safeInteger(payload["revision"])
+		proposedLength, lengthOK := safeInteger(payload["proposedByteLength"])
+		baseHash, baseOK := payload["baseSha256"].(string)
+		proposedHash, proposedOK := payload["proposedSha256"].(string)
+		return exactKeys(payload, []string{"draftId", "revision", "baseSha256", "proposedSha256", "proposedByteLength"}) && hasAuditableString(payload, "draftId") &&
+			revisionOK && revision > 0 && baseOK && validSHA256(baseHash) && proposedOK && validSHA256(proposedHash) && lengthOK && validEditorByteLength(proposedLength)
+	case "editor.patch.applied":
+		baseHash, baseOK := payload["baseSha256"].(string)
+		proposedHash, proposedOK := payload["proposedSha256"].(string)
+		resultHash, resultOK := payload["resultSha256"].(string)
+		revision, revisionOK := safeInteger(payload["revision"])
+		return exactKeys(payload, []string{"draftId", "revision", "baseSha256", "proposedSha256", "resultSha256", "reviewer"}) && hasAuditableString(payload, "draftId") && revisionOK && revision > 0 &&
+			baseOK && validSHA256(baseHash) && proposedOK && validSHA256(proposedHash) && resultOK && validSHA256(resultHash) && hasAuditableString(payload, "reviewer")
+	case "editor.patch.verified":
+		revision, revisionOK := safeInteger(payload["revision"])
+		_, successOK := payload["success"].(bool)
+		return exactKeys(payload, []string{"draftId", "revision", "verificationId", "success", "evidenceIds"}) && hasAuditableString(payload, "draftId") && revisionOK && revision > 0 && hasAuditableString(payload, "verificationId") && successOK && isStringSlice(payload["evidenceIds"])
+	case "editor.draft.discarded":
+		return exactKeys(payload, []string{"draftId", "reason"}) && hasAuditableString(payload, "draftId") && hasAuditableString(payload, "reason")
 	default:
 		return len(payload) == 0
 	}
@@ -292,6 +316,43 @@ func validTerminalSession(value any) bool {
 }
 
 func validTerminalDimension(value int) bool { return value > 0 && value <= 1000 }
+
+func validEditorByteLength(value int) bool { return value >= 0 && value <= 64*1024*1024 }
+
+func validEditorDraft(value any) bool {
+	object, ok := value.(map[string]any)
+	if !ok || !exactKeys(object, []string{"id", "path", "scopeId", "ownerClientId", "leaseRevision", "baseSha256", "baseByteLength", "encoding", "evidenceReferences"}) {
+		return false
+	}
+	for _, key := range []string{"id", "path", "scopeId", "ownerClientId"} {
+		if !hasAuditableString(object, key) {
+			return false
+		}
+	}
+	leaseRevision, leaseOK := safeInteger(object["leaseRevision"])
+	baseLength, lengthOK := safeInteger(object["baseByteLength"])
+	baseHash, hashOK := object["baseSha256"].(string)
+	references, referencesOK := object["evidenceReferences"].([]any)
+	if !leaseOK || leaseRevision <= 0 || !lengthOK || !validEditorByteLength(baseLength) || !hashOK || !validSHA256(baseHash) || object["encoding"] != "utf-8" || !referencesOK {
+		return false
+	}
+	for _, reference := range references {
+		if !validEditorReference(reference) {
+			return false
+		}
+	}
+	return true
+}
+
+func validEditorReference(value any) bool {
+	object, ok := value.(map[string]any)
+	if !ok || !exactKeys(object, []string{"findingId", "evidenceId", "startLine", "endLine"}) || !hasAuditableString(object, "findingId") || !hasAuditableString(object, "evidenceId") {
+		return false
+	}
+	startLine, startOK := safeInteger(object["startLine"])
+	endLine, endOK := safeInteger(object["endLine"])
+	return startOK && startLine > 0 && endOK && endLine >= startLine
+}
 
 func validTerminalIdentifier(value string) bool {
 	if len(value) == 0 || len(value) > 128 {

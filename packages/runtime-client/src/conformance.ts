@@ -66,6 +66,16 @@ const decodedBase64Length = (value: string): number | null => {
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) return null;
   return (value.length / 4) * 3 - (value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0);
 };
+const editorByteLength = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= 64 * 1024 * 1024;
+const editorDigest = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+const editorReference = (value: unknown): value is Record<string, unknown> => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const reference = value as Record<string, unknown>;
+  return exactKeys(reference, ['findingId', 'evidenceId', 'startLine', 'endLine'])
+    && auditableText(reference.findingId) && auditableText(reference.evidenceId)
+    && positiveInteger(reference.startLine) && positiveInteger(reference.endLine)
+    && (reference.startLine as number) <= (reference.endLine as number);
+};
 
 const exactKeys = (value: Record<string, unknown>, required: string[], optional: string[] = []): boolean => {
   const allowed = new Set([...required, ...optional]);
@@ -115,6 +125,25 @@ const validCommand = (value: unknown): value is RuntimeCommand => {
     case 'terminal.cancel':
       return exactKeys(command, ['type', 'sessionId', 'expectedLeaseRevision'])
         && auditableText(command.sessionId) && positiveInteger(command.expectedLeaseRevision);
+    case 'editor.open':
+      return exactKeys(command, ['type', 'draftId', 'path', 'scopeId', 'evidenceReferences', 'expectedLeaseRevision'])
+        && auditableText(command.draftId) && auditableText(command.path) && auditableText(command.scopeId)
+        && Array.isArray(command.evidenceReferences) && command.evidenceReferences.every(editorReference)
+        && positiveInteger(command.expectedLeaseRevision);
+    case 'editor.save': {
+      const decodedLength = typeof command.data === 'string' ? decodedBase64Length(command.data) : null;
+      return exactKeys(command, ['type', 'draftId', 'revision', 'baseSha256', 'data', 'byteLength', 'expectedLeaseRevision'])
+        && auditableText(command.draftId) && positiveInteger(command.revision) && editorDigest(command.baseSha256)
+        && typeof command.data === 'string' && editorByteLength(command.byteLength) && decodedLength === command.byteLength
+        && positiveInteger(command.expectedLeaseRevision);
+    }
+    case 'editor.apply':
+      return exactKeys(command, ['type', 'draftId', 'revision', 'proposedSha256', 'expectedLeaseRevision'])
+        && auditableText(command.draftId) && positiveInteger(command.revision) && editorDigest(command.proposedSha256)
+        && positiveInteger(command.expectedLeaseRevision);
+    case 'editor.discard':
+      return exactKeys(command, ['type', 'draftId', 'expectedLeaseRevision'])
+        && auditableText(command.draftId) && positiveInteger(command.expectedLeaseRevision);
     default:
       return false;
   }

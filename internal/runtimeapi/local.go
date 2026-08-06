@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -21,7 +22,9 @@ import (
 	"cyber-code/internal/productstate"
 )
 
-const defaultLocalMessageLimit = 1 << 20
+// The local bridge must carry editor.save payloads up to the 64 MiB file limit
+// plus JSON/base64 framing, while retaining a bounded scanner allocation.
+const defaultLocalMessageLimit = 68 * 1024 * 1024
 
 type LocalServerOptions struct {
 	Service          *Service
@@ -47,13 +50,15 @@ type TerminalProfile struct {
 }
 
 type LocalRequest struct {
-	ID          string            `json:"id"`
-	Type        string            `json:"type"`
-	Bearer      string            `json:"bearer"`
-	Handshake   *HandshakeRequest `json:"handshake,omitempty"`
-	Command     *CommandEnvelope  `json:"command,omitempty"`
-	TaskID      string            `json:"taskId,omitempty"`
-	AfterCursor int               `json:"afterCursor,omitempty"`
+	ID                    string            `json:"id"`
+	Type                  string            `json:"type"`
+	Bearer                string            `json:"bearer"`
+	Handshake             *HandshakeRequest `json:"handshake,omitempty"`
+	Command               *CommandEnvelope  `json:"command,omitempty"`
+	TaskID                string            `json:"taskId,omitempty"`
+	AfterCursor           int               `json:"afterCursor,omitempty"`
+	DraftID               string            `json:"draftId,omitempty"`
+	ExpectedLeaseRevision int               `json:"expectedLeaseRevision,omitempty"`
 }
 
 type RuntimeSnapshot struct {
@@ -70,6 +75,16 @@ type LocalResponse struct {
 	Events    []productprotocol.Event `json:"events,omitempty"`
 	Snapshot  *RuntimeSnapshot        `json:"snapshot,omitempty"`
 	Ready     *bool                   `json:"ready,omitempty"`
+	Editor    *EditorReadResponse     `json:"editor,omitempty"`
+}
+
+type EditorReadResponse struct {
+	DraftID    string `json:"draftId"`
+	Revision   int    `json:"revision"`
+	BaseSHA256 string `json:"baseSha256"`
+	Data       string `json:"data"`
+	ByteLength int    `json:"byteLength"`
+	Encoding   string `json:"encoding"`
 }
 
 func (response LocalResponse) MarshalJSON() ([]byte, error) {
@@ -110,6 +125,7 @@ type LocalServer struct {
 	clientID         string
 	terminalProfiles map[string]TerminalProfile
 	terminalManager  *TerminalManager
+	editorManager    *editorManager
 
 	mu         sync.Mutex
 	receipts   map[string]localReceipt
@@ -187,6 +203,9 @@ func newRuntimeServer(options LocalServerOptions, requiredMode SourceMode) (*Loc
 			return nil, fmt.Errorf("terminal backend requires advertised profiles and input capability")
 		}
 		server.terminalManager = NewTerminalManager(server.service, options.TerminalBackend)
+	}
+	if slices.Contains(server.source.Capabilities, "editor.read") {
+		server.editorManager = NewEditorManager(server.service)
 	}
 	if err := server.loadState(); err != nil {
 		return nil, err
@@ -270,9 +289,26 @@ func (s *LocalServer) handleAuthorizedForClient(ctx context.Context, request Loc
 		}
 		response.Type = "command"
 		response.Receipt = s.handleCommand(ctx, request.TaskID, *request.Command, clientID)
+	case "editor":
+		request.TaskID = s.resolveTaskID(request.TaskID)
+		if request.TaskID == "" || !validRuntimeIdentifier(request.DraftID) || request.ExpectedLeaseRevision < 1 {
+			return localError(request.ID, "invalid_editor_request")
+		}
+		if err := s.requireEditorCapability("editor.read"); err != nil {
+			return localError(request.ID, localErrorCode(err))
+		}
+		result, err := s.editorManager.Read(ctx, request.TaskID, clientID, request.DraftID, request.ExpectedLeaseRevision)
+		if err != nil {
+			return localError(request.ID, localErrorCode(err))
+		}
+		response.Type = "editor"
+		response.Editor = &EditorReadResponse{DraftID: result.DraftID, Revision: result.Revision, BaseSHA256: result.BaseSHA256, Data: base64.StdEncoding.EncodeToString(result.Data), ByteLength: result.ByteLength, Encoding: result.Encoding}
 	case "close":
 		if s.terminalManager != nil {
 			_ = s.terminalManager.Close(ctx)
+		}
+		if s.editorManager != nil {
+			s.editorManager.Close()
 		}
 		response.Type = "closed"
 	default:
@@ -522,6 +558,38 @@ func (s *LocalServer) dispatchCommand(ctx context.Context, taskID string, envelo
 			return rejectedReceipt(envelope.IdempotencyKey, "invalid_command_envelope")
 		}
 		err = s.dispatchTerminalMutation(func(manager *TerminalManager) error { return manager.Cancel(ctx, taskID, clientID, command) })
+	case "editor.open":
+		var command editorOpenCommand
+		if json.Unmarshal(envelope.Command, &command) != nil {
+			return rejectedReceipt(envelope.IdempotencyKey, "invalid_command_envelope")
+		}
+		if err = s.requireEditorCapability("editor.read"); err == nil {
+			_, err = s.editorManager.Open(ctx, taskID, clientID, command)
+		}
+	case "editor.save":
+		var command editorSaveCommand
+		if json.Unmarshal(envelope.Command, &command) != nil {
+			return rejectedReceipt(envelope.IdempotencyKey, "invalid_command_envelope")
+		}
+		if err = s.requireEditorCapability("editor.write"); err == nil {
+			_, err = s.editorManager.Save(ctx, taskID, clientID, command)
+		}
+	case "editor.apply":
+		var command editorApplyCommand
+		if json.Unmarshal(envelope.Command, &command) != nil {
+			return rejectedReceipt(envelope.IdempotencyKey, "invalid_command_envelope")
+		}
+		if err = s.requireEditorCapability("editor.write"); err == nil {
+			err = s.editorManager.Apply(ctx, taskID, clientID, command)
+		}
+	case "editor.discard":
+		var command editorDiscardCommand
+		if json.Unmarshal(envelope.Command, &command) != nil {
+			return rejectedReceipt(envelope.IdempotencyKey, "invalid_command_envelope")
+		}
+		if err = s.requireEditorCapability("editor.write"); err == nil {
+			err = s.editorManager.Discard(ctx, taskID, clientID, command)
+		}
 	default:
 		return rejectedReceipt(envelope.IdempotencyKey, "unsupported_command")
 	}
@@ -535,6 +603,12 @@ func defaultScopeActions(capabilities []string) []string {
 	actions := []string{"read"}
 	if slices.Contains(capabilities, "terminal.input") {
 		actions = append(actions, "terminal.open")
+	}
+	if slices.Contains(capabilities, "editor.read") {
+		actions = append(actions, "editor.open")
+	}
+	if slices.Contains(capabilities, "editor.write") {
+		actions = append(actions, "editor.write")
 	}
 	return actions
 }
@@ -564,23 +638,38 @@ func localErrorCode(err error) string {
 		ErrScopeNotConfirmed: "scope_not_confirmed", ErrApprovalOutOfScope: "approval_out_of_scope",
 		ErrApprovalExpired: "approval_expired", ErrApprovalReplay: "approval_replay",
 		ErrUnknownApproval: "unknown_approval", ErrStaleLease: "stale_control_revision",
-		ErrInvalidReportState:          "invalid_report_state",
-		ErrTerminalCapabilityRequired:  "terminal_capability_required",
-		ErrTerminalProfileNotAllowed:   "terminal_profile_not_allowed",
-		ErrTerminalScopeMismatch:       "terminal_scope_mismatch",
-		ErrTerminalWorkspaceOutOfScope: "terminal_workspace_out_of_scope",
-		ErrTerminalControlRequired:     "terminal_control_required",
-		ErrTerminalUnavailable:         "terminal_unavailable",
-		ErrTerminalApprovalRequired:    "terminal_approval_required",
-		ErrTerminalSessionExists:       "terminal_session_exists",
-		ErrTerminalSessionNotFound:     "terminal_session_not_found",
-		ErrTerminalInputSequence:       "terminal_input_sequence",
+		ErrInvalidReportState:               "invalid_report_state",
+		ErrTerminalCapabilityRequired:       "terminal_capability_required",
+		ErrTerminalProfileNotAllowed:        "terminal_profile_not_allowed",
+		ErrTerminalScopeMismatch:            "terminal_scope_mismatch",
+		ErrTerminalWorkspaceOutOfScope:      "terminal_workspace_out_of_scope",
+		ErrTerminalControlRequired:          "terminal_control_required",
+		ErrTerminalUnavailable:              "terminal_unavailable",
+		ErrTerminalApprovalRequired:         "terminal_approval_required",
+		ErrTerminalSessionExists:            "terminal_session_exists",
+		ErrTerminalSessionNotFound:          "terminal_session_not_found",
+		ErrTerminalInputSequence:            "terminal_input_sequence",
+		ErrEditorCapabilityRequired:         "editor_capability_required",
+		ErrEditorScopeMismatch:              "editor_scope_mismatch",
+		ErrEditorWorkspaceOutOfScope:        "editor_workspace_out_of_scope",
+		ErrEditorControlRequired:            "editor_control_required",
+		ErrEditorDraftNotFound:              "editor_draft_not_found",
+		ErrEditorUnsupportedFile:            "editor_unsupported_file",
+		productstate.ErrEditorDraftRevision: "editor_draft_revision",
+		productstate.ErrEditorPatchStale:    "editor_patch_stale",
 	} {
 		if errors.Is(err, sentinel) {
 			return code
 		}
 	}
 	return "runtime_command_failed"
+}
+
+func (s *LocalServer) requireEditorCapability(capability string) error {
+	if !slices.Contains(s.source.Capabilities, capability) || s.editorManager == nil {
+		return ErrEditorCapabilityRequired
+	}
+	return nil
 }
 
 func (s *LocalServer) dispatchTerminalMutation(run func(*TerminalManager) error) error {

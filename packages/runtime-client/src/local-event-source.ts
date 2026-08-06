@@ -7,7 +7,7 @@ import {
   type ValidatedProductEvent,
 } from '@cyber/protocol';
 
-import type { EventSource, RuntimeSnapshot, Unsubscribe } from './index';
+import type { EditorReadResult, EventSource, RuntimeSnapshot, Unsubscribe } from './index';
 import {
   negotiateHandshake,
   validateCommandEnvelope,
@@ -21,11 +21,13 @@ import {
 
 export type LocalRequest = {
   id: string;
-  type: 'handshake' | 'events' | 'snapshot' | 'command' | 'health' | 'close';
+  type: 'handshake' | 'events' | 'snapshot' | 'command' | 'health' | 'close' | 'editor';
   handshake?: RuntimeHandshakeRequest;
   command?: RuntimeCommandEnvelope;
-  taskId?: string;
   afterCursor?: number;
+  taskId?: string;
+  draftId?: string;
+  expectedLeaseRevision?: number;
 };
 
 export interface LocalTransport {
@@ -45,6 +47,7 @@ export type ParsedRuntimeResponse =
   | { id: string; type: 'events'; events: RawProductEvent[] }
   | { id: string; type: 'snapshot'; snapshot: RuntimeSnapshot }
   | { id: string; type: 'command'; receipt: RuntimeCommandReceipt }
+  | { id: string; type: 'editor'; editor: EditorReadResult }
   | { id: string; type: 'health'; ready: boolean }
   | { id: string; type: 'closed' };
 
@@ -109,7 +112,7 @@ function cleanEvent(value: unknown): RawProductEvent {
 }
 
 function cleanProductState(value: unknown): ProductState {
-  if (!isRecord(value) || !hasExactKeys(value, productStateKeys, ['terminals'])
+  if (!isRecord(value) || !hasExactKeys(value, productStateKeys, ['terminals', 'editorDrafts'])
     || !safeCursor(value.committedCursor)
     || !Number.isSafeInteger(value.highestCommittedLeaseRevision)
     || (value.highestCommittedLeaseRevision as number) < 0
@@ -119,11 +122,12 @@ function cleanProductState(value: unknown): ProductState {
     || !isRecord(value.findings)
     || !isRecord(value.evidence)
     || (value.terminals !== undefined && !isRecord(value.terminals))
+    || (value.editorDrafts !== undefined && !isRecord(value.editorDrafts))
     || !Array.isArray(value.rawEvents)
     || !stringRecord(value.canonicalEvents)) {
     throw new Error('invalid_snapshot_state');
   }
-  const normalized = { ...value, terminals: value.terminals ?? {} };
+  const normalized = { ...value, terminals: value.terminals ?? {}, editorDrafts: value.editorDrafts ?? {} };
   const state = structuredClone(normalized) as unknown as ProductState;
   state.timeline = value.timeline.map((item) => validateEvent(cleanEvent(item))) as ValidatedProductEvent[];
   state.rawEvents = value.rawEvents.map((item) => validateEvent(cleanEvent(item))) as ValidatedProductEvent[];
@@ -175,6 +179,21 @@ function parseReceipt(value: unknown): RuntimeCommandReceipt {
   throw new Error('invalid_command_receipt');
 }
 
+function parseEditor(value: unknown): EditorReadResult {
+  if (!isRecord(value) || !hasExactKeys(value, ['draftId', 'revision', 'baseSha256', 'data', 'byteLength', 'encoding'])
+    || !nonEmpty(value.draftId) || !Number.isSafeInteger(value.revision) || (value.revision as number) < 0
+    || typeof value.baseSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.baseSha256)
+    || typeof value.data !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value.data)
+    || !Number.isSafeInteger(value.byteLength) || (value.byteLength as number) < 0 || (value.byteLength as number) > 64 * 1024 * 1024
+    || value.encoding !== 'utf-8') {
+    throw new Error('invalid_editor_response');
+  }
+  const padding = value.data.endsWith('==') ? 2 : value.data.endsWith('=') ? 1 : 0;
+  const decodedLength = (value.data.length / 4) * 3 - padding;
+  if (decodedLength !== value.byteLength) throw new Error('invalid_editor_response');
+  return value as unknown as EditorReadResult;
+}
+
 export function parseRuntimeResponse(value: unknown, expectedId?: string): ParsedRuntimeResponse {
   if (!isRecord(value) || !nonEmpty(value.id) || !nonEmpty(value.type)) {
     throw new Error('runtime_response_invalid');
@@ -213,6 +232,9 @@ export function parseRuntimeResponse(value: unknown, expectedId?: string): Parse
         throw new Error('runtime_response_invalid');
       }
       return { id: value.id, type: 'command', receipt: parseReceipt(value.receipt) };
+    case 'editor':
+      if (!hasExactKeys(value, ['id', 'type', 'editor']) || !isRecord(value.editor)) throw new Error('runtime_response_invalid');
+      return { id: value.id, type: 'editor', editor: parseEditor(value.editor) };
     case 'health':
       if (!hasExactKeys(value, ['id', 'type', 'ready']) || typeof value.ready !== 'boolean') {
         throw new Error('runtime_response_invalid');
@@ -338,6 +360,15 @@ export class LocalEventSource implements EventSource {
     const response = await this.request({ type: 'command', command: envelope });
     if (response.type !== 'command') throw new Error('runtime_response_invalid');
     return validateCommandReceipt(response.receipt, envelope);
+  }
+
+  async readEditorDraft(taskId: string, draftId: string, expectedLeaseRevision: number): Promise<EditorReadResult> {
+    if (!nonEmpty(taskId) || !nonEmpty(draftId) || !Number.isSafeInteger(expectedLeaseRevision) || expectedLeaseRevision < 1) {
+      throw new Error('invalid_editor_request');
+    }
+    const response = await this.request({ type: 'editor', taskId, draftId, expectedLeaseRevision });
+    if (response.type !== 'editor') throw new Error('runtime_response_invalid');
+    return response.editor;
   }
 
   async close(): Promise<void> {

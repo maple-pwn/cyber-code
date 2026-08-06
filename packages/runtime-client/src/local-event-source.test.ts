@@ -169,6 +169,27 @@ describe('LocalEventSource', () => {
     await expect(source.send(envelope)).resolves.toEqual({ idempotencyKey: 'cmd-1', status: 'accepted' });
   });
 
+  test('reads editor content through an ephemeral strict local response', async () => {
+    const transport = new TestTransport((request) => ({
+      id: request.id,
+      type: 'editor',
+      editor: {
+        draftId: 'draft-1', revision: 1, baseSha256: 'a'.repeat(64),
+        data: 'aGVsbG8K', byteLength: 6, encoding: 'utf-8',
+      },
+    }));
+    const source = new LocalEventSource(transport);
+    await source.handshake(handshakeRequest);
+
+    await expect(source.readEditorDraft('task-1', 'draft-1', 2)).resolves.toEqual({
+      draftId: 'draft-1', revision: 1, baseSha256: 'a'.repeat(64),
+      data: 'aGVsbG8K', byteLength: 6, encoding: 'utf-8',
+    });
+    expect(transport.requests[0]).toMatchObject({
+      type: 'editor', taskId: 'task-1', draftId: 'draft-1', expectedLeaseRevision: 2,
+    });
+  });
+
   test('normalizes additive terminal state when reading a legacy schema v1 snapshot', async () => {
     const legacyState = { ...initialProductState() };
     Reflect.deleteProperty(legacyState, 'terminals');

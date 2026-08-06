@@ -42,7 +42,7 @@
         "rawEventCount": 0
       },
       "fixtureSha256": "46aa0527561368c00f363f3c9b7f5ba2e7ad384637da57278d56fe0086dc8c84",
-      "stateSha256": "af38c5d0f1a49d87dfe5fc0e01ddd27f4b00a7873ab28857be92324cc0790d7a"
+      "stateSha256": "384018405d36e01765c3e1df4a75c6bf2272bd8e8d2006145b7ade36920752c3"
     },
     {
       "name": "deny",
@@ -78,7 +78,7 @@
         "rawEventCount": 0
       },
       "fixtureSha256": "45d70f946bfdcadfa23c195a617a6ae94fe1b2222a303d7cba7dc894246e340d",
-      "stateSha256": "b24243e3fbbe28548be7a6679e50a98a106ba63ed289369a77f61c2cb92c43e8"
+      "stateSha256": "c5e2287b81d366ef093c730d8a3fbe9eb2eb8f6c300a61f1058da72ff8bd55c3"
     },
     {
       "name": "gap-recovery",
@@ -97,7 +97,7 @@
         "rawEventCount": 0
       },
       "fixtureSha256": "26b97364902e43232688fbc4d88779ae88a45d2a13793e04a1388fe9bc888610",
-      "stateSha256": "20b9199f5b377c2bceb5c4605961f2f8f15a44e607c7d6eb7773c8ea2cad4e4b"
+      "stateSha256": "4773d04fbe629be52df6ff0f93922e43ec80c2d8feab8ba15b0dbd10decede45"
     },
     {
       "name": "unknown-event",
@@ -114,7 +114,7 @@
         "rawEventCount": 1
       },
       "fixtureSha256": "22df706ff0e2d8d53ee0cc80707d7a6a1c28c99330e78c99ba0c3db304c48aef",
-      "stateSha256": "005b8d2371954ed373e1ce8a9e65ea701334da0bd2537e931763965f014b5563"
+      "stateSha256": "bd41737eac9aad3f91006c88ad25cf5ad16f36ca430d791ba558bd247c16f386"
     },
     {
       "name": "duplicate-replay",
@@ -131,7 +131,7 @@
         "rawEventCount": 0
       },
       "fixtureSha256": "fbd4be2211c658a38e9ef27d7dd7dac2238cba0f248036a958d1682a700e9500",
-      "stateSha256": "fc1a144809eb1305601de507a1dcdd37b99025f852a285e9dc5aa9eac3e3d34c"
+      "stateSha256": "7e6783f31332efd489d293c5bb6c5fa88b3ae2bf9d81925e567d9af38d6e8e42"
     },
     {
       "name": "event-id-conflict",
@@ -148,7 +148,7 @@
         "rawEventCount": 0
       },
       "fixtureSha256": "6c19f591beb2606c717e54765a019adf0e7f7bffe8ef3145ac432a86b8a02859",
-      "stateSha256": "fc1a144809eb1305601de507a1dcdd37b99025f852a285e9dc5aa9eac3e3d34c"
+      "stateSha256": "7e6783f31332efd489d293c5bb6c5fa88b3ae2bf9d81925e567d9af38d6e8e42"
     }
   ]
 }

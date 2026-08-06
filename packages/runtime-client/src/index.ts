@@ -39,9 +39,14 @@ export type RuntimeCommand =
   | { type: 'terminal.open'; sessionId: string; profileId: string; workingDirectory: string; scopeId: string; columns: number; rows: number; outputLimitBytes: number; expectedLeaseRevision: number }
   | { type: 'terminal.input'; sessionId: string; sequence: number; data: string; byteLength: number; expectedLeaseRevision: number }
   | { type: 'terminal.resize'; sessionId: string; columns: number; rows: number; expectedLeaseRevision: number }
-  | { type: 'terminal.cancel'; sessionId: string; expectedLeaseRevision: number };
+  | { type: 'terminal.cancel'; sessionId: string; expectedLeaseRevision: number }
+  | { type: 'editor.open'; draftId: string; path: string; scopeId: string; evidenceReferences: { findingId: string; evidenceId: string; startLine: number; endLine: number }[]; expectedLeaseRevision: number }
+  | { type: 'editor.save'; draftId: string; revision: number; baseSha256: string; data: string; byteLength: number; expectedLeaseRevision: number }
+  | { type: 'editor.apply'; draftId: string; revision: number; proposedSha256: string; expectedLeaseRevision: number }
+  | { type: 'editor.discard'; draftId: string; expectedLeaseRevision: number };
 
 export type RuntimeSnapshot = { cursor: number; state: ProductState };
+export type EditorReadResult = { draftId: string; revision: number; baseSha256: string; data: string; byteLength: number; encoding: 'utf-8' };
 export type Unsubscribe = () => void;
 
 export interface EventSource {

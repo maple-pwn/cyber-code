@@ -118,6 +118,12 @@ importers:
         specifier: 19.1.1
         version: 19.1.1(react@19.1.1)
 
+  packages/editor-model:
+    dependencies:
+      '@cyber/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+
   packages/i18n: {}
 
   packages/product-app:

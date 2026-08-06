@@ -21,6 +21,12 @@ var (
 	ErrTerminalOutputSequence    = errors.New("terminal_output_sequence")
 	ErrTerminalInputSequence     = errors.New("terminal_input_sequence")
 	ErrTerminalOutputLimit       = errors.New("terminal_output_limit")
+	ErrEditorDraftConflict       = errors.New("editor_draft_conflict")
+	ErrEditorProvenanceMissing   = errors.New("editor_provenance_missing")
+	ErrEditorDraftNotEditable    = errors.New("editor_draft_not_editable")
+	ErrEditorDraftRevision       = errors.New("editor_draft_revision")
+	ErrEditorPatchStale          = errors.New("editor_patch_stale")
+	ErrEditorPatchNotApplied     = errors.New("editor_patch_not_applied")
 )
 
 type ProjectionKind string
@@ -70,6 +76,9 @@ func Project(previous State, event productprotocol.Event) (ProjectionResult, err
 	state, err := cloneState(previous)
 	if err != nil {
 		return ProjectionResult{}, err
+	}
+	if state.EditorDrafts == nil {
+		state.EditorDrafts = make(map[string]productprotocol.EditorDraftState)
 	}
 	storedEvent := event
 	storedEvent.Payload = append(json.RawMessage(nil), event.Payload...)
@@ -355,6 +364,107 @@ func applyKnownEvent(state *State, event productprotocol.Event) error {
 		session.ExitCode = &payload.ExitCode
 		session.ExitReason = payload.Reason
 		state.Terminals[session.ID] = session
+	case "editor.draft.opened":
+		var payload struct {
+			Draft productprotocol.EditorDraftState `json:"draft"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		if _, exists := state.EditorDrafts[payload.Draft.ID]; exists {
+			return ErrEditorDraftConflict
+		}
+		for _, reference := range payload.Draft.EvidenceReferences {
+			finding, findingOK := state.Findings[reference.FindingID]
+			evidence, evidenceOK := state.Evidence[reference.EvidenceID]
+			if !findingOK || !evidenceOK || evidence.TaskID != event.TaskID || !containsString(finding.EvidenceIDs, reference.EvidenceID) {
+				return ErrEditorProvenanceMissing
+			}
+		}
+		payload.Draft.Status = "open"
+		payload.Draft.NextRevision = 1
+		state.EditorDrafts[payload.Draft.ID] = payload.Draft
+	case "editor.draft.saved":
+		var payload struct {
+			DraftID            string `json:"draftId"`
+			Revision           int    `json:"revision"`
+			BaseSHA256         string `json:"baseSha256"`
+			ProposedSHA256     string `json:"proposedSha256"`
+			ProposedByteLength int    `json:"proposedByteLength"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		draft, ok := state.EditorDrafts[payload.DraftID]
+		if !ok || (draft.Status != "open" && draft.Status != "saved") {
+			return ErrEditorDraftNotEditable
+		}
+		if payload.Revision != draft.NextRevision || payload.BaseSHA256 != draft.BaseSHA256 {
+			return ErrEditorDraftRevision
+		}
+		draft.Status = "saved"
+		draft.NextRevision++
+		draft.ProposedSHA256 = payload.ProposedSHA256
+		draft.ProposedByteLength = payload.ProposedByteLength
+		state.EditorDrafts[draft.ID] = draft
+	case "editor.patch.applied":
+		var payload struct {
+			DraftID        string `json:"draftId"`
+			Revision       int    `json:"revision"`
+			BaseSHA256     string `json:"baseSha256"`
+			ProposedSHA256 string `json:"proposedSha256"`
+			ResultSHA256   string `json:"resultSha256"`
+			Reviewer       string `json:"reviewer"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		draft, ok := state.EditorDrafts[payload.DraftID]
+		if !ok || draft.Status != "saved" || payload.Revision != draft.NextRevision-1 || payload.BaseSHA256 != draft.BaseSHA256 || payload.ProposedSHA256 != draft.ProposedSHA256 {
+			return ErrEditorPatchStale
+		}
+		draft.Status = "applied"
+		draft.ResultSHA256 = payload.ResultSHA256
+		draft.Reviewer = payload.Reviewer
+		state.EditorDrafts[draft.ID] = draft
+	case "editor.patch.verified":
+		var payload struct {
+			DraftID        string   `json:"draftId"`
+			Revision       int      `json:"revision"`
+			VerificationID string   `json:"verificationId"`
+			Success        bool     `json:"success"`
+			EvidenceIDs    []string `json:"evidenceIds"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		draft, ok := state.EditorDrafts[payload.DraftID]
+		if !ok || draft.Status != "applied" || payload.Revision != draft.NextRevision-1 {
+			return ErrEditorPatchNotApplied
+		}
+		for _, evidenceID := range payload.EvidenceIDs {
+			if _, exists := state.Evidence[evidenceID]; !exists {
+				return ErrEditorProvenanceMissing
+			}
+		}
+		draft.Status = "verified"
+		draft.Verification = &productprotocol.EditorVerificationState{ID: payload.VerificationID, Revision: payload.Revision, Success: payload.Success, EvidenceIDs: append([]string(nil), payload.EvidenceIDs...)}
+		state.EditorDrafts[draft.ID] = draft
+	case "editor.draft.discarded":
+		var payload struct {
+			DraftID string `json:"draftId"`
+			Reason  string `json:"reason"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		draft, ok := state.EditorDrafts[payload.DraftID]
+		if !ok || (draft.Status != "open" && draft.Status != "saved") {
+			return ErrEditorDraftNotEditable
+		}
+		draft.Status = "discarded"
+		draft.DiscardReason = payload.Reason
+		state.EditorDrafts[draft.ID] = draft
 	}
 	return nil
 }
@@ -373,4 +483,13 @@ func cloneState(state State) (State, error) {
 
 func decodePayload(event productprotocol.Event, target any) error {
 	return json.Unmarshal(event.Payload, target)
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }

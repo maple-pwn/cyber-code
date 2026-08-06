@@ -33,6 +33,27 @@ export type TerminalSessionState = {
   exitCode?: number;
   exitReason?: string;
 };
+export type EditorEvidenceReference = { findingId: string; evidenceId: string; startLine: number; endLine: number };
+export type EditorVerificationState = { id: string; revision: number; success: boolean; evidenceIds: string[] };
+export type EditorDraftState = {
+  id: string;
+  path: string;
+  scopeId: string;
+  ownerClientId: string;
+  leaseRevision: number;
+  baseSha256: string;
+  baseByteLength: number;
+  encoding: 'utf-8';
+  evidenceReferences: EditorEvidenceReference[];
+  status: 'open' | 'saved' | 'applied' | 'verified' | 'discarded';
+  nextRevision: number;
+  proposedSha256?: string;
+  proposedByteLength?: number;
+  resultSha256?: string;
+  reviewer?: string;
+  verification?: EditorVerificationState;
+  discardReason?: string;
+};
 export type ReportFinding = {
   finding: FindingState;
   evidence: ImmutableEvidence[];
@@ -61,15 +82,20 @@ export interface KnownEventPayloads {
   'terminal.input.accepted': { sessionId: string; sequence: number; byteLength: number; sha256: string };
   'terminal.resized': { sessionId: string; columns: number; rows: number };
   'terminal.exited': { sessionId: string; exitCode: number; reason: string };
+  'editor.draft.opened': { draft: Omit<EditorDraftState, 'status' | 'nextRevision' | 'proposedSha256' | 'proposedByteLength' | 'resultSha256' | 'reviewer' | 'verification' | 'discardReason'> };
+  'editor.draft.saved': { draftId: string; revision: number; baseSha256: string; proposedSha256: string; proposedByteLength: number };
+  'editor.patch.applied': { draftId: string; revision: number; baseSha256: string; proposedSha256: string; resultSha256: string; reviewer: string };
+  'editor.patch.verified': { draftId: string; revision: number; verificationId: string; success: boolean; evidenceIds: string[] };
+  'editor.draft.discarded': { draftId: string; reason: string };
 }
 export type KnownEventType = keyof KnownEventPayloads;
 export type KnownProductEvent = { [K in KnownEventType]: ProductEvent<K, KnownEventPayloads[K]> }[KnownEventType];
 export type UnknownProductEvent = ProductEvent<string, JsonObject> & { kind: 'unknown' };
 export type ValidatedProductEvent = (KnownProductEvent & { kind: 'known' }) | UnknownProductEvent;
-export type ProductState = { activeRuntime: { id: string } | null; task: { id: string; title: string; status: string } | null; scope: ScopeSnapshot | null; controlLease: ControlLease | null; highestCommittedLeaseRevision: number; agents: Record<string, AgentState>; timeline: ValidatedProductEvent[]; approvals: Record<string, ApprovalState>; findings: Record<string, FindingState>; evidence: Record<string, ImmutableEvidence>; terminals: Record<string, TerminalSessionState>; report: ReportState | null; rawEvents: ValidatedProductEvent[]; committedCursor: number; canonicalEvents: Record<string, string> };
+export type ProductState = { activeRuntime: { id: string } | null; task: { id: string; title: string; status: string } | null; scope: ScopeSnapshot | null; controlLease: ControlLease | null; highestCommittedLeaseRevision: number; agents: Record<string, AgentState>; timeline: ValidatedProductEvent[]; approvals: Record<string, ApprovalState>; findings: Record<string, FindingState>; evidence: Record<string, ImmutableEvidence>; terminals: Record<string, TerminalSessionState>; editorDrafts: Record<string, EditorDraftState>; report: ReportState | null; rawEvents: ValidatedProductEvent[]; committedCursor: number; canonicalEvents: Record<string, string> };
 export type ProjectionResult = { kind: 'applied'; state: ProductState } | { kind: 'duplicate'; state: ProductState } | { kind: 'resync-required'; state: ProductState; expectedCursor: number };
 
-export function initialProductState(): ProductState { return { activeRuntime: null, task: null, scope: null, controlLease: null, highestCommittedLeaseRevision: 0, agents: {}, timeline: [], approvals: {}, findings: {}, evidence: {}, terminals: {}, report: null, rawEvents: [], committedCursor: 0, canonicalEvents: {} }; }
+export function initialProductState(): ProductState { return { activeRuntime: null, task: null, scope: null, controlLease: null, highestCommittedLeaseRevision: 0, agents: {}, timeline: [], approvals: {}, findings: {}, evidence: {}, terminals: {}, editorDrafts: {}, report: null, rawEvents: [], committedCursor: 0, canonicalEvents: {} }; }
 export { validateEvent } from './validation';
 export { exportReport, freezeReport, validateReport, type ReportAuditMetadata, type ReportFormat, type ReportValidation } from './report';
 
@@ -86,7 +112,7 @@ export function project(previous: ProductState, event: ValidatedProductEvent): P
   if (event.cursor <= previous.committedCursor) throw new Error('stale_cursor');
   if (event.cursor > previous.committedCursor + 1) return { kind: 'resync-required', state: previous, expectedCursor: previous.committedCursor + 1 };
   const state = clone(previous);
-  for (const value of [state.task, state.scope, state.controlLease, state.report, ...Object.values(state.agents), ...Object.values(state.approvals), ...Object.values(state.findings), ...Object.values(state.evidence), ...Object.values(state.terminals), ...state.timeline, ...state.rawEvents]) deepFreeze(value);
+  for (const value of [state.task, state.scope, state.controlLease, state.report, ...Object.values(state.agents), ...Object.values(state.approvals), ...Object.values(state.findings), ...Object.values(state.evidence), ...Object.values(state.terminals), ...Object.values(state.editorDrafts), ...state.timeline, ...state.rawEvents]) deepFreeze(value);
   state.committedCursor = event.cursor; state.canonicalEvents[event.eventId] = canonical;
   const storedEvent = retained(event);
   if (event.kind === 'unknown') { state.rawEvents.push(storedEvent); return { kind: 'applied', state }; }
@@ -141,6 +167,43 @@ export function project(previous: ProductState, event: ValidatedProductEvent): P
       const session = state.terminals[payload.sessionId as string];
       if (!session || session.status !== 'open') throw new Error('terminal_session_not_open');
       state.terminals[session.id] = retained({ ...session, status: 'exited', exitCode: payload.exitCode as number, exitReason: payload.reason as string });
+      break;
+    }
+    case 'editor.draft.opened': {
+      const draft = payload.draft as KnownEventPayloads['editor.draft.opened']['draft'];
+      if (state.editorDrafts[draft.id]) throw new Error('editor_draft_conflict');
+      for (const reference of draft.evidenceReferences) {
+        const finding = state.findings[reference.findingId];
+        const evidence = state.evidence[reference.evidenceId];
+        if (!finding || !evidence || evidence.taskId !== event.taskId || !finding.evidenceIds.includes(reference.evidenceId)) throw new Error('editor_provenance_missing');
+      }
+      state.editorDrafts[draft.id] = retained({ ...draft, status: 'open', nextRevision: 1 });
+      break;
+    }
+    case 'editor.draft.saved': {
+      const draft = state.editorDrafts[payload.draftId as string];
+      if (!draft || !['open', 'saved'].includes(draft.status)) throw new Error('editor_draft_not_editable');
+      if (payload.revision !== draft.nextRevision || payload.baseSha256 !== draft.baseSha256) throw new Error('editor_draft_revision');
+      state.editorDrafts[draft.id] = retained({ ...draft, status: 'saved', nextRevision: draft.nextRevision + 1, proposedSha256: payload.proposedSha256 as string, proposedByteLength: payload.proposedByteLength as number });
+      break;
+    }
+    case 'editor.patch.applied': {
+      const draft = state.editorDrafts[payload.draftId as string];
+      if (!draft || draft.status !== 'saved' || payload.revision !== draft.nextRevision - 1 || payload.baseSha256 !== draft.baseSha256 || payload.proposedSha256 !== draft.proposedSha256) throw new Error('editor_patch_stale');
+      state.editorDrafts[draft.id] = retained({ ...draft, status: 'applied', resultSha256: payload.resultSha256 as string, reviewer: payload.reviewer as string });
+      break;
+    }
+    case 'editor.patch.verified': {
+      const draft = state.editorDrafts[payload.draftId as string];
+      if (!draft || draft.status !== 'applied' || payload.revision !== draft.nextRevision - 1) throw new Error('editor_patch_not_applied');
+      for (const evidenceId of payload.evidenceIds as string[]) if (!state.evidence[evidenceId]) throw new Error('editor_provenance_missing');
+      state.editorDrafts[draft.id] = retained({ ...draft, status: 'verified', verification: { id: payload.verificationId as string, revision: payload.revision as number, success: payload.success as boolean, evidenceIds: payload.evidenceIds as string[] } });
+      break;
+    }
+    case 'editor.draft.discarded': {
+      const draft = state.editorDrafts[payload.draftId as string];
+      if (!draft || !['open', 'saved'].includes(draft.status)) throw new Error('editor_draft_not_editable');
+      state.editorDrafts[draft.id] = retained({ ...draft, status: 'discarded', discardReason: payload.reason as string });
       break;
     }
   }
