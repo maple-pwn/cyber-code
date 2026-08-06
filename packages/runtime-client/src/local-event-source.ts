@@ -109,7 +109,7 @@ function cleanEvent(value: unknown): RawProductEvent {
 }
 
 function cleanProductState(value: unknown): ProductState {
-  if (!isRecord(value) || !hasExactKeys(value, productStateKeys)
+  if (!isRecord(value) || !hasExactKeys(value, productStateKeys, ['terminals'])
     || !safeCursor(value.committedCursor)
     || !Number.isSafeInteger(value.highestCommittedLeaseRevision)
     || (value.highestCommittedLeaseRevision as number) < 0
@@ -118,11 +118,13 @@ function cleanProductState(value: unknown): ProductState {
     || !isRecord(value.approvals)
     || !isRecord(value.findings)
     || !isRecord(value.evidence)
+    || (value.terminals !== undefined && !isRecord(value.terminals))
     || !Array.isArray(value.rawEvents)
     || !stringRecord(value.canonicalEvents)) {
     throw new Error('invalid_snapshot_state');
   }
-  const state = structuredClone(value) as unknown as ProductState;
+  const normalized = { ...value, terminals: value.terminals ?? {} };
+  const state = structuredClone(normalized) as unknown as ProductState;
   state.timeline = value.timeline.map((item) => validateEvent(cleanEvent(item))) as ValidatedProductEvent[];
   state.rawEvents = value.rawEvents.map((item) => validateEvent(cleanEvent(item))) as ValidatedProductEvent[];
   try {

@@ -35,7 +35,11 @@ export type RuntimeCommand =
   | { type: 'task.cancel' }
   | { type: 'approval.respond'; challengeId: string; decision: ApprovalDecision }
   | { type: 'control.take'; expectedRevision: number }
-  | { type: 'instruction.send'; content: string };
+  | { type: 'instruction.send'; content: string }
+  | { type: 'terminal.open'; sessionId: string; profileId: string; workingDirectory: string; scopeId: string; columns: number; rows: number; outputLimitBytes: number; expectedLeaseRevision: number }
+  | { type: 'terminal.input'; sessionId: string; sequence: number; data: string; byteLength: number; expectedLeaseRevision: number }
+  | { type: 'terminal.resize'; sessionId: string; columns: number; rows: number; expectedLeaseRevision: number }
+  | { type: 'terminal.cancel'; sessionId: string; expectedLeaseRevision: number };
 
 export type RuntimeSnapshot = { cursor: number; state: ProductState };
 export type Unsubscribe = () => void;

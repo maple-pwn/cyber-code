@@ -88,6 +88,32 @@ type ControlLease struct {
 	Revision int    `json:"revision"`
 }
 
+type TerminalOutputChunk struct {
+	Sequence   int    `json:"sequence"`
+	Data       string `json:"data"`
+	ByteLength int    `json:"byteLength"`
+}
+
+type TerminalSessionState struct {
+	ID                 string                `json:"id"`
+	ProfileID          string                `json:"profileId"`
+	ProcessID          string                `json:"processId"`
+	WorkingDirectory   string                `json:"workingDirectory"`
+	ScopeID            string                `json:"scopeId"`
+	OwnerClientID      string                `json:"ownerClientId"`
+	LeaseRevision      int                   `json:"leaseRevision"`
+	Columns            int                   `json:"columns"`
+	Rows               int                   `json:"rows"`
+	OutputLimitBytes   int                   `json:"outputLimitBytes"`
+	OutputBytes        int                   `json:"outputBytes"`
+	NextInputSequence  int                   `json:"nextInputSequence"`
+	NextOutputSequence int                   `json:"nextOutputSequence"`
+	Status             string                `json:"status"`
+	Output             []TerminalOutputChunk `json:"output"`
+	ExitCode           *int                  `json:"exitCode,omitempty"`
+	ExitReason         string                `json:"exitReason,omitempty"`
+}
+
 type ReportFinding struct {
 	Finding         FindingState        `json:"finding"`
 	Evidence        []ImmutableEvidence `json:"evidence"`

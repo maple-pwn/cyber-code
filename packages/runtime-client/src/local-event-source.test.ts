@@ -169,6 +169,32 @@ describe('LocalEventSource', () => {
     await expect(source.send(envelope)).resolves.toEqual({ idempotencyKey: 'cmd-1', status: 'accepted' });
   });
 
+  test('normalizes additive terminal state when reading a legacy schema v1 snapshot', async () => {
+    const legacyState = { ...initialProductState() };
+    Reflect.deleteProperty(legacyState, 'terminals');
+    const transport = new TestTransport((request) => ({
+      id: request.id,
+      type: 'snapshot',
+      snapshot: { cursor: 0, state: legacyState },
+    }));
+    const source = new LocalEventSource(transport);
+    await source.handshake(handshakeRequest);
+
+    await expect(source.getSnapshot()).resolves.toEqual({ cursor: 0, state: initialProductState() });
+  });
+
+  test('rejects malformed terminal state in a runtime snapshot', async () => {
+    const transport = new TestTransport((request) => ({
+      id: request.id,
+      type: 'snapshot',
+      snapshot: { cursor: 0, state: { ...initialProductState(), terminals: [] } },
+    }));
+    const source = new LocalEventSource(transport);
+    await source.handshake(handshakeRequest);
+
+    await expect(source.getSnapshot()).rejects.toThrow('invalid_snapshot_state');
+  });
+
   test('rejects snapshot state that cannot be proven by its event log', async () => {
     const forgedState = {
       ...initialProductState(),

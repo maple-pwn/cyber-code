@@ -15,7 +15,7 @@ const isJsonArray = (value: unknown[]): boolean => {
 const isJsonValue = (value: unknown): boolean => value === null || typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value)) || (Array.isArray(value) && isJsonArray(value)) || (isPlainObject(value) && Object.getOwnPropertySymbols(value).length === 0 && Object.values(value).every(isJsonValue));
 const isString = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
 const isStrings = (value: unknown): value is string[] => Array.isArray(value) && value.every(isString);
-const knownTypes = new Set<KnownEventType>(['task.created', 'task.started', 'task.paused', 'task.resumed', 'task.cancel.requested', 'task.cancelled', 'task.completed', 'task.failed', 'task.blocked', 'scope.proposed', 'scope.confirmed', 'runtime.capabilities.updated', 'control.acquired', 'control.transferred', 'control.released', 'approval.requested', 'approval.resolved', 'question.requested', 'question.resolved', 'agent.started', 'agent.progressed', 'agent.completed', 'agent.failed', 'tool.started', 'tool.completed', 'tool.failed', 'evidence.committed', 'finding.created', 'finding.verifying', 'finding.confirmed', 'finding.rejected', 'finding.mitigated', 'report.drafted', 'report.edited', 'report.validation.failed', 'report.validated', 'report.frozen', 'report.exported']);
+const knownTypes = new Set<KnownEventType>(['task.created', 'task.started', 'task.paused', 'task.resumed', 'task.cancel.requested', 'task.cancelled', 'task.completed', 'task.failed', 'task.blocked', 'scope.proposed', 'scope.confirmed', 'runtime.capabilities.updated', 'control.acquired', 'control.transferred', 'control.released', 'approval.requested', 'approval.resolved', 'question.requested', 'question.resolved', 'agent.started', 'agent.progressed', 'agent.completed', 'agent.failed', 'tool.started', 'tool.completed', 'tool.failed', 'evidence.committed', 'finding.created', 'finding.verifying', 'finding.confirmed', 'finding.rejected', 'finding.mitigated', 'report.drafted', 'report.edited', 'report.validation.failed', 'report.validated', 'report.frozen', 'report.exported', 'terminal.opened', 'terminal.output', 'terminal.input.accepted', 'terminal.resized', 'terminal.exited']);
 const isKnownType = (type: string): type is KnownEventType => knownTypes.has(type as KnownEventType);
 const has = (payload: JsonObject, ...keys: string[]) => keys.every((key) => payload[key] !== undefined);
 const validScope = (value: unknown) => isObject(value) && isString(value.id) && isString(value.principal) && isString(value.workspace) && isString(value.validity) && isStrings(value.targets) && isStrings(value.allowedActions) && isStrings(value.deniedActions) && isString(value.riskCeiling);
@@ -25,6 +25,30 @@ const validFinding = (value: unknown) => isObject(value) && isString(value.id) &
 const validLease = (value: unknown) => isObject(value) && isString(value.clientId) && Number.isSafeInteger(value.revision) && (value.revision as number) > 0;
 const validChallenge = (value: unknown) => isObject(value) && has(value, 'id', 'agentId', 'action', 'target', 'parameterDigest', 'risk', 'expiresAt') && ['id', 'agentId', 'action', 'target', 'parameterDigest', 'risk', 'expiresAt'].every((key) => isString(value[key])) && !Number.isNaN(Date.parse(value.expiresAt as string));
 const validReport = (value: unknown) => isObject(value) && isString(value.id) && isString(value.taskId) && Number.isSafeInteger(value.version) && (value.version as number) >= 0 && (value.status === 'draft' || value.status === 'frozen') && typeof value.narrative === 'string' && typeof value.recommendations === 'string' && typeof value.humanNotes === 'string' && Array.isArray(value.findings);
+const exactKeys = (value: JsonObject, keys: string[]) => Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+const auditableText = (value: unknown): value is string => {
+  if (!isString(value)) return false;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f)
+      || codePoint === 0x2028 || codePoint === 0x2029) return false;
+  }
+  return true;
+};
+const safeTerminalIdentifier = (value: unknown): value is string =>
+  typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+const positiveInteger = (value: unknown, maximum = Number.MAX_SAFE_INTEGER) => Number.isSafeInteger(value) && (value as number) > 0 && (value as number) <= maximum;
+const terminalSize = (value: unknown) => positiveInteger(value, 1000);
+const decodedBase64Length = (value: string): number | null => {
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) return null;
+  return (value.length / 4) * 3 - (value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0);
+};
+const validTerminalSession = (value: unknown) => isObject(value)
+  && exactKeys(value, ['id', 'profileId', 'processId', 'workingDirectory', 'scopeId', 'ownerClientId', 'leaseRevision', 'columns', 'rows', 'outputLimitBytes'])
+  && ['id', 'processId', 'workingDirectory', 'scopeId', 'ownerClientId'].every((key) => auditableText(value[key]))
+  && safeTerminalIdentifier(value.profileId)
+  && positiveInteger(value.leaseRevision) && terminalSize(value.columns) && terminalSize(value.rows)
+  && positiveInteger(value.outputLimitBytes, 64 * 1024 * 1024);
 
 function isValidPayload(type: KnownEventType, payload: JsonObject): boolean {
   switch (type) {
@@ -51,6 +75,14 @@ function isValidPayload(type: KnownEventType, payload: JsonObject): boolean {
     case 'report.validated': return isString(payload.reportId);
     case 'report.frozen': return isString(payload.reportId) && Number.isSafeInteger(payload.version) && (payload.version as number) > 0;
     case 'report.exported': return isString(payload.reportId) && isString(payload.format);
+    case 'terminal.opened': return exactKeys(payload, ['session']) && validTerminalSession(payload.session);
+    case 'terminal.output': {
+      if (!exactKeys(payload, ['sessionId', 'sequence', 'data', 'byteLength']) || !auditableText(payload.sessionId) || !positiveInteger(payload.sequence) || !positiveInteger(payload.byteLength, 1024 * 1024) || typeof payload.data !== 'string') return false;
+      return decodedBase64Length(payload.data) === payload.byteLength;
+    }
+    case 'terminal.input.accepted': return exactKeys(payload, ['sessionId', 'sequence', 'byteLength', 'sha256']) && auditableText(payload.sessionId) && positiveInteger(payload.sequence) && positiveInteger(payload.byteLength, 1024 * 1024) && typeof payload.sha256 === 'string' && /^[a-f0-9]{64}$/.test(payload.sha256);
+    case 'terminal.resized': return exactKeys(payload, ['sessionId', 'columns', 'rows']) && auditableText(payload.sessionId) && terminalSize(payload.columns) && terminalSize(payload.rows);
+    case 'terminal.exited': return exactKeys(payload, ['sessionId', 'exitCode', 'reason']) && auditableText(payload.sessionId) && Number.isSafeInteger(payload.exitCode) && auditableText(payload.reason);
     default: return Object.keys(payload).length === 0;
   }
 }

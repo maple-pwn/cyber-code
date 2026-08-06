@@ -51,12 +51,21 @@ const auditableText = (value: unknown): value is string => {
   }
   return true;
 };
+const safeTerminalIdentifier = (value: unknown): value is string =>
+  typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 
 const stringList = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every(auditableText);
 
 const safeCursor = (value: unknown): value is number =>
   Number.isSafeInteger(value) && (value as number) >= 0;
+const positiveInteger = (value: unknown, maximum = Number.MAX_SAFE_INTEGER): value is number =>
+  Number.isSafeInteger(value) && (value as number) > 0 && (value as number) <= maximum;
+const terminalSize = (value: unknown): value is number => positiveInteger(value, 1000);
+const decodedBase64Length = (value: string): number | null => {
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) return null;
+  return (value.length / 4) * 3 - (value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0);
+};
 
 const exactKeys = (value: Record<string, unknown>, required: string[], optional: string[] = []): boolean => {
   const allowed = new Set([...required, ...optional]);
@@ -89,6 +98,23 @@ const validCommand = (value: unknown): value is RuntimeCommand => {
         && (command.expectedRevision as number) >= 0;
     case 'instruction.send':
       return exactKeys(command, ['type', 'content']) && nonEmpty(command.content);
+    case 'terminal.open':
+      return exactKeys(command, ['type', 'sessionId', 'profileId', 'workingDirectory', 'scopeId', 'columns', 'rows', 'outputLimitBytes', 'expectedLeaseRevision'])
+        && auditableText(command.sessionId) && safeTerminalIdentifier(command.profileId) && auditableText(command.workingDirectory) && auditableText(command.scopeId)
+        && terminalSize(command.columns) && terminalSize(command.rows) && positiveInteger(command.outputLimitBytes, 64 * 1024 * 1024)
+        && positiveInteger(command.expectedLeaseRevision);
+    case 'terminal.input':
+      return exactKeys(command, ['type', 'sessionId', 'sequence', 'data', 'byteLength', 'expectedLeaseRevision'])
+        && auditableText(command.sessionId) && positiveInteger(command.sequence) && positiveInteger(command.byteLength, 1024 * 1024)
+        && typeof command.data === 'string' && decodedBase64Length(command.data) === command.byteLength
+        && positiveInteger(command.expectedLeaseRevision);
+    case 'terminal.resize':
+      return exactKeys(command, ['type', 'sessionId', 'columns', 'rows', 'expectedLeaseRevision'])
+        && auditableText(command.sessionId) && terminalSize(command.columns) && terminalSize(command.rows)
+        && positiveInteger(command.expectedLeaseRevision);
+    case 'terminal.cancel':
+      return exactKeys(command, ['type', 'sessionId', 'expectedLeaseRevision'])
+        && auditableText(command.sessionId) && positiveInteger(command.expectedLeaseRevision);
     default:
       return false;
   }

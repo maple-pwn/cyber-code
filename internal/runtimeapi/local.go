@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -23,15 +24,26 @@ import (
 const defaultLocalMessageLimit = 1 << 20
 
 type LocalServerOptions struct {
-	Service         *Service
-	Bearer          string
-	Role            string
-	Workspace       string
-	Source          SourceMetadata
-	MaxMessageBytes int
-	StateFileName   string
-	TaskPrefix      string
-	ClientID        string
+	Service          *Service
+	Bearer           string
+	Role             string
+	Workspace        string
+	Source           SourceMetadata
+	MaxMessageBytes  int
+	StateFileName    string
+	TaskPrefix       string
+	ClientID         string
+	TerminalProfiles map[string]TerminalProfile
+	TerminalBackend  TerminalBackend
+}
+
+type TerminalProfile struct {
+	ID               string
+	RequiredAction   string
+	Risk             string
+	ApprovalRequired bool
+	Program          string
+	Arguments        []string
 }
 
 type LocalRequest struct {
@@ -87,15 +99,17 @@ type localPersistentState struct {
 }
 
 type LocalServer struct {
-	service         *Service
-	bearerDigest    [sha256.Size]byte
-	role            string
-	workspace       string
-	source          SourceMetadata
-	maxMessageBytes int
-	statePath       string
-	taskPrefix      string
-	clientID        string
+	service          *Service
+	bearerDigest     [sha256.Size]byte
+	role             string
+	workspace        string
+	source           SourceMetadata
+	maxMessageBytes  int
+	statePath        string
+	taskPrefix       string
+	clientID         string
+	terminalProfiles map[string]TerminalProfile
+	terminalManager  *TerminalManager
 
 	mu         sync.Mutex
 	receipts   map[string]localReceipt
@@ -153,6 +167,26 @@ func newRuntimeServer(options LocalServerOptions, requiredMode SourceMode) (*Loc
 		workspace: options.Workspace, source: options.Source, maxMessageBytes: limit,
 		receipts:  make(map[string]localReceipt),
 		statePath: filepath.Join(options.Service.Store().Root(), stateFileName), taskPrefix: taskPrefix, clientID: clientID,
+		terminalProfiles: make(map[string]TerminalProfile, len(options.TerminalProfiles)),
+	}
+	for id, profile := range options.TerminalProfiles {
+		if id != profile.ID || !validRuntimeIdentifier(id) || !validIdentityText(profile.RequiredAction) ||
+			!slices.Contains([]string{"low", "medium", "high", "critical"}, profile.Risk) ||
+			(options.TerminalBackend != nil && !validIdentityText(profile.Program)) {
+			return nil, fmt.Errorf("terminal profile is invalid")
+		}
+		for _, argument := range profile.Arguments {
+			if !validIdentityText(argument) {
+				return nil, fmt.Errorf("terminal profile argument is invalid")
+			}
+		}
+		server.terminalProfiles[id] = profile
+	}
+	if options.TerminalBackend != nil {
+		if len(server.terminalProfiles) == 0 || !slices.Contains(server.source.Capabilities, "terminal.input") {
+			return nil, fmt.Errorf("terminal backend requires advertised profiles and input capability")
+		}
+		server.terminalManager = NewTerminalManager(server.service, options.TerminalBackend)
 	}
 	if err := server.loadState(); err != nil {
 		return nil, err
@@ -237,6 +271,9 @@ func (s *LocalServer) handleAuthorizedForClient(ctx context.Context, request Loc
 		response.Type = "command"
 		response.Receipt = s.handleCommand(ctx, request.TaskID, *request.Command, clientID)
 	case "close":
+		if s.terminalManager != nil {
+			_ = s.terminalManager.Close(ctx)
+		}
 		response.Type = "closed"
 	default:
 		return localError(request.ID, "unknown_request")
@@ -421,7 +458,7 @@ func (s *LocalServer) dispatchCommand(ctx context.Context, taskID string, envelo
 		if _, err = s.service.CreateTask(ctx, taskID, command.Objective); err == nil {
 			scope := productprotocol.ScopeSnapshot{
 				ID: "scope-1", Principal: s.source.Principal, Workspace: workspace, Validity: "task",
-				Targets: []string{workspace}, AllowedActions: []string{"read"}, DeniedActions: []string{}, RiskCeiling: "low",
+				Targets: []string{workspace}, AllowedActions: defaultScopeActions(s.source.Capabilities), DeniedActions: []string{}, RiskCeiling: "low",
 			}
 			_, err = s.service.ProposeScope(ctx, taskID, scope)
 			if err == nil {
@@ -455,6 +492,36 @@ func (s *LocalServer) dispatchCommand(ctx context.Context, taskID string, envelo
 		_, err = s.service.TakeControl(ctx, taskID, clientID, command.ExpectedRevision)
 	case "instruction.send":
 		return rejectedReceipt(envelope.IdempotencyKey, "unsupported_command")
+	case "terminal.open":
+		var command terminalOpenCommand
+		if json.Unmarshal(envelope.Command, &command) != nil {
+			return rejectedReceipt(envelope.IdempotencyKey, "invalid_command_envelope")
+		}
+		if err = s.authorizeTerminalOpen(ctx, taskID, clientID, command); err == nil {
+			if s.terminalManager == nil {
+				err = ErrTerminalUnavailable
+			} else {
+				err = s.terminalManager.Open(ctx, taskID, clientID, command, s.terminalProfiles[command.ProfileID])
+			}
+		}
+	case "terminal.input":
+		var command terminalInputCommand
+		if json.Unmarshal(envelope.Command, &command) != nil {
+			return rejectedReceipt(envelope.IdempotencyKey, "invalid_command_envelope")
+		}
+		err = s.dispatchTerminalMutation(func(manager *TerminalManager) error { return manager.Input(ctx, taskID, clientID, command) })
+	case "terminal.resize":
+		var command terminalResizeCommand
+		if json.Unmarshal(envelope.Command, &command) != nil {
+			return rejectedReceipt(envelope.IdempotencyKey, "invalid_command_envelope")
+		}
+		err = s.dispatchTerminalMutation(func(manager *TerminalManager) error { return manager.Resize(ctx, taskID, clientID, command) })
+	case "terminal.cancel":
+		var command terminalCancelCommand
+		if json.Unmarshal(envelope.Command, &command) != nil {
+			return rejectedReceipt(envelope.IdempotencyKey, "invalid_command_envelope")
+		}
+		err = s.dispatchTerminalMutation(func(manager *TerminalManager) error { return manager.Cancel(ctx, taskID, clientID, command) })
 	default:
 		return rejectedReceipt(envelope.IdempotencyKey, "unsupported_command")
 	}
@@ -462,6 +529,14 @@ func (s *LocalServer) dispatchCommand(ctx context.Context, taskID string, envelo
 		return rejectedReceipt(envelope.IdempotencyKey, localErrorCode(err))
 	}
 	return &CommandReceipt{IdempotencyKey: envelope.IdempotencyKey, Status: "accepted"}
+}
+
+func defaultScopeActions(capabilities []string) []string {
+	actions := []string{"read"}
+	if slices.Contains(capabilities, "terminal.input") {
+		actions = append(actions, "terminal.open")
+	}
+	return actions
 }
 
 func (s *LocalServer) resolveTaskID(taskID string) string {
@@ -489,11 +564,31 @@ func localErrorCode(err error) string {
 		ErrScopeNotConfirmed: "scope_not_confirmed", ErrApprovalOutOfScope: "approval_out_of_scope",
 		ErrApprovalExpired: "approval_expired", ErrApprovalReplay: "approval_replay",
 		ErrUnknownApproval: "unknown_approval", ErrStaleLease: "stale_control_revision",
-		ErrInvalidReportState: "invalid_report_state",
+		ErrInvalidReportState:          "invalid_report_state",
+		ErrTerminalCapabilityRequired:  "terminal_capability_required",
+		ErrTerminalProfileNotAllowed:   "terminal_profile_not_allowed",
+		ErrTerminalScopeMismatch:       "terminal_scope_mismatch",
+		ErrTerminalWorkspaceOutOfScope: "terminal_workspace_out_of_scope",
+		ErrTerminalControlRequired:     "terminal_control_required",
+		ErrTerminalUnavailable:         "terminal_unavailable",
+		ErrTerminalApprovalRequired:    "terminal_approval_required",
+		ErrTerminalSessionExists:       "terminal_session_exists",
+		ErrTerminalSessionNotFound:     "terminal_session_not_found",
+		ErrTerminalInputSequence:       "terminal_input_sequence",
 	} {
 		if errors.Is(err, sentinel) {
 			return code
 		}
 	}
 	return "runtime_command_failed"
+}
+
+func (s *LocalServer) dispatchTerminalMutation(run func(*TerminalManager) error) error {
+	if !slices.Contains(s.source.Capabilities, "terminal.input") {
+		return ErrTerminalCapabilityRequired
+	}
+	if s.terminalManager == nil {
+		return ErrTerminalUnavailable
+	}
+	return run(s.terminalManager)
 }

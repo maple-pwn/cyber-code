@@ -16,6 +16,11 @@ var (
 	ErrApprovalAlreadyResolved   = errors.New("approval_already_resolved")
 	ErrApprovalExpired           = errors.New("approval_expired")
 	ErrNonMonotonicLeaseRevision = errors.New("non_monotonic_lease_revision")
+	ErrTerminalSessionConflict   = errors.New("terminal_session_conflict")
+	ErrTerminalSessionNotOpen    = errors.New("terminal_session_not_open")
+	ErrTerminalOutputSequence    = errors.New("terminal_output_sequence")
+	ErrTerminalInputSequence     = errors.New("terminal_input_sequence")
+	ErrTerminalOutputLimit       = errors.New("terminal_output_limit")
 )
 
 type ProjectionKind string
@@ -262,6 +267,94 @@ func applyKnownEvent(state *State, event productprotocol.Event) error {
 			state.Report.Version = payload.Version
 			state.Report.Status = "frozen"
 		}
+	case "terminal.opened":
+		var payload struct {
+			Session productprotocol.TerminalSessionState `json:"session"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		if _, exists := state.Terminals[payload.Session.ID]; exists {
+			return ErrTerminalSessionConflict
+		}
+		payload.Session.Status = "open"
+		payload.Session.NextInputSequence = 1
+		payload.Session.NextOutputSequence = 1
+		payload.Session.Output = make([]productprotocol.TerminalOutputChunk, 0)
+		state.Terminals[payload.Session.ID] = payload.Session
+	case "terminal.output":
+		var payload struct {
+			SessionID  string `json:"sessionId"`
+			Sequence   int    `json:"sequence"`
+			Data       string `json:"data"`
+			ByteLength int    `json:"byteLength"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		session, ok := state.Terminals[payload.SessionID]
+		if !ok || session.Status != "open" {
+			return ErrTerminalSessionNotOpen
+		}
+		if payload.Sequence != session.NextOutputSequence {
+			return ErrTerminalOutputSequence
+		}
+		if session.OutputBytes+payload.ByteLength > session.OutputLimitBytes {
+			return ErrTerminalOutputLimit
+		}
+		session.OutputBytes += payload.ByteLength
+		session.NextOutputSequence++
+		session.Output = append(session.Output, productprotocol.TerminalOutputChunk{Sequence: payload.Sequence, Data: payload.Data, ByteLength: payload.ByteLength})
+		state.Terminals[session.ID] = session
+	case "terminal.input.accepted":
+		var payload struct {
+			SessionID string `json:"sessionId"`
+			Sequence  int    `json:"sequence"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		session, ok := state.Terminals[payload.SessionID]
+		if !ok || session.Status != "open" {
+			return ErrTerminalSessionNotOpen
+		}
+		if payload.Sequence != session.NextInputSequence {
+			return ErrTerminalInputSequence
+		}
+		session.NextInputSequence++
+		state.Terminals[session.ID] = session
+	case "terminal.resized":
+		var payload struct {
+			SessionID string `json:"sessionId"`
+			Columns   int    `json:"columns"`
+			Rows      int    `json:"rows"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		session, ok := state.Terminals[payload.SessionID]
+		if !ok || session.Status != "open" {
+			return ErrTerminalSessionNotOpen
+		}
+		session.Columns, session.Rows = payload.Columns, payload.Rows
+		state.Terminals[session.ID] = session
+	case "terminal.exited":
+		var payload struct {
+			SessionID string `json:"sessionId"`
+			ExitCode  int    `json:"exitCode"`
+			Reason    string `json:"reason"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		session, ok := state.Terminals[payload.SessionID]
+		if !ok || session.Status != "open" {
+			return ErrTerminalSessionNotOpen
+		}
+		session.Status = "exited"
+		session.ExitCode = &payload.ExitCode
+		session.ExitReason = payload.Reason
+		state.Terminals[session.ID] = session
 	}
 	return nil
 }

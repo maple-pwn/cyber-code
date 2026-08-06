@@ -2,12 +2,14 @@ package productprotocol
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
 	"math"
 	"strconv"
 	"time"
+	"unicode"
 )
 
 var (
@@ -30,6 +32,8 @@ var knownEventTypes = map[string]struct{}{
 	"finding.mitigated": {}, "report.drafted": {}, "report.edited": {},
 	"report.validation.failed": {}, "report.validated": {}, "report.frozen": {},
 	"report.exported": {},
+	"terminal.opened": {}, "terminal.output": {}, "terminal.input.accepted": {},
+	"terminal.resized": {}, "terminal.exited": {},
 }
 
 func Validate(raw json.RawMessage) (Event, error) {
@@ -234,9 +238,109 @@ func validKnownPayload(eventType string, payload map[string]any) bool {
 		return hasString(payload, "reportId") && ok && version > 0
 	case "report.exported":
 		return hasString(payload, "reportId") && hasString(payload, "format")
+	case "terminal.opened":
+		return exactKeys(payload, []string{"session"}) && validTerminalSession(payload["session"])
+	case "terminal.output":
+		sequence, sequenceOK := safeInteger(payload["sequence"])
+		byteLength, lengthOK := safeInteger(payload["byteLength"])
+		data, dataOK := payload["data"].(string)
+		decoded, decodeErr := base64.StdEncoding.DecodeString(data)
+		return exactKeys(payload, []string{"sessionId", "sequence", "data", "byteLength"}) &&
+			hasAuditableString(payload, "sessionId") && sequenceOK && sequence > 0 && lengthOK && byteLength > 0 && byteLength <= 1024*1024 &&
+			dataOK && decodeErr == nil && len(decoded) == byteLength
+	case "terminal.input.accepted":
+		sequence, sequenceOK := safeInteger(payload["sequence"])
+		byteLength, lengthOK := safeInteger(payload["byteLength"])
+		sha256, digestOK := payload["sha256"].(string)
+		return exactKeys(payload, []string{"sessionId", "sequence", "byteLength", "sha256"}) &&
+			hasAuditableString(payload, "sessionId") && sequenceOK && sequence > 0 && lengthOK && byteLength > 0 && byteLength <= 1024*1024 &&
+			digestOK && validSHA256(sha256)
+	case "terminal.resized":
+		columns, columnsOK := safeInteger(payload["columns"])
+		rows, rowsOK := safeInteger(payload["rows"])
+		return exactKeys(payload, []string{"sessionId", "columns", "rows"}) && hasAuditableString(payload, "sessionId") &&
+			columnsOK && validTerminalDimension(columns) && rowsOK && validTerminalDimension(rows)
+	case "terminal.exited":
+		_, exitCodeOK := safeInteger(payload["exitCode"])
+		return exactKeys(payload, []string{"sessionId", "exitCode", "reason"}) && hasAuditableString(payload, "sessionId") &&
+			exitCodeOK && hasAuditableString(payload, "reason")
 	default:
 		return len(payload) == 0
 	}
+}
+
+func validTerminalSession(value any) bool {
+	object, ok := value.(map[string]any)
+	if !ok || !exactKeys(object, []string{"id", "profileId", "processId", "workingDirectory", "scopeId", "ownerClientId", "leaseRevision", "columns", "rows", "outputLimitBytes"}) {
+		return false
+	}
+	for _, key := range []string{"id", "processId", "workingDirectory", "scopeId", "ownerClientId"} {
+		if !hasAuditableString(object, key) {
+			return false
+		}
+	}
+	profileID, profileOK := object["profileId"].(string)
+	if !profileOK || !validTerminalIdentifier(profileID) {
+		return false
+	}
+	leaseRevision, leaseOK := safeInteger(object["leaseRevision"])
+	columns, columnsOK := safeInteger(object["columns"])
+	rows, rowsOK := safeInteger(object["rows"])
+	outputLimit, outputOK := safeInteger(object["outputLimitBytes"])
+	return leaseOK && leaseRevision > 0 && columnsOK && validTerminalDimension(columns) && rowsOK && validTerminalDimension(rows) &&
+		outputOK && outputLimit > 0 && outputLimit <= 64*1024*1024
+}
+
+func validTerminalDimension(value int) bool { return value > 0 && value <= 1000 }
+
+func validTerminalIdentifier(value string) bool {
+	if len(value) == 0 || len(value) > 128 {
+		return false
+	}
+	for _, character := range value {
+		if (character < 'A' || character > 'Z') && (character < 'a' || character > 'z') &&
+			(character < '0' || character > '9') && character != '_' && character != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func validSHA256(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, character := range value {
+		if !(character >= '0' && character <= '9') && !(character >= 'a' && character <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func exactKeys(object map[string]any, keys []string) bool {
+	if len(object) != len(keys) {
+		return false
+	}
+	for _, key := range keys {
+		if _, ok := object[key]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func hasAuditableString(object map[string]any, key string) bool {
+	value, ok := nonEmptyString(object[key])
+	if !ok {
+		return false
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) || character == '\u2028' || character == '\u2029' {
+			return false
+		}
+	}
+	return true
 }
 
 func validScope(value any) bool {

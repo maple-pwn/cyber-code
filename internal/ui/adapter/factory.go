@@ -99,10 +99,11 @@ func (factory *SourceFactory) createLocal() (SourceSelection, error) {
 	bearer := hex.EncodeToString(secretBytes)
 	server, err := runtimeapi.NewLocalServer(runtimeapi.LocalServerOptions{
 		Service: service, Bearer: bearer, Role: "owner", Workspace: factory.options.Workspace,
-		ClientID: factory.options.ClientID,
+		ClientID:         factory.options.ClientID,
+		TerminalProfiles: runtimeapi.DefaultTerminalProfiles(), TerminalBackend: runtimeapi.NewPortableTerminalBackend(),
 		Source: runtimeapi.SourceMetadata{
 			Mode: runtimeapi.SourceModeLocal, RuntimeID: runtimeID, Principal: "local-user",
-			Capabilities: []string{"events", "snapshot", "commands"},
+			Capabilities: []string{"events", "snapshot", "commands", "terminal.observe", "terminal.input", "terminal.profile.default-shell"},
 		},
 	})
 	if err != nil {

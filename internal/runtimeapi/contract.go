@@ -3,6 +3,7 @@ package runtimeapi
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -120,11 +121,34 @@ func ValidateCommandEnvelope(envelope CommandEnvelope) error {
 			json.Unmarshal(command["expectedRevision"], &revision) == nil && revision >= 0
 	case "instruction.send":
 		valid = exactCommandKeys(command, []string{"type", "content"}, nil) && commandHasText(command, "content")
+	case "terminal.open":
+		valid = exactCommandKeys(command, []string{"type", "sessionId", "profileId", "workingDirectory", "scopeId", "columns", "rows", "outputLimitBytes", "expectedLeaseRevision"}, nil) &&
+			commandHasIdentityText(command, "sessionId") && commandHasTerminalIdentifier(command, "profileId") && commandHasIdentityText(command, "workingDirectory") && commandHasIdentityText(command, "scopeId") &&
+			commandHasInteger(command, "columns", 1, 1000) && commandHasInteger(command, "rows", 1, 1000) && commandHasInteger(command, "outputLimitBytes", 1, 64*1024*1024) && commandHasInteger(command, "expectedLeaseRevision", 1, int(^uint(0)>>1))
+	case "terminal.input":
+		var data string
+		var byteLength int
+		dataOK := json.Unmarshal(command["data"], &data) == nil
+		lengthOK := json.Unmarshal(command["byteLength"], &byteLength) == nil
+		decoded, decodeErr := base64.StdEncoding.DecodeString(data)
+		valid = exactCommandKeys(command, []string{"type", "sessionId", "sequence", "data", "byteLength", "expectedLeaseRevision"}, nil) &&
+			commandHasIdentityText(command, "sessionId") && commandHasInteger(command, "sequence", 1, int(^uint(0)>>1)) && dataOK && lengthOK && byteLength > 0 && byteLength <= 1024*1024 && decodeErr == nil && len(decoded) == byteLength &&
+			commandHasInteger(command, "expectedLeaseRevision", 1, int(^uint(0)>>1))
+	case "terminal.resize":
+		valid = exactCommandKeys(command, []string{"type", "sessionId", "columns", "rows", "expectedLeaseRevision"}, nil) && commandHasIdentityText(command, "sessionId") &&
+			commandHasInteger(command, "columns", 1, 1000) && commandHasInteger(command, "rows", 1, 1000) && commandHasInteger(command, "expectedLeaseRevision", 1, int(^uint(0)>>1))
+	case "terminal.cancel":
+		valid = exactCommandKeys(command, []string{"type", "sessionId", "expectedLeaseRevision"}, nil) && commandHasIdentityText(command, "sessionId") && commandHasInteger(command, "expectedLeaseRevision", 1, int(^uint(0)>>1))
 	}
 	if !valid {
 		return ErrInvalidCommandEnvelope
 	}
 	return nil
+}
+
+func commandHasTerminalIdentifier(command map[string]json.RawMessage, key string) bool {
+	value, ok := commandString(command, key)
+	return ok && validRuntimeIdentifier(value)
 }
 
 func ValidateCommandReceipt(receipt CommandReceipt, envelope CommandEnvelope) error {
@@ -186,6 +210,16 @@ func commandOptionalText(command map[string]json.RawMessage, key string) bool {
 		return true
 	}
 	return commandHasText(command, key)
+}
+
+func commandHasIdentityText(command map[string]json.RawMessage, key string) bool {
+	value, ok := commandString(command, key)
+	return ok && validIdentityText(value)
+}
+
+func commandHasInteger(command map[string]json.RawMessage, key string, minimum, maximum int) bool {
+	var value int
+	return json.Unmarshal(command[key], &value) == nil && value >= minimum && value <= maximum
 }
 
 func validStrings(values []string) bool {

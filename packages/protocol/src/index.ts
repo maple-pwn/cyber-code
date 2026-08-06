@@ -13,6 +13,26 @@ export type ApprovalDecision = 'allow_once' | 'deny';
 export type ApprovalChallenge = { id: string; agentId: string; action: string; target: string; parameterDigest: string; risk: string; expiresAt: string };
 export type ApprovalState = ApprovalChallenge & { decision?: ApprovalDecision };
 export type ControlLease = { clientId: string; revision: number };
+export type TerminalOutputChunk = { sequence: number; data: string; byteLength: number };
+export type TerminalSessionState = {
+  id: string;
+  profileId: string;
+  processId: string;
+  workingDirectory: string;
+  scopeId: string;
+  ownerClientId: string;
+  leaseRevision: number;
+  columns: number;
+  rows: number;
+  outputLimitBytes: number;
+  outputBytes: number;
+  nextInputSequence: number;
+  nextOutputSequence: number;
+  status: 'open' | 'exited';
+  output: TerminalOutputChunk[];
+  exitCode?: number;
+  exitReason?: string;
+};
 export type ReportFinding = {
   finding: FindingState;
   evidence: ImmutableEvidence[];
@@ -36,15 +56,20 @@ export interface KnownEventPayloads {
   'scope.proposed': { scope: ScopeSnapshot }; 'scope.confirmed': { scope: ScopeSnapshot }; 'runtime.capabilities.updated': { capabilities: string[] }; 'control.acquired': { lease: ControlLease }; 'control.transferred': { lease: ControlLease }; 'control.released': { clientId: string }; 'approval.requested': { challenge: ApprovalChallenge }; 'approval.resolved': { challengeId: string; decision: ApprovalDecision }; 'question.requested': { questionId: string; prompt: string }; 'question.resolved': { questionId: string; answer: string };
   'agent.started': { agent: AgentState }; 'agent.progressed': { agentId: string; progress: number; currentAction?: string }; 'agent.completed': { agentId: string }; 'agent.failed': { agentId: string; reason: string }; 'tool.started': { callId: string; name: string }; 'tool.completed': { callId: string; success: boolean; evidenceIds: string[] }; 'tool.failed': { callId: string; reason: string }; 'evidence.committed': { evidence: ImmutableEvidence }; 'finding.created': { finding: FindingState }; 'finding.verifying': { findingId: string }; 'finding.confirmed': { findingId: string }; 'finding.rejected': { findingId: string; reason: string }; 'finding.mitigated': { findingId: string };
   'report.drafted': { report: ReportState }; 'report.edited': { report: ReportState }; 'report.validation.failed': { reportId: string; reason: string }; 'report.validated': { reportId: string }; 'report.frozen': { reportId: string; version: number }; 'report.exported': { reportId: string; format: string };
+  'terminal.opened': { session: Omit<TerminalSessionState, 'outputBytes' | 'nextInputSequence' | 'nextOutputSequence' | 'status' | 'output' | 'exitCode' | 'exitReason'> };
+  'terminal.output': { sessionId: string; sequence: number; data: string; byteLength: number };
+  'terminal.input.accepted': { sessionId: string; sequence: number; byteLength: number; sha256: string };
+  'terminal.resized': { sessionId: string; columns: number; rows: number };
+  'terminal.exited': { sessionId: string; exitCode: number; reason: string };
 }
 export type KnownEventType = keyof KnownEventPayloads;
 export type KnownProductEvent = { [K in KnownEventType]: ProductEvent<K, KnownEventPayloads[K]> }[KnownEventType];
 export type UnknownProductEvent = ProductEvent<string, JsonObject> & { kind: 'unknown' };
 export type ValidatedProductEvent = (KnownProductEvent & { kind: 'known' }) | UnknownProductEvent;
-export type ProductState = { activeRuntime: { id: string } | null; task: { id: string; title: string; status: string } | null; scope: ScopeSnapshot | null; controlLease: ControlLease | null; highestCommittedLeaseRevision: number; agents: Record<string, AgentState>; timeline: ValidatedProductEvent[]; approvals: Record<string, ApprovalState>; findings: Record<string, FindingState>; evidence: Record<string, ImmutableEvidence>; report: ReportState | null; rawEvents: ValidatedProductEvent[]; committedCursor: number; canonicalEvents: Record<string, string> };
+export type ProductState = { activeRuntime: { id: string } | null; task: { id: string; title: string; status: string } | null; scope: ScopeSnapshot | null; controlLease: ControlLease | null; highestCommittedLeaseRevision: number; agents: Record<string, AgentState>; timeline: ValidatedProductEvent[]; approvals: Record<string, ApprovalState>; findings: Record<string, FindingState>; evidence: Record<string, ImmutableEvidence>; terminals: Record<string, TerminalSessionState>; report: ReportState | null; rawEvents: ValidatedProductEvent[]; committedCursor: number; canonicalEvents: Record<string, string> };
 export type ProjectionResult = { kind: 'applied'; state: ProductState } | { kind: 'duplicate'; state: ProductState } | { kind: 'resync-required'; state: ProductState; expectedCursor: number };
 
-export function initialProductState(): ProductState { return { activeRuntime: null, task: null, scope: null, controlLease: null, highestCommittedLeaseRevision: 0, agents: {}, timeline: [], approvals: {}, findings: {}, evidence: {}, report: null, rawEvents: [], committedCursor: 0, canonicalEvents: {} }; }
+export function initialProductState(): ProductState { return { activeRuntime: null, task: null, scope: null, controlLease: null, highestCommittedLeaseRevision: 0, agents: {}, timeline: [], approvals: {}, findings: {}, evidence: {}, terminals: {}, report: null, rawEvents: [], committedCursor: 0, canonicalEvents: {} }; }
 export { validateEvent } from './validation';
 export { exportReport, freezeReport, validateReport, type ReportAuditMetadata, type ReportFormat, type ReportValidation } from './report';
 
@@ -61,7 +86,7 @@ export function project(previous: ProductState, event: ValidatedProductEvent): P
   if (event.cursor <= previous.committedCursor) throw new Error('stale_cursor');
   if (event.cursor > previous.committedCursor + 1) return { kind: 'resync-required', state: previous, expectedCursor: previous.committedCursor + 1 };
   const state = clone(previous);
-  for (const value of [state.task, state.scope, state.controlLease, state.report, ...Object.values(state.agents), ...Object.values(state.approvals), ...Object.values(state.findings), ...Object.values(state.evidence), ...state.timeline, ...state.rawEvents]) deepFreeze(value);
+  for (const value of [state.task, state.scope, state.controlLease, state.report, ...Object.values(state.agents), ...Object.values(state.approvals), ...Object.values(state.findings), ...Object.values(state.evidence), ...Object.values(state.terminals), ...state.timeline, ...state.rawEvents]) deepFreeze(value);
   state.committedCursor = event.cursor; state.canonicalEvents[event.eventId] = canonical;
   const storedEvent = retained(event);
   if (event.kind === 'unknown') { state.rawEvents.push(storedEvent); return { kind: 'applied', state }; }
@@ -83,6 +108,41 @@ export function project(previous: ProductState, event: ValidatedProductEvent): P
     case 'control.released': if (state.controlLease?.clientId === payload.clientId) state.controlLease = null; break;
     case 'report.drafted': case 'report.edited': state.report = retained(payload.report as ReportState); break;
     case 'report.frozen': if (state.report) state.report = retained({ ...state.report, version: payload.version as number, status: 'frozen' }); break;
+    case 'terminal.opened': {
+      const session = payload.session as KnownEventPayloads['terminal.opened']['session'];
+      if (state.terminals[session.id]) throw new Error('terminal_session_conflict');
+      state.terminals[session.id] = retained({ ...session, outputBytes: 0, nextInputSequence: 1, nextOutputSequence: 1, status: 'open', output: [] });
+      break;
+    }
+    case 'terminal.output': {
+      const session = state.terminals[payload.sessionId as string];
+      if (!session || session.status !== 'open') throw new Error('terminal_session_not_open');
+      if (payload.sequence !== session.nextOutputSequence) throw new Error('terminal_output_sequence');
+      const outputBytes = session.outputBytes + (payload.byteLength as number);
+      if (outputBytes > session.outputLimitBytes) throw new Error('terminal_output_limit');
+      const chunk = { sequence: payload.sequence as number, data: payload.data as string, byteLength: payload.byteLength as number };
+      state.terminals[session.id] = retained({ ...session, outputBytes, nextOutputSequence: session.nextOutputSequence + 1, output: [...session.output, chunk] });
+      break;
+    }
+    case 'terminal.input.accepted': {
+      const session = state.terminals[payload.sessionId as string];
+      if (!session || session.status !== 'open') throw new Error('terminal_session_not_open');
+      if (payload.sequence !== session.nextInputSequence) throw new Error('terminal_input_sequence');
+      state.terminals[session.id] = retained({ ...session, nextInputSequence: session.nextInputSequence + 1 });
+      break;
+    }
+    case 'terminal.resized': {
+      const session = state.terminals[payload.sessionId as string];
+      if (!session || session.status !== 'open') throw new Error('terminal_session_not_open');
+      state.terminals[session.id] = retained({ ...session, columns: payload.columns as number, rows: payload.rows as number });
+      break;
+    }
+    case 'terminal.exited': {
+      const session = state.terminals[payload.sessionId as string];
+      if (!session || session.status !== 'open') throw new Error('terminal_session_not_open');
+      state.terminals[session.id] = retained({ ...session, status: 'exited', exitCode: payload.exitCode as number, exitReason: payload.reason as string });
+      break;
+    }
   }
   return { kind: 'applied', state };
 }
