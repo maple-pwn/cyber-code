@@ -13,12 +13,15 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"cyber-code/internal/authorization"
 )
 
 var ErrRemoteCredentialRevoked = errors.New("remote credential revoked")
 
 type RemoteClaims struct {
 	Principal string
+	TenantID  string
 	// Role is audit metadata. Capabilities are the per-request authorization boundary.
 	Role          string
 	TaskContextID string
@@ -36,6 +39,7 @@ type RemoteServerOptions struct {
 	Workspace       string
 	AllowedOrigins  []string
 	MaxMessageBytes int
+	Authorization   *authorization.Policy
 }
 
 type RemoteRequest struct {
@@ -52,6 +56,7 @@ type RemoteServer struct {
 	authenticator   RemoteAuthenticator
 	allowedOrigins  map[string]struct{}
 	maxMessageBytes int
+	authorization   *authorization.Policy
 
 	mu       sync.Mutex
 	runtimes map[string]*LocalServer
@@ -83,7 +88,8 @@ func NewRemoteServer(options RemoteServerOptions) (*RemoteServer, error) {
 	return &RemoteServer{
 		service: options.Service, workspace: options.Workspace, authenticator: options.Authenticator,
 		allowedOrigins: origins, maxMessageBytes: limit,
-		runtimes: make(map[string]*LocalServer),
+		authorization: options.Authorization,
+		runtimes:      make(map[string]*LocalServer),
 	}, nil
 }
 
@@ -163,6 +169,19 @@ func (s *RemoteServer) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 	if !validText(remoteRequest.ID) {
 		s.writeError(writer, http.StatusBadRequest, remoteRequest.ID, "invalid_request")
 		return
+	}
+	if s.authorization != nil {
+		capability, ok := authorizedCapability(remoteRequest)
+		if !ok || !validRuntimeIdentifier(claims.TenantID) {
+			s.writeError(writer, http.StatusForbidden, remoteRequest.ID, "tenant_access_denied")
+			return
+		}
+		if capability != "" {
+			if err := s.authorization.Authorize(authorization.Request{TenantID: claims.TenantID, Principal: claims.Principal, Capability: capability}); err != nil {
+				s.writeError(writer, http.StatusForbidden, remoteRequest.ID, err.Error())
+				return
+			}
+		}
 	}
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
 		var limitError *http.MaxBytesError
@@ -264,5 +283,38 @@ func remoteCapability(requestType string) string {
 		return "commands"
 	default:
 		return ""
+	}
+}
+
+func authorizedCapability(request RemoteRequest) (authorization.Capability, bool) {
+	switch request.Type {
+	case "handshake", "health", "close":
+		return "", true
+	case "events", "snapshot":
+		return authorization.CapabilityEvidenceRead, true
+	case "command":
+		if request.Command == nil {
+			return "", false
+		}
+		var command struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(request.Command.Command, &command) != nil {
+			return "", false
+		}
+		switch command.Type {
+		case "task.create":
+			return authorization.CapabilityTaskCreate, true
+		case "scope.confirm":
+			return authorization.CapabilityScopeConfirm, true
+		case "approval.respond":
+			return authorization.CapabilityApproval, true
+		case "control.take":
+			return authorization.CapabilityControlTake, true
+		default:
+			return authorization.CapabilityTaskCreate, true
+		}
+	default:
+		return "", false
 	}
 }
