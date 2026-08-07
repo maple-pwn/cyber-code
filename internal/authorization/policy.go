@@ -2,7 +2,10 @@
 package authorization
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -44,6 +47,7 @@ var (
 	ErrSessionExpired              = errors.New("session_expired")
 	ErrStepUpRequired              = errors.New("step_up_required")
 	ErrInvalidRole                 = errors.New("invalid_role")
+	ErrAuditTampered               = errors.New("audit_tampered")
 )
 
 type Member struct {
@@ -74,6 +78,8 @@ type Decision struct {
 	Capability          Capability
 	Allowed             bool
 	Reason              string
+	PreviousHash        string
+	Hash                string
 }
 
 type Policy struct {
@@ -300,8 +306,33 @@ func (p *Policy) Authorize(request Request) error {
 	if err != nil {
 		decision.Reason = err.Error()
 	}
-	p.decisions = append(p.decisions, decision)
+	p.appendDecisionLocked(decision)
 	return err
+}
+
+func (p *Policy) appendDecisionLocked(decision Decision) {
+	if len(p.decisions) > 0 {
+		decision.PreviousHash = p.decisions[len(p.decisions)-1].Hash
+	}
+	decision.Hash = decisionHash(decision)
+	p.decisions = append(p.decisions, decision)
+}
+
+func VerifyDecisions(decisions []Decision) error {
+	previous := ""
+	for _, decision := range decisions {
+		if decision.PreviousHash != previous || decision.Hash != decisionHash(decision) {
+			return ErrAuditTampered
+		}
+		previous = decision.Hash
+	}
+	return nil
+}
+
+func decisionHash(decision Decision) string {
+	material := fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%t\x00%s\x00%s", decision.At.UTC().Format(time.RFC3339Nano), decision.TenantID, decision.Principal, decision.Capability, decision.Allowed, decision.Reason, decision.PreviousHash)
+	digest := sha256.Sum256([]byte(material))
+	return hex.EncodeToString(digest[:])
 }
 
 func isHighRisk(capability Capability) bool {

@@ -32,6 +32,14 @@ func TestPolicyRevocationAndAuditAreImmutable(t *testing.T) {
 	if policy.Decisions()[0].Reason == "tampered" {
 		t.Fatal("audit decision was mutable")
 	}
+	decisions := policy.Decisions()
+	if err := VerifyDecisions(decisions); err != nil {
+		t.Fatalf("verify decisions: %v", err)
+	}
+	decisions[0].Reason = "tampered"
+	if err := VerifyDecisions(decisions); err != ErrAuditTampered {
+		t.Fatalf("tamper result = %v", err)
+	}
 }
 
 func TestInvitationMembershipAndSessionRevocation(t *testing.T) {
