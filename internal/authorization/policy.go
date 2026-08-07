@@ -34,6 +34,12 @@ var (
 	ErrTenantDenied      = errors.New("tenant_access_denied")
 	ErrMembershipRevoked = errors.New("membership_revoked")
 	ErrCapabilityDenied  = errors.New("capability_denied")
+	ErrInvitationMissing = errors.New("invitation_missing")
+	ErrInvitationExpired = errors.New("invitation_expired")
+	ErrInvitationUsed    = errors.New("invitation_used")
+	ErrSessionMissing    = errors.New("session_missing")
+	ErrSessionRevoked    = errors.New("session_revoked")
+	ErrSessionExpired    = errors.New("session_expired")
 )
 
 type Member struct {
@@ -43,7 +49,19 @@ type Member struct {
 }
 type Request struct {
 	TenantID, Principal string
+	SessionID           string
 	Capability          Capability
+}
+type Invitation struct {
+	ID, TenantID, Principal string
+	Role                    Role
+	ExpiresAt               time.Time
+	Accepted                bool
+}
+type Session struct {
+	ID, TenantID, Principal string
+	ExpiresAt               time.Time
+	Revoked                 bool
 }
 type Decision struct {
 	At                  time.Time
@@ -54,10 +72,12 @@ type Decision struct {
 }
 
 type Policy struct {
-	mu        sync.Mutex
-	members   map[string]Member
-	decisions []Decision
-	clock     func() time.Time
+	mu          sync.Mutex
+	members     map[string]Member
+	invitations map[string]Invitation
+	sessions    map[string]Session
+	decisions   []Decision
+	clock       func() time.Time
 }
 
 func NewPolicy(members []Member) *Policy {
@@ -65,7 +85,87 @@ func NewPolicy(members []Member) *Policy {
 	for _, member := range members {
 		index[member.TenantID+"\x00"+member.Principal] = member
 	}
-	return &Policy{members: index, clock: time.Now}
+	return &Policy{members: index, invitations: make(map[string]Invitation), sessions: make(map[string]Session), clock: time.Now}
+}
+
+func (p *Policy) SetClock(clock func() time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if clock == nil {
+		clock = time.Now
+	}
+	p.clock = clock
+}
+
+func (p *Policy) Invite(invitation Invitation) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if invitation.ID == "" || invitation.TenantID == "" || invitation.Principal == "" || !invitation.ExpiresAt.After(p.clock().UTC()) {
+		return ErrInvitationExpired
+	}
+	if _, exists := p.invitations[invitation.ID]; exists {
+		return ErrInvitationUsed
+	}
+	p.invitations[invitation.ID] = invitation
+	return nil
+}
+
+func (p *Policy) AcceptInvitation(id string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	invitation, ok := p.invitations[id]
+	if !ok {
+		return ErrInvitationMissing
+	}
+	if invitation.Accepted {
+		return ErrInvitationUsed
+	}
+	if !invitation.ExpiresAt.After(p.clock().UTC()) {
+		return ErrInvitationExpired
+	}
+	p.members[invitation.TenantID+"\x00"+invitation.Principal] = Member{TenantID: invitation.TenantID, Principal: invitation.Principal, Role: invitation.Role, Active: true}
+	invitation.Accepted = true
+	p.invitations[id] = invitation
+	return nil
+}
+
+func (p *Policy) RegisterSession(session Session) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if session.ID == "" || session.TenantID == "" || session.Principal == "" {
+		return ErrSessionMissing
+	}
+	if !session.ExpiresAt.After(p.clock().UTC()) {
+		return ErrSessionExpired
+	}
+	session.Revoked = false
+	p.sessions[session.ID] = session
+	return nil
+}
+
+func (p *Policy) RevokeSession(id string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	session, ok := p.sessions[id]
+	if !ok {
+		return ErrSessionMissing
+	}
+	session.Revoked = true
+	p.sessions[id] = session
+	return nil
+}
+
+func (p *Policy) RevokeMember(tenantID, principal string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	key := tenantID + "\x00" + principal
+	member, ok := p.members[key]
+	if !ok {
+		return ErrTenantDenied
+	}
+	member.Active = false
+	p.members[key] = member
+	return nil
 }
 
 func (p *Policy) Authorize(request Request) error {
@@ -73,7 +173,22 @@ func (p *Policy) Authorize(request Request) error {
 	defer p.mu.Unlock()
 	member, ok := p.members[request.TenantID+"\x00"+request.Principal]
 	err := error(nil)
-	if !ok {
+	if request.SessionID != "" {
+		session, sessionOK := p.sessions[request.SessionID]
+		switch {
+		case !sessionOK:
+			err = ErrSessionMissing
+		case session.Revoked:
+			err = ErrSessionRevoked
+		case !session.ExpiresAt.After(p.clock().UTC()):
+			err = ErrSessionExpired
+		case session.TenantID != request.TenantID || session.Principal != request.Principal:
+			err = ErrTenantDenied
+		}
+	}
+	if err != nil {
+		// Session failures are authoritative and must not fall through to stale membership claims.
+	} else if !ok {
 		err = ErrTenantDenied
 	} else if !member.Active {
 		err = ErrMembershipRevoked

@@ -22,6 +22,7 @@ var ErrRemoteCredentialRevoked = errors.New("remote credential revoked")
 type RemoteClaims struct {
 	Principal string
 	TenantID  string
+	SessionID string
 	// Role is audit metadata. Capabilities are the per-request authorization boundary.
 	Role          string
 	TaskContextID string
@@ -172,12 +173,12 @@ func (s *RemoteServer) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 	}
 	if s.authorization != nil {
 		capability, ok := authorizedCapability(remoteRequest)
-		if !ok || !validRuntimeIdentifier(claims.TenantID) {
+		if !ok || !validRuntimeIdentifier(claims.TenantID) || !validRuntimeIdentifier(claims.SessionID) {
 			s.writeError(writer, http.StatusForbidden, remoteRequest.ID, "tenant_access_denied")
 			return
 		}
 		if capability != "" {
-			if err := s.authorization.Authorize(authorization.Request{TenantID: claims.TenantID, Principal: claims.Principal, Capability: capability}); err != nil {
+			if err := s.authorization.Authorize(authorization.Request{TenantID: claims.TenantID, Principal: claims.Principal, SessionID: claims.SessionID, Capability: capability}); err != nil {
 				s.writeError(writer, http.StatusForbidden, remoteRequest.ID, err.Error())
 				return
 			}
