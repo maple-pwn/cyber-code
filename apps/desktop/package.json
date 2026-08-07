@@ -15,7 +15,9 @@
     "@cyber/runtime-client": "workspace:*",
     "@cyber/scenario-player": "workspace:*",
     "@cyber/ui": "workspace:*",
+    "@monaco-editor/react": "4.7.0",
     "@tauri-apps/api": "2.11.1",
+    "monaco-editor": "0.52.2",
     "react": "19.1.1",
     "react-dom": "19.1.1"
   },

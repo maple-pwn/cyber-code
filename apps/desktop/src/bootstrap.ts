@@ -6,12 +6,13 @@ import {
   type DesktopRuntimeConfiguration,
 } from './source-factory';
 const desktopRouteKey = 'cyber.desktop.route.v1';
-const desktopRoutes: readonly AppRoute[] = ['new-task', 'scope-review', 'mission-control', 'findings', 'reports'];
+const restorableDesktopRoutes: readonly AppRoute[] = ['new-task', 'scope-review', 'mission-control', 'findings', 'reports'];
 
 function restoredDesktopRoute(): AppRoute {
   try {
     const route = window.localStorage.getItem(desktopRouteKey);
-    return desktopRoutes.find((candidate) => candidate === route) ?? 'new-task';
+    if (route === 'editor') return 'findings';
+    return restorableDesktopRoutes.find((candidate) => candidate === route) ?? 'new-task';
   } catch {
     return 'new-task';
   }

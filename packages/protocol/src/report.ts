@@ -1,5 +1,3 @@
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-
 import type { FrozenReport, ImmutableEvidence, ReportState } from './index';
 
 export type ReportFormat = 'markdown' | 'html' | 'pdf' | 'json';
@@ -129,6 +127,7 @@ export async function exportReport(
     return new Blob([html], { type: 'text/html' });
   }
 
+  const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
   const document = await PDFDocument.create();
   const label = sourceLabel(audit);
   if (label !== null && audit.source !== null) {

@@ -14,7 +14,7 @@ use std::{
 const RUNTIME_EXECUTABLE_ENV: &str = "CYBER_CODE_RUNTIME_EXECUTABLE";
 const RUNTIME_BEARER_ENV: &str = "CYBER_CODE_RUNTIME_BEARER";
 const RUNTIME_PROTOCOL_VERSION: u64 = 1;
-const MAX_RUNTIME_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_RUNTIME_RESPONSE_BYTES: usize = 68 * 1024 * 1024;
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -31,6 +31,10 @@ pub struct RuntimeBridgeRequest {
     pub task_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub after_cursor: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_lease_revision: Option<u64>,
 }
 
 pub fn prepare_request(request: &RuntimeBridgeRequest, bearer: &str) -> Result<Value, String> {
@@ -241,6 +245,8 @@ impl RuntimeProcessManager {
             command: None,
             task_id: None,
             after_cursor: None,
+            draft_id: None,
+            expected_lease_revision: None,
         };
         let prepared = prepare_request(&request, &bearer)?;
         let response = match process.request(prepared, self.timeout) {
@@ -626,5 +632,17 @@ mod tests {
             );
             assert!(!manager.is_running());
         }
+    }
+
+    #[test]
+    fn editor_read_request_preserves_draft_and_lease_fields() {
+        let request: RuntimeBridgeRequest = serde_json::from_value(json!({
+            "id":"editor-1", "type":"editor", "taskId":"task-1",
+            "draftId":"draft-1", "expectedLeaseRevision":2
+        })).unwrap();
+        let prepared = prepare_request(&request, "secret").unwrap();
+        assert_eq!(prepared["draftId"], json!("draft-1"));
+        assert_eq!(prepared["expectedLeaseRevision"], json!(2));
+        assert_eq!(prepared["bearer"], json!("secret"));
     }
 }

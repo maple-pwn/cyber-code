@@ -33,3 +33,13 @@ test('desktop bootstrap restores only allowlisted routes and persists later navi
   rejected.store.destroy();
   window.localStorage.clear();
 });
+
+test('desktop bootstrap does not restore the transient editor route without an active draft', () => {
+  window.localStorage.setItem('cyber.desktop.route.v1', 'editor');
+
+  const restored = createDesktopBootstrap({ speedMs: 0 });
+
+  expect(restored.store.getSnapshot().route).toBe('findings');
+  restored.store.destroy();
+  window.localStorage.clear();
+});

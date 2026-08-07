@@ -84,6 +84,14 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .report-source-context { margin: 0; color: var(--cyber-muted); font-family: var(--cyber-font-mono); }
 .report-source-context strong { color: var(--cyber-text); }
 .cyber-report-editor { display: grid; gap: 16px; }
+.page-editor { display: grid; gap: 14px; }
+.editor-header { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+.editor-header h1 { margin: 3px 0; overflow-wrap: anywhere; font-size: 1.2rem; }
+.editor-surface { width: 100%; min-height: min(68vh, 720px); resize: vertical; border-radius: var(--cyber-radius-shell); background: rgb(4 8 11 / 72%); color: var(--cyber-code); padding: 16px; line-height: 1.55; tab-size: 2; }
+.editor-monaco { min-width: 0; min-height: min(68vh, 720px); overflow: hidden; border: 1px solid var(--cyber-border); border-radius: var(--cyber-radius-shell); background: #1e1e1e; }
+.editor-actions { display: flex; flex-wrap: wrap; justify-content: end; gap: 8px; }
+.editor-actions button:first-child { border-color: var(--cyber-running); background: var(--cyber-running); color: #10201c; }
+.editor-status { color: var(--cyber-running); }
 .cyber-report-editor > label { display: grid; gap: 8px; }
 
 @media (min-width: 768px) and (max-width: 1279px) {

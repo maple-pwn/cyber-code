@@ -11,6 +11,8 @@ import { NewTaskPage } from './pages/NewTaskPage';
 import type { RuntimeOption } from './pages/NewTaskPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { ScopeReviewPage } from './pages/ScopeReviewPage';
+import { EditorPage } from './pages/EditorPage';
+import type { CodeEditorSurfaceProps } from './pages/EditorPage';
 
 type RouteKey = 'nav.newTask' | 'nav.missionControl' | 'nav.findings' | 'nav.reports';
 
@@ -28,12 +30,13 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error?: Erro
   render() { return this.state.error ? <main><h1>CYBER</h1><p role="alert">{this.state.error.message}</p></main> : this.props.children; }
 }
 
-export type ProductAppProps = { store: AppStore; runtimes?: readonly RuntimeOption[] };
+export type ProductAppProps = { store: AppStore; runtimes?: readonly RuntimeOption[]; renderEditor?: (props: CodeEditorSurfaceProps) => ReactNode };
 
-export function ProductApp({ store, runtimes }: ProductAppProps) {
+export function ProductApp({ store, runtimes, renderEditor }: ProductAppProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [locale, updateLocale] = useState<Locale>('zh-CN');
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [activeDraftId, setActiveDraftId] = useState('');
   const paletteRestoreFocus = useRef<HTMLElement | null>(null);
   const chord = useRef<{ key: string; timer?: number }>({ key: '' });
   const t = createTranslator(locale);
@@ -98,7 +101,11 @@ export function ProductApp({ store, runtimes }: ProductAppProps) {
           }} t={t} onEdit={() => void store.dispatch({ type: 'instruction.send', content: 'request_scope_revision' })} onConfirm={async (scopeId) => { await store.dispatch({ type: 'scope.confirm', scopeId }); navigate('mission-control'); }} />
         : <p>{t.t('common.loading')}</p>;
       case 'mission-control': return <MissionControlPage view={snapshot.view} t={t} onDispatch={(command) => store.dispatch(command)} onReconnect={() => void store.reconnect()} onDisconnect={() => void store.disconnect()} />;
-      case 'findings': return <FindingsPage product={snapshot.view.product} t={t} />;
+      case 'findings': return <FindingsPage product={snapshot.view.product} t={t} store={store} editorAvailable={trustedSource?.capabilities.includes('editor.read') === true && trustedSource.capabilities.includes('editor.write')} onOpenEditor={(draftId) => { setActiveDraftId(draftId); navigate('editor'); }} />;
+      case 'editor': {
+        const draftId = activeDraftId || Object.keys(snapshot.view.product.editorDrafts)[0] || '';
+        return <EditorPage product={snapshot.view.product} draftId={draftId} store={store} t={t} onBack={() => navigate('findings')} renderEditor={renderEditor} />;
+      }
       case 'reports': return <ReportsPage product={snapshot.view.product} source={snapshot.view.source} t={t} />;
     }
   };

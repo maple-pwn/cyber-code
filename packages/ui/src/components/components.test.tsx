@@ -257,4 +257,23 @@ describe('workflow components', () => {
     const results = await axe(container, { rules: { 'color-contrast': { enabled: false } } });
     expect(results.violations).toEqual([]);
   });
+
+  test('offers the editor only for absolute file evidence with a valid line range', async () => {
+    const onOpenEditor = vi.fn();
+    const editable = { ...evidence, data: { path: '/workspace/app.go', startLine: 4, endLine: 8 } };
+    const { rerender } = render(<FindingCard finding={finding} evidence={[editable]} t={t} onOpenEditor={onOpenEditor} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Evidence Editor' }));
+    expect(onOpenEditor).toHaveBeenCalledWith(editable);
+
+    for (const data of [
+      { path: 'relative/app.go', startLine: 4, endLine: 8 },
+      { path: '/workspace/app.go', startLine: 0, endLine: 8 },
+      { path: '/workspace/app.go', startLine: 9, endLine: 8 },
+      { path: '/workspace/app.go' },
+    ]) {
+      rerender(<FindingCard finding={finding} evidence={[{ ...evidence, data }]} t={t} onOpenEditor={onOpenEditor} />);
+      expect(screen.queryByRole('button', { name: 'Evidence Editor' })).not.toBeInTheDocument();
+    }
+  });
 });
