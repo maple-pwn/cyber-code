@@ -79,7 +79,21 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .asset-graph-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .asset-graph-controls label { color: var(--cyber-muted); font-size: .82rem; }
 .asset-graph-controls input { min-width: min(360px, 100%); flex: 1; }
-.asset-graph-canvas { min-height: 220px; display: grid; place-content: center; justify-items: center; gap: 10px; border: 1px solid var(--cyber-border); border-radius: var(--cyber-radius-shell); background: rgb(4 8 11 / 46%); color: var(--cyber-muted); }
+.asset-graph-canvas { min-height: 220px; overflow: auto; border: 1px solid var(--cyber-border); border-radius: var(--cyber-radius-shell); background: rgb(4 8 11 / 46%); color: var(--cyber-muted); }
+.asset-graph-canvas svg { display: block; width: 100%; min-width: 620px; min-height: 260px; }
+.asset-graph-canvas line { stroke: var(--cyber-muted); stroke-width: 1.5; opacity: .55; }
+.asset-graph-canvas marker path { fill: var(--cyber-muted); }
+.asset-graph-canvas g[role="button"] { cursor: pointer; outline: none; }
+.asset-graph-canvas g[role="button"] circle { fill: rgb(20 31 34 / 92%); stroke: var(--cyber-border); stroke-width: 2; }
+.asset-graph-canvas g[role="button"] circle[data-status="active"] { stroke: var(--cyber-running); }
+.asset-graph-canvas g[role="button"] circle[data-status="revoked"], .asset-graph-canvas g[role="button"] circle[data-status="deleted"] { stroke: var(--cyber-danger); }
+.asset-graph-canvas g[role="button"]:focus circle, .asset-graph-canvas g[role="button"][aria-pressed="true"] circle { stroke: var(--cyber-accent); stroke-width: 4; }
+.asset-graph-canvas text { fill: var(--cyber-text); font: 11px var(--cyber-font-sans); pointer-events: none; }
+.asset-graph-canvas .asset-node-kind { fill: var(--cyber-muted); font: 10px var(--cyber-font-mono); }
+.asset-graph-provenance { display: grid; gap: 8px; border-left: 3px solid var(--cyber-accent); padding: 10px 14px; background: rgb(255 255 255 / 4%); }
+.asset-graph-provenance h2 { margin: 0; font-size: 1rem; }
+.asset-graph-provenance ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.asset-graph-provenance li { display: flex; justify-content: space-between; gap: 12px; }
 .asset-graph-text { border-top: 1px solid var(--cyber-border); padding-top: 14px; }
 .asset-graph-text h2 { margin: 0 0 8px; font-size: 1rem; }
 .asset-graph-text ul { display: grid; gap: 8px; padding: 0; list-style: none; }
@@ -150,6 +164,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   .desktop-report-editor { display: none; }
   .other-evidence pre { display: none; }
   .local-workspace-control { display: none !important; }
+  .asset-graph-canvas { display: none; }
 }
 
 @keyframes mission-inspector-in { from { opacity: .45; transform: translateX(8px); } to { opacity: 1; transform: none; } }
