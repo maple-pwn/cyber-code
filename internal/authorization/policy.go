@@ -32,16 +32,17 @@ const (
 )
 
 var (
-	ErrTenantDenied      = errors.New("tenant_access_denied")
-	ErrMembershipRevoked = errors.New("membership_revoked")
-	ErrCapabilityDenied  = errors.New("capability_denied")
-	ErrInvitationMissing = errors.New("invitation_missing")
-	ErrInvitationExpired = errors.New("invitation_expired")
-	ErrInvitationUsed    = errors.New("invitation_used")
-	ErrSessionMissing    = errors.New("session_missing")
-	ErrSessionRevoked    = errors.New("session_revoked")
-	ErrSessionExpired    = errors.New("session_expired")
-	ErrStepUpRequired    = errors.New("step_up_required")
+	ErrTenantDenied                = errors.New("tenant_access_denied")
+	ErrMembershipRevoked           = errors.New("membership_revoked")
+	ErrCapabilityDenied            = errors.New("capability_denied")
+	ErrInvitationMissing           = errors.New("invitation_missing")
+	ErrInvitationExpired           = errors.New("invitation_expired")
+	ErrInvitationUsed              = errors.New("invitation_used")
+	ErrInvitationPrincipalMismatch = errors.New("invitation_principal_mismatch")
+	ErrSessionMissing              = errors.New("session_missing")
+	ErrSessionRevoked              = errors.New("session_revoked")
+	ErrSessionExpired              = errors.New("session_expired")
+	ErrStepUpRequired              = errors.New("step_up_required")
 )
 
 type Member struct {
@@ -116,9 +117,25 @@ func (p *Policy) Invite(invitation Invitation) error {
 func (p *Policy) AcceptInvitation(id string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	return p.acceptInvitationLocked(id, "", "")
+}
+
+func (p *Policy) AcceptInvitationFor(actor Request, id string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.acceptInvitationLocked(id, actor.TenantID, actor.Principal)
+}
+
+func (p *Policy) acceptInvitationLocked(id, tenantID, principal string) error {
 	invitation, ok := p.invitations[id]
 	if !ok {
 		return ErrInvitationMissing
+	}
+	if tenantID != "" && invitation.TenantID != tenantID {
+		return ErrTenantDenied
+	}
+	if principal != "" && invitation.Principal != principal {
+		return ErrInvitationPrincipalMismatch
 	}
 	if invitation.Accepted {
 		return ErrInvitationUsed

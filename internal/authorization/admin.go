@@ -22,8 +22,11 @@ func (s *AdminService) Invite(actor Request, invitation Invitation) error {
 	return s.policy.Invite(invitation)
 }
 
-func (s *AdminService) AcceptInvitation(invitationID string) error {
-	return s.policy.AcceptInvitation(invitationID)
+func (s *AdminService) AcceptInvitation(actor Request, invitationID string) error {
+	if s == nil || s.policy == nil {
+		return ErrTenantDenied
+	}
+	return s.policy.AcceptInvitationFor(actor, invitationID)
 }
 
 func (s *AdminService) UpdateRole(actor Request, principal string, role Role) error {

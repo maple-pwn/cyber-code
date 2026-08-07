@@ -73,7 +73,7 @@ func (h *AdminHandler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			writeAdminError(writer, http.StatusBadRequest, "invitation_required")
 			return
 		}
-		err = h.service.AcceptInvitation(input.Invitation.ID)
+		err = h.service.AcceptInvitation(actor, input.Invitation.ID)
 	case "role":
 		err = h.service.UpdateRole(actor, input.Principal, input.Role)
 	case "revoke":

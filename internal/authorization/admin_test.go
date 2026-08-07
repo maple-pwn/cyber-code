@@ -23,6 +23,9 @@ func TestAdminServiceRequiresStepUpAndScopesTenant(t *testing.T) {
 	if err := admin.Invite(Request{TenantID: "tenant-a", Principal: "owner", SessionID: "session-1"}, invite); err != nil {
 		t.Fatal(err)
 	}
+	if err := admin.AcceptInvitation(Request{TenantID: "tenant-a", Principal: "mallory"}, invite.ID); err != ErrInvitationPrincipalMismatch {
+		t.Fatalf("wrong invite principal = %v", err)
+	}
 	if err := admin.UpdateRole(Request{TenantID: "tenant-b", Principal: "owner", SessionID: "session-1"}, "new-user", RoleAdmin); err != ErrTenantDenied {
 		t.Fatalf("cross tenant = %v", err)
 	}

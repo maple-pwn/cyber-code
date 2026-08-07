@@ -65,6 +65,24 @@ func TestInvitationMembershipAndSessionRevocation(t *testing.T) {
 	}
 }
 
+func TestInvitationAcceptanceIsBoundToPrincipalAndTenant(t *testing.T) {
+	clock := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	policy := NewPolicy(nil)
+	policy.SetClock(func() time.Time { return clock })
+	if err := policy.Invite(Invitation{ID: "invite-1", TenantID: "tenant-a", Principal: "bob", Role: RoleViewer, ExpiresAt: clock.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := policy.AcceptInvitationFor(Request{TenantID: "tenant-a", Principal: "mallory"}, "invite-1"); err != ErrInvitationPrincipalMismatch {
+		t.Fatalf("wrong principal = %v", err)
+	}
+	if err := policy.AcceptInvitationFor(Request{TenantID: "tenant-b", Principal: "bob"}, "invite-1"); err != ErrTenantDenied {
+		t.Fatalf("wrong tenant = %v", err)
+	}
+	if err := policy.AcceptInvitationFor(Request{TenantID: "tenant-a", Principal: "bob"}, "invite-1"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestHighRiskCapabilityRequiresStepUpSession(t *testing.T) {
 	clock := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	policy := NewPolicy([]Member{{TenantID: "tenant-a", Principal: "alice", Role: RoleApprover, Active: true}})
