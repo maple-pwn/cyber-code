@@ -3,6 +3,7 @@ package authorization
 
 import (
 	"errors"
+	"sort"
 	"sync"
 	"time"
 )
@@ -188,6 +189,60 @@ func (p *Policy) RevokeMember(tenantID, principal string) error {
 	return nil
 }
 
+func (p *Policy) UpdateMemberRole(tenantID, principal string, role Role) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !validRole(role) {
+		return ErrCapabilityDenied
+	}
+	key := tenantID + "\x00" + principal
+	member, ok := p.members[key]
+	if !ok {
+		return ErrTenantDenied
+	}
+	member.Role = role
+	p.members[key] = member
+	return nil
+}
+
+func (p *Policy) Members(tenantID string) []Member {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	members := make([]Member, 0)
+	for _, member := range p.members {
+		if member.TenantID == tenantID {
+			members = append(members, member)
+		}
+	}
+	sort.Slice(members, func(i, j int) bool { return members[i].Principal < members[j].Principal })
+	return members
+}
+
+func (p *Policy) DecisionsForTenant(tenantID string) []Decision {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	decisions := make([]Decision, 0)
+	for _, decision := range p.decisions {
+		if decision.TenantID == tenantID {
+			decisions = append(decisions, decision)
+		}
+	}
+	return decisions
+}
+
+func (p *Policy) Invitations(tenantID string) []Invitation {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	invitations := make([]Invitation, 0)
+	for _, invitation := range p.invitations {
+		if invitation.TenantID == tenantID {
+			invitations = append(invitations, invitation)
+		}
+	}
+	sort.Slice(invitations, func(i, j int) bool { return invitations[i].ID < invitations[j].ID })
+	return invitations
+}
+
 func (p *Policy) Authorize(request Request) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -227,6 +282,15 @@ func (p *Policy) Authorize(request Request) error {
 
 func isHighRisk(capability Capability) bool {
 	return capability == CapabilityApproval || capability == CapabilityReportExport || capability == CapabilityAdministration
+}
+
+func validRole(role Role) bool {
+	switch role {
+	case RoleOwner, RoleAdmin, RoleOperator, RoleApprover, RoleAuditor, RoleViewer:
+		return true
+	default:
+		return false
+	}
 }
 
 func (p *Policy) Decisions() []Decision {

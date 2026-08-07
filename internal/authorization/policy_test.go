@@ -87,3 +87,27 @@ func TestHighRiskCapabilityRequiresStepUpSession(t *testing.T) {
 		t.Fatalf("expired step-up = %v, want %v", err, ErrStepUpRequired)
 	}
 }
+
+func TestMemberAdministrationAndTenantScopedAudit(t *testing.T) {
+	policy := NewPolicy([]Member{{TenantID: "tenant-a", Principal: "alice", Role: RoleOperator, Active: true}, {TenantID: "tenant-b", Principal: "bob", Role: RoleViewer, Active: true}})
+	if err := policy.UpdateMemberRole("tenant-a", "alice", RoleAuditor); err != nil {
+		t.Fatal(err)
+	}
+	members := policy.Members("tenant-a")
+	if len(members) != 1 || members[0].Role != RoleAuditor {
+		t.Fatalf("members = %+v", members)
+	}
+	members[0].Role = RoleOwner
+	if policy.Members("tenant-a")[0].Role != RoleAuditor {
+		t.Fatal("member result was mutable")
+	}
+	if err := policy.Authorize(Request{TenantID: "tenant-a", Principal: "alice", Capability: CapabilityEvidenceRead}); err != nil {
+		t.Fatal(err)
+	}
+	if len(policy.DecisionsForTenant("tenant-b")) != 0 {
+		t.Fatal("cross-tenant audit leakage")
+	}
+	if err := policy.UpdateMemberRole("tenant-a", "missing", RoleViewer); err != ErrTenantDenied {
+		t.Fatalf("missing member = %v", err)
+	}
+}
