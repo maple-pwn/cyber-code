@@ -148,6 +148,32 @@ type EditorDraftState struct {
 	DiscardReason      string                    `json:"discardReason,omitempty"`
 }
 
+type AssetProvenance struct {
+	Kind         string   `json:"kind"`
+	EvidenceIDs  []string `json:"evidenceIds,omitempty"`
+	AnnotationID string   `json:"annotationId,omitempty"`
+	Author       string   `json:"author,omitempty"`
+}
+
+type AssetNodeState struct {
+	ID           string          `json:"id"`
+	Kind         string          `json:"kind"`
+	Label        string          `json:"label"`
+	Status       string          `json:"status"`
+	Attributes   map[string]any  `json:"attributes"`
+	Provenance   AssetProvenance `json:"provenance"`
+	StatusReason string          `json:"statusReason,omitempty"`
+}
+
+type AssetEdgeState struct {
+	ID         string          `json:"id"`
+	Kind       string          `json:"kind"`
+	SourceID   string          `json:"sourceId"`
+	TargetID   string          `json:"targetId"`
+	Directed   bool            `json:"directed"`
+	Provenance AssetProvenance `json:"provenance"`
+}
+
 type ReportFinding struct {
 	Finding         FindingState        `json:"finding"`
 	Evidence        []ImmutableEvidence `json:"evidence"`

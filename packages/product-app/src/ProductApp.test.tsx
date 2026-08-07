@@ -76,7 +76,7 @@ describe('App shell', () => {
     await renderApp();
     const navigation = screen.getByRole('navigation', { name: 'Primary' });
     expect(within(navigation).getByRole('button', { name: '新建任务' })).toHaveAttribute('aria-current', 'page');
-    expect(within(navigation).getAllByTestId('nav-icon')).toHaveLength(4);
+    expect(within(navigation).getAllByTestId('nav-icon')).toHaveLength(5);
     expect(screen.getByTestId('app-canvas')).toHaveClass('app-canvas');
   });
 

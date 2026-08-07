@@ -27,6 +27,11 @@ var (
 	ErrEditorDraftRevision       = errors.New("editor_draft_revision")
 	ErrEditorPatchStale          = errors.New("editor_patch_stale")
 	ErrEditorPatchNotApplied     = errors.New("editor_patch_not_applied")
+	ErrAssetNodeConflict         = errors.New("asset_node_conflict")
+	ErrAssetEdgeConflict         = errors.New("asset_edge_conflict")
+	ErrAssetNodeMissing          = errors.New("asset_node_missing")
+	ErrAssetNodeDeleted          = errors.New("asset_node_deleted")
+	ErrAssetEvidenceMissing      = errors.New("asset_evidence_missing")
 )
 
 type ProjectionKind string
@@ -79,6 +84,12 @@ func Project(previous State, event productprotocol.Event) (ProjectionResult, err
 	}
 	if state.EditorDrafts == nil {
 		state.EditorDrafts = make(map[string]productprotocol.EditorDraftState)
+	}
+	if state.AssetNodes == nil {
+		state.AssetNodes = make(map[string]productprotocol.AssetNodeState)
+	}
+	if state.AssetEdges == nil {
+		state.AssetEdges = make(map[string]productprotocol.AssetEdgeState)
 	}
 	storedEvent := event
 	storedEvent.Payload = append(json.RawMessage(nil), event.Payload...)
@@ -465,6 +476,87 @@ func applyKnownEvent(state *State, event productprotocol.Event) error {
 		draft.Status = "discarded"
 		draft.DiscardReason = payload.Reason
 		state.EditorDrafts[draft.ID] = draft
+	case "asset.node.committed":
+		var payload struct {
+			Node productprotocol.AssetNodeState `json:"node"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		if existing, ok := state.AssetNodes[payload.Node.ID]; ok {
+			existingCanonical, err := productprotocol.CanonicalJSON(existing)
+			if err != nil {
+				return err
+			}
+			nodeCanonical, err := productprotocol.CanonicalJSON(payload.Node)
+			if err != nil {
+				return err
+			}
+			if string(existingCanonical) != string(nodeCanonical) {
+				return ErrAssetNodeConflict
+			}
+			break
+		}
+		if err := requireAssetEvidence(state, event.TaskID, payload.Node.Provenance); err != nil {
+			return err
+		}
+		state.AssetNodes[payload.Node.ID] = payload.Node
+	case "asset.edge.committed":
+		var payload struct {
+			Edge productprotocol.AssetEdgeState `json:"edge"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		if existing, ok := state.AssetEdges[payload.Edge.ID]; ok {
+			existingCanonical, err := productprotocol.CanonicalJSON(existing)
+			if err != nil {
+				return err
+			}
+			edgeCanonical, err := productprotocol.CanonicalJSON(payload.Edge)
+			if err != nil {
+				return err
+			}
+			if string(existingCanonical) != string(edgeCanonical) {
+				return ErrAssetEdgeConflict
+			}
+			break
+		}
+		if err := requireAssetEvidence(state, event.TaskID, payload.Edge.Provenance); err != nil {
+			return err
+		}
+		state.AssetEdges[payload.Edge.ID] = payload.Edge
+	case "asset.node.status.changed":
+		var payload struct {
+			NodeID string `json:"nodeId"`
+			Status string `json:"status"`
+			Reason string `json:"reason"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		node, ok := state.AssetNodes[payload.NodeID]
+		if !ok {
+			return ErrAssetNodeMissing
+		}
+		if node.Status == "deleted" {
+			return ErrAssetNodeDeleted
+		}
+		node.Status, node.StatusReason = payload.Status, payload.Reason
+		state.AssetNodes[node.ID] = node
+	}
+	return nil
+}
+
+func requireAssetEvidence(state *State, taskID string, provenance productprotocol.AssetProvenance) error {
+	if provenance.Kind != "evidence" {
+		return nil
+	}
+	for _, evidenceID := range provenance.EvidenceIDs {
+		evidence, ok := state.Evidence[evidenceID]
+		if !ok || evidence.TaskID != taskID {
+			return ErrAssetEvidenceMissing
+		}
 	}
 	return nil
 }

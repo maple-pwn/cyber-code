@@ -124,6 +124,12 @@ importers:
         specifier: 19.1.1
         version: 19.1.1(react@19.1.1)
 
+  packages/asset-graph:
+    dependencies:
+      '@cyber/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+
   packages/editor-model:
     dependencies:
       '@cyber/protocol':
@@ -134,6 +140,9 @@ importers:
 
   packages/product-app:
     dependencies:
+      '@cyber/asset-graph':
+        specifier: workspace:*
+        version: link:../asset-graph
       '@cyber/editor-model':
         specifier: workspace:*
         version: link:../editor-model

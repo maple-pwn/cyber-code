@@ -15,7 +15,7 @@ const isJsonArray = (value: unknown[]): boolean => {
 const isJsonValue = (value: unknown): boolean => value === null || typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value)) || (Array.isArray(value) && isJsonArray(value)) || (isPlainObject(value) && Object.getOwnPropertySymbols(value).length === 0 && Object.values(value).every(isJsonValue));
 const isString = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
 const isStrings = (value: unknown): value is string[] => Array.isArray(value) && value.every(isString);
-const knownTypes = new Set<KnownEventType>(['task.created', 'task.started', 'task.paused', 'task.resumed', 'task.cancel.requested', 'task.cancelled', 'task.completed', 'task.failed', 'task.blocked', 'scope.proposed', 'scope.confirmed', 'runtime.capabilities.updated', 'control.acquired', 'control.transferred', 'control.released', 'approval.requested', 'approval.resolved', 'question.requested', 'question.resolved', 'agent.started', 'agent.progressed', 'agent.completed', 'agent.failed', 'tool.started', 'tool.completed', 'tool.failed', 'evidence.committed', 'finding.created', 'finding.verifying', 'finding.confirmed', 'finding.rejected', 'finding.mitigated', 'report.drafted', 'report.edited', 'report.validation.failed', 'report.validated', 'report.frozen', 'report.exported', 'terminal.opened', 'terminal.output', 'terminal.input.accepted', 'terminal.resized', 'terminal.exited', 'editor.draft.opened', 'editor.draft.saved', 'editor.patch.applied', 'editor.patch.verified', 'editor.draft.discarded']);
+const knownTypes = new Set<KnownEventType>(['task.created', 'task.started', 'task.paused', 'task.resumed', 'task.cancel.requested', 'task.cancelled', 'task.completed', 'task.failed', 'task.blocked', 'scope.proposed', 'scope.confirmed', 'runtime.capabilities.updated', 'control.acquired', 'control.transferred', 'control.released', 'approval.requested', 'approval.resolved', 'question.requested', 'question.resolved', 'agent.started', 'agent.progressed', 'agent.completed', 'agent.failed', 'tool.started', 'tool.completed', 'tool.failed', 'evidence.committed', 'finding.created', 'finding.verifying', 'finding.confirmed', 'finding.rejected', 'finding.mitigated', 'report.drafted', 'report.edited', 'report.validation.failed', 'report.validated', 'report.frozen', 'report.exported', 'terminal.opened', 'terminal.output', 'terminal.input.accepted', 'terminal.resized', 'terminal.exited', 'editor.draft.opened', 'editor.draft.saved', 'editor.patch.applied', 'editor.patch.verified', 'editor.draft.discarded', 'asset.node.committed', 'asset.edge.committed', 'asset.node.status.changed']);
 const isKnownType = (type: string): type is KnownEventType => knownTypes.has(type as KnownEventType);
 const has = (payload: JsonObject, ...keys: string[]) => keys.every((key) => payload[key] !== undefined);
 const validScope = (value: unknown) => isObject(value) && isString(value.id) && isString(value.principal) && isString(value.workspace) && isString(value.validity) && isStrings(value.targets) && isStrings(value.allowedActions) && isStrings(value.deniedActions) && isString(value.riskCeiling);
@@ -51,6 +51,19 @@ const validEditorDraft = (value: unknown) => isObject(value)
   && ['id', 'path', 'scopeId', 'ownerClientId'].every((key) => auditableText(value[key]))
   && positiveInteger(value.leaseRevision) && sha256(value.baseSha256) && editorByteLength(value.baseByteLength)
   && value.encoding === 'utf-8' && Array.isArray(value.evidenceReferences) && value.evidenceReferences.every(validEditorReference);
+const validAssetProvenance = (value: unknown) => isObject(value) && (
+  (exactKeys(value, ['kind', 'evidenceIds']) && value.kind === 'evidence' && isStrings(value.evidenceIds) && value.evidenceIds.length > 0)
+  || (exactKeys(value, ['kind', 'annotationId', 'author']) && value.kind === 'human' && auditableText(value.annotationId) && auditableText(value.author))
+);
+const validAssetNode = (value: unknown) => isObject(value)
+  && exactKeys(value, ['id', 'kind', 'label', 'status', 'attributes', 'provenance'])
+  && auditableText(value.id) && auditableText(value.kind) && auditableText(value.label)
+  && ['active', 'revoked', 'deleted', 'unknown'].includes(value.status as string)
+  && isObject(value.attributes) && validAssetProvenance(value.provenance);
+const validAssetEdge = (value: unknown) => isObject(value)
+  && exactKeys(value, ['id', 'kind', 'sourceId', 'targetId', 'directed', 'provenance'])
+  && auditableText(value.id) && auditableText(value.kind) && auditableText(value.sourceId) && auditableText(value.targetId)
+  && value.sourceId !== value.targetId && typeof value.directed === 'boolean' && validAssetProvenance(value.provenance);
 const decodedBase64Length = (value: string): number | null => {
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) return null;
   return (value.length / 4) * 3 - (value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0);
@@ -100,6 +113,9 @@ function isValidPayload(type: KnownEventType, payload: JsonObject): boolean {
     case 'editor.patch.applied': return exactKeys(payload, ['draftId', 'revision', 'baseSha256', 'proposedSha256', 'resultSha256', 'reviewer']) && auditableText(payload.draftId) && positiveInteger(payload.revision) && sha256(payload.baseSha256) && sha256(payload.proposedSha256) && sha256(payload.resultSha256) && auditableText(payload.reviewer);
     case 'editor.patch.verified': return exactKeys(payload, ['draftId', 'revision', 'verificationId', 'success', 'evidenceIds']) && auditableText(payload.draftId) && positiveInteger(payload.revision) && auditableText(payload.verificationId) && typeof payload.success === 'boolean' && isStrings(payload.evidenceIds);
     case 'editor.draft.discarded': return exactKeys(payload, ['draftId', 'reason']) && auditableText(payload.draftId) && auditableText(payload.reason);
+    case 'asset.node.committed': return exactKeys(payload, ['node']) && validAssetNode(payload.node);
+    case 'asset.edge.committed': return exactKeys(payload, ['edge']) && validAssetEdge(payload.edge);
+    case 'asset.node.status.changed': return exactKeys(payload, ['nodeId', 'status', 'reason']) && auditableText(payload.nodeId) && (payload.status === 'revoked' || payload.status === 'deleted') && auditableText(payload.reason);
     default: return Object.keys(payload).length === 0;
   }
 }

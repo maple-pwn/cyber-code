@@ -36,6 +36,7 @@ var knownEventTypes = map[string]struct{}{
 	"terminal.resized": {}, "terminal.exited": {},
 	"editor.draft.opened": {}, "editor.draft.saved": {}, "editor.patch.applied": {},
 	"editor.patch.verified": {}, "editor.draft.discarded": {},
+	"asset.node.committed": {}, "asset.edge.committed": {}, "asset.node.status.changed": {},
 }
 
 func Validate(raw json.RawMessage) (Event, error) {
@@ -288,6 +289,13 @@ func validKnownPayload(eventType string, payload map[string]any) bool {
 		return exactKeys(payload, []string{"draftId", "revision", "verificationId", "success", "evidenceIds"}) && hasAuditableString(payload, "draftId") && revisionOK && revision > 0 && hasAuditableString(payload, "verificationId") && successOK && isStringSlice(payload["evidenceIds"])
 	case "editor.draft.discarded":
 		return exactKeys(payload, []string{"draftId", "reason"}) && hasAuditableString(payload, "draftId") && hasAuditableString(payload, "reason")
+	case "asset.node.committed":
+		return exactKeys(payload, []string{"node"}) && validAssetNode(payload["node"])
+	case "asset.edge.committed":
+		return exactKeys(payload, []string{"edge"}) && validAssetEdge(payload["edge"])
+	case "asset.node.status.changed":
+		status, statusOK := nonEmptyString(payload["status"])
+		return exactKeys(payload, []string{"nodeId", "status", "reason"}) && hasAuditableString(payload, "nodeId") && statusOK && (status == "revoked" || status == "deleted") && hasAuditableString(payload, "reason")
 	default:
 		return len(payload) == 0
 	}
@@ -352,6 +360,41 @@ func validEditorReference(value any) bool {
 	startLine, startOK := safeInteger(object["startLine"])
 	endLine, endOK := safeInteger(object["endLine"])
 	return startOK && startLine > 0 && endOK && endLine >= startLine
+}
+
+func validAssetProvenance(value any) bool {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return false
+	}
+	if kind, ok := object["kind"].(string); ok && kind == "evidence" {
+		return exactKeys(object, []string{"kind", "evidenceIds"}) && isStringSlice(object["evidenceIds"]) && len(object["evidenceIds"].([]any)) > 0
+	}
+	if kind, ok := object["kind"].(string); ok && kind == "human" {
+		return exactKeys(object, []string{"kind", "annotationId", "author"}) && hasAuditableString(object, "annotationId") && hasAuditableString(object, "author")
+	}
+	return false
+}
+
+func validAssetNode(value any) bool {
+	object, ok := value.(map[string]any)
+	if !ok || !exactKeys(object, []string{"id", "kind", "label", "status", "attributes", "provenance"}) {
+		return false
+	}
+	status, statusOK := nonEmptyString(object["status"])
+	_, attributesOK := object["attributes"].(map[string]any)
+	return hasAuditableString(object, "id") && hasAuditableString(object, "kind") && hasAuditableString(object, "label") && statusOK && (status == "active" || status == "revoked" || status == "deleted" || status == "unknown") && attributesOK && validAssetProvenance(object["provenance"])
+}
+
+func validAssetEdge(value any) bool {
+	object, ok := value.(map[string]any)
+	if !ok || !exactKeys(object, []string{"id", "kind", "sourceId", "targetId", "directed", "provenance"}) {
+		return false
+	}
+	source, sourceOK := nonEmptyString(object["sourceId"])
+	target, targetOK := nonEmptyString(object["targetId"])
+	_, directedOK := object["directed"].(bool)
+	return hasAuditableString(object, "id") && hasAuditableString(object, "kind") && sourceOK && targetOK && source != target && directedOK && validAssetProvenance(object["provenance"])
 }
 
 func validTerminalIdentifier(value string) bool {

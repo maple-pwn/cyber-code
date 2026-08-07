@@ -6,7 +6,7 @@ import {
   type Unsubscribe,
 } from '@cyber/runtime-client';
 
-export type AppRoute = 'new-task' | 'scope-review' | 'mission-control' | 'findings' | 'reports' | 'editor';
+export type AppRoute = 'new-task' | 'scope-review' | 'mission-control' | 'findings' | 'reports' | 'asset-graph' | 'editor';
 export type AppSnapshot = { route: AppRoute; view: RuntimeView };
 
 export class AppStore {

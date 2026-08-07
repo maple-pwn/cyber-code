@@ -26,6 +26,8 @@ type State struct {
 	Evidence                      map[string]productprotocol.ImmutableEvidence    `json:"evidence"`
 	Terminals                     map[string]productprotocol.TerminalSessionState `json:"terminals"`
 	EditorDrafts                  map[string]productprotocol.EditorDraftState     `json:"editorDrafts"`
+	AssetNodes                    map[string]productprotocol.AssetNodeState       `json:"assetNodes"`
+	AssetEdges                    map[string]productprotocol.AssetEdgeState       `json:"assetEdges"`
 	Report                        *productprotocol.ReportState                    `json:"report"`
 	RawEvents                     []productprotocol.Event                         `json:"rawEvents"`
 	CommittedCursor               int                                             `json:"committedCursor"`
@@ -41,6 +43,8 @@ func Initial() State {
 		Evidence:        make(map[string]productprotocol.ImmutableEvidence),
 		Terminals:       make(map[string]productprotocol.TerminalSessionState),
 		EditorDrafts:    make(map[string]productprotocol.EditorDraftState),
+		AssetNodes:      make(map[string]productprotocol.AssetNodeState),
+		AssetEdges:      make(map[string]productprotocol.AssetEdgeState),
 		RawEvents:       make([]productprotocol.Event, 0),
 		CanonicalEvents: make(map[string]string),
 	}

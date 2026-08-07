@@ -54,6 +54,10 @@ export type EditorDraftState = {
   verification?: EditorVerificationState;
   discardReason?: string;
 };
+export type AssetProvenance = { kind: 'evidence'; evidenceIds: string[] } | { kind: 'human'; annotationId: string; author: string };
+export type AssetNodeStatus = 'active' | 'revoked' | 'deleted' | 'unknown';
+export type AssetNodeState = { id: string; kind: string; label: string; status: AssetNodeStatus; attributes: JsonObject; provenance: AssetProvenance; statusReason?: string };
+export type AssetEdgeState = { id: string; kind: string; sourceId: string; targetId: string; directed: boolean; provenance: AssetProvenance };
 export type ReportFinding = {
   finding: FindingState;
   evidence: ImmutableEvidence[];
@@ -87,15 +91,18 @@ export interface KnownEventPayloads {
   'editor.patch.applied': { draftId: string; revision: number; baseSha256: string; proposedSha256: string; resultSha256: string; reviewer: string };
   'editor.patch.verified': { draftId: string; revision: number; verificationId: string; success: boolean; evidenceIds: string[] };
   'editor.draft.discarded': { draftId: string; reason: string };
+  'asset.node.committed': { node: Omit<AssetNodeState, 'statusReason'> };
+  'asset.edge.committed': { edge: AssetEdgeState };
+  'asset.node.status.changed': { nodeId: string; status: 'revoked' | 'deleted'; reason: string };
 }
 export type KnownEventType = keyof KnownEventPayloads;
 export type KnownProductEvent = { [K in KnownEventType]: ProductEvent<K, KnownEventPayloads[K]> }[KnownEventType];
 export type UnknownProductEvent = ProductEvent<string, JsonObject> & { kind: 'unknown' };
 export type ValidatedProductEvent = (KnownProductEvent & { kind: 'known' }) | UnknownProductEvent;
-export type ProductState = { activeRuntime: { id: string } | null; task: { id: string; title: string; status: string } | null; scope: ScopeSnapshot | null; controlLease: ControlLease | null; highestCommittedLeaseRevision: number; agents: Record<string, AgentState>; timeline: ValidatedProductEvent[]; approvals: Record<string, ApprovalState>; findings: Record<string, FindingState>; evidence: Record<string, ImmutableEvidence>; terminals: Record<string, TerminalSessionState>; editorDrafts: Record<string, EditorDraftState>; report: ReportState | null; rawEvents: ValidatedProductEvent[]; committedCursor: number; canonicalEvents: Record<string, string> };
+export type ProductState = { activeRuntime: { id: string } | null; task: { id: string; title: string; status: string } | null; scope: ScopeSnapshot | null; controlLease: ControlLease | null; highestCommittedLeaseRevision: number; agents: Record<string, AgentState>; timeline: ValidatedProductEvent[]; approvals: Record<string, ApprovalState>; findings: Record<string, FindingState>; evidence: Record<string, ImmutableEvidence>; terminals: Record<string, TerminalSessionState>; editorDrafts: Record<string, EditorDraftState>; assetNodes: Record<string, AssetNodeState>; assetEdges: Record<string, AssetEdgeState>; report: ReportState | null; rawEvents: ValidatedProductEvent[]; committedCursor: number; canonicalEvents: Record<string, string> };
 export type ProjectionResult = { kind: 'applied'; state: ProductState } | { kind: 'duplicate'; state: ProductState } | { kind: 'resync-required'; state: ProductState; expectedCursor: number };
 
-export function initialProductState(): ProductState { return { activeRuntime: null, task: null, scope: null, controlLease: null, highestCommittedLeaseRevision: 0, agents: {}, timeline: [], approvals: {}, findings: {}, evidence: {}, terminals: {}, editorDrafts: {}, report: null, rawEvents: [], committedCursor: 0, canonicalEvents: {} }; }
+export function initialProductState(): ProductState { return { activeRuntime: null, task: null, scope: null, controlLease: null, highestCommittedLeaseRevision: 0, agents: {}, timeline: [], approvals: {}, findings: {}, evidence: {}, terminals: {}, editorDrafts: {}, assetNodes: {}, assetEdges: {}, report: null, rawEvents: [], committedCursor: 0, canonicalEvents: {} }; }
 export { validateEvent } from './validation';
 export { exportReport, freezeReport, validateReport, type ReportAuditMetadata, type ReportFormat, type ReportValidation } from './report';
 
@@ -112,7 +119,7 @@ export function project(previous: ProductState, event: ValidatedProductEvent): P
   if (event.cursor <= previous.committedCursor) throw new Error('stale_cursor');
   if (event.cursor > previous.committedCursor + 1) return { kind: 'resync-required', state: previous, expectedCursor: previous.committedCursor + 1 };
   const state = clone(previous);
-  for (const value of [state.task, state.scope, state.controlLease, state.report, ...Object.values(state.agents), ...Object.values(state.approvals), ...Object.values(state.findings), ...Object.values(state.evidence), ...Object.values(state.terminals), ...Object.values(state.editorDrafts), ...state.timeline, ...state.rawEvents]) deepFreeze(value);
+  for (const value of [state.task, state.scope, state.controlLease, state.report, ...Object.values(state.agents), ...Object.values(state.approvals), ...Object.values(state.findings), ...Object.values(state.evidence), ...Object.values(state.terminals), ...Object.values(state.editorDrafts), ...Object.values(state.assetNodes), ...Object.values(state.assetEdges), ...state.timeline, ...state.rawEvents]) deepFreeze(value);
   state.committedCursor = event.cursor; state.canonicalEvents[event.eventId] = canonical;
   const storedEvent = retained(event);
   if (event.kind === 'unknown') { state.rawEvents.push(storedEvent); return { kind: 'applied', state }; }
@@ -206,6 +213,41 @@ export function project(previous: ProductState, event: ValidatedProductEvent): P
       state.editorDrafts[draft.id] = retained({ ...draft, status: 'discarded', discardReason: payload.reason as string });
       break;
     }
+    case 'asset.node.committed': {
+      const node = payload.node as KnownEventPayloads['asset.node.committed']['node'];
+      const existingNode = state.assetNodes[node.id];
+      if (existingNode && canonicalize(existingNode) !== canonicalize(node)) throw new Error('asset_node_conflict');
+      if (!existingNode) {
+        assertAssetProvenance(state, event.taskId, node.provenance);
+        state.assetNodes[node.id] = retained(node);
+      }
+      break;
+    }
+    case 'asset.edge.committed': {
+      const edge = payload.edge as AssetEdgeState;
+      const existingEdge = state.assetEdges[edge.id];
+      if (existingEdge && canonicalize(existingEdge) !== canonicalize(edge)) throw new Error('asset_edge_conflict');
+      if (!existingEdge) {
+        assertAssetProvenance(state, event.taskId, edge.provenance);
+        state.assetEdges[edge.id] = retained(edge);
+      }
+      break;
+    }
+    case 'asset.node.status.changed': {
+      const node = state.assetNodes[payload.nodeId as string];
+      if (!node) throw new Error('asset_node_missing');
+      if (node.status === 'deleted') throw new Error('asset_node_deleted');
+      state.assetNodes[node.id] = retained({ ...node, status: payload.status as 'revoked' | 'deleted', statusReason: payload.reason as string });
+      break;
+    }
   }
   return { kind: 'applied', state };
+}
+
+function assertAssetProvenance(state: ProductState, taskId: string, provenance: AssetProvenance): void {
+  if (provenance.kind !== 'evidence') return;
+  for (const evidenceId of provenance.evidenceIds) {
+    const evidence = state.evidence[evidenceId];
+    if (!evidence || evidence.taskId !== taskId) throw new Error('asset_evidence_missing');
+  }
 }

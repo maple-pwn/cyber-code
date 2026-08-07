@@ -112,7 +112,7 @@ function cleanEvent(value: unknown): RawProductEvent {
 }
 
 function cleanProductState(value: unknown): ProductState {
-  if (!isRecord(value) || !hasExactKeys(value, productStateKeys, ['terminals', 'editorDrafts'])
+  if (!isRecord(value) || !hasExactKeys(value, productStateKeys, ['terminals', 'editorDrafts', 'assetNodes', 'assetEdges'])
     || !safeCursor(value.committedCursor)
     || !Number.isSafeInteger(value.highestCommittedLeaseRevision)
     || (value.highestCommittedLeaseRevision as number) < 0
@@ -123,11 +123,13 @@ function cleanProductState(value: unknown): ProductState {
     || !isRecord(value.evidence)
     || (value.terminals !== undefined && !isRecord(value.terminals))
     || (value.editorDrafts !== undefined && !isRecord(value.editorDrafts))
+    || (value.assetNodes !== undefined && !isRecord(value.assetNodes))
+    || (value.assetEdges !== undefined && !isRecord(value.assetEdges))
     || !Array.isArray(value.rawEvents)
     || !stringRecord(value.canonicalEvents)) {
     throw new Error('invalid_snapshot_state');
   }
-  const normalized = { ...value, terminals: value.terminals ?? {}, editorDrafts: value.editorDrafts ?? {} };
+  const normalized = { ...value, terminals: value.terminals ?? {}, editorDrafts: value.editorDrafts ?? {}, assetNodes: value.assetNodes ?? {}, assetEdges: value.assetEdges ?? {} };
   const state = structuredClone(normalized) as unknown as ProductState;
   state.timeline = value.timeline.map((item) => validateEvent(cleanEvent(item))) as ValidatedProductEvent[];
   state.rawEvents = value.rawEvents.map((item) => validateEvent(cleanEvent(item))) as ValidatedProductEvent[];

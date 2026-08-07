@@ -1,5 +1,5 @@
 import { Component, useEffect, useRef, useState, useSyncExternalStore, type ErrorInfo, type ReactNode } from 'react';
-import { Activity, FileText, Radar, ShieldPlus, type LucideIcon } from 'lucide-react';
+import { Activity, FileText, Network, Radar, ShieldPlus, type LucideIcon } from 'lucide-react';
 
 import { createTranslator, setLocale, type Locale } from '@cyber/i18n';
 import { CommandPalette } from '@cyber/ui';
@@ -12,15 +12,17 @@ import type { RuntimeOption } from './pages/NewTaskPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { ScopeReviewPage } from './pages/ScopeReviewPage';
 import { EditorPage } from './pages/EditorPage';
+import { AssetGraphPage } from './pages/AssetGraphPage';
 import type { CodeEditorSurfaceProps } from './pages/EditorPage';
 
-type RouteKey = 'nav.newTask' | 'nav.missionControl' | 'nav.findings' | 'nav.reports';
+type RouteKey = 'nav.newTask' | 'nav.missionControl' | 'nav.findings' | 'nav.reports' | 'nav.assetGraph';
 
 const routes: { route: AppRoute; key: RouteKey; chord: string; icon: LucideIcon }[] = [
   { route: 'new-task', key: 'nav.newTask', chord: 'n', icon: ShieldPlus },
   { route: 'mission-control', key: 'nav.missionControl', chord: 'm', icon: Radar },
   { route: 'findings', key: 'nav.findings', chord: 'f', icon: Activity },
   { route: 'reports', key: 'nav.reports', chord: 'r', icon: FileText },
+  { route: 'asset-graph', key: 'nav.assetGraph', chord: 'a', icon: Network },
 ];
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }> {
@@ -107,6 +109,7 @@ export function ProductApp({ store, runtimes, renderEditor }: ProductAppProps) {
         return <EditorPage product={snapshot.view.product} draftId={draftId} store={store} t={t} onBack={() => navigate('findings')} renderEditor={renderEditor} />;
       }
       case 'reports': return <ReportsPage product={snapshot.view.product} source={snapshot.view.source} t={t} />;
+      case 'asset-graph': return <AssetGraphPage product={snapshot.view.product} t={t} />;
     }
   };
 
