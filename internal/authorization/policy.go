@@ -43,6 +43,7 @@ var (
 	ErrSessionRevoked              = errors.New("session_revoked")
 	ErrSessionExpired              = errors.New("session_expired")
 	ErrStepUpRequired              = errors.New("step_up_required")
+	ErrInvalidRole                 = errors.New("invalid_role")
 )
 
 type Member struct {
@@ -107,6 +108,9 @@ func (p *Policy) Invite(invitation Invitation) error {
 	if invitation.ID == "" || invitation.TenantID == "" || invitation.Principal == "" || !invitation.ExpiresAt.After(p.clock().UTC()) {
 		return ErrInvitationExpired
 	}
+	if !validRole(invitation.Role) {
+		return ErrInvalidRole
+	}
 	if _, exists := p.invitations[invitation.ID]; exists {
 		return ErrInvitationUsed
 	}
@@ -123,6 +127,9 @@ func (p *Policy) AcceptInvitation(id string) error {
 func (p *Policy) AcceptInvitationFor(actor Request, id string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if actor.TenantID == "" || actor.Principal == "" {
+		return ErrTenantDenied
+	}
 	return p.acceptInvitationLocked(id, actor.TenantID, actor.Principal)
 }
 
@@ -210,7 +217,7 @@ func (p *Policy) UpdateMemberRole(tenantID, principal string, role Role) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if !validRole(role) {
-		return ErrCapabilityDenied
+		return ErrInvalidRole
 	}
 	key := tenantID + "\x00" + principal
 	member, ok := p.members[key]

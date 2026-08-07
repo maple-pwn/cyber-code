@@ -43,3 +43,21 @@ func TestAdminHandlerAuthorizesAndScopesManagementRequests(t *testing.T) {
 		t.Fatalf("members response = %d %s", res.Code, res.Body.String())
 	}
 }
+
+func TestAdminHandlerReturnsForbiddenForUnauthorizedQueries(t *testing.T) {
+	clock := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	policy := NewPolicy([]Member{{TenantID: "tenant-a", Principal: "viewer", Role: RoleViewer, Active: true}})
+	policy.SetClock(func() time.Time { return clock })
+	if err := policy.RegisterSession(Session{ID: "session-1", TenantID: "tenant-a", Principal: "viewer", ExpiresAt: clock.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewAdminHandler(NewAdminService(policy), testAdminAuthenticator{request: Request{TenantID: "tenant-a", Principal: "viewer", SessionID: "session-1"}})
+	req := httptest.NewRequest("POST", "/admin", strings.NewReader(`{"action":"members"}`))
+	req.Header.Set("Authorization", "Bearer token")
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != 403 || !strings.Contains(res.Body.String(), "capability_denied") {
+		t.Fatalf("response = %d %s", res.Code, res.Body.String())
+	}
+}

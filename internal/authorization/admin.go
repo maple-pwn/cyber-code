@@ -43,23 +43,23 @@ func (s *AdminService) RevokeMember(actor Request, principal string) error {
 	return s.policy.RevokeMember(actor.TenantID, principal)
 }
 
-func (s *AdminService) Members(actor Request) []Member {
+func (s *AdminService) Members(actor Request) ([]Member, error) {
 	if err := s.authorize(actor); err != nil {
-		return nil
+		return nil, err
 	}
-	return s.policy.Members(actor.TenantID)
+	return s.policy.Members(actor.TenantID), nil
 }
 
-func (s *AdminService) Invitations(actor Request) []Invitation {
+func (s *AdminService) Invitations(actor Request) ([]Invitation, error) {
 	if err := s.authorize(actor); err != nil {
-		return nil
+		return nil, err
 	}
-	return s.policy.Invitations(actor.TenantID)
+	return s.policy.Invitations(actor.TenantID), nil
 }
 
-func (s *AdminService) Audit(actor Request) []Decision {
+func (s *AdminService) Audit(actor Request) ([]Decision, error) {
 	if err := s.authorize(actor); err != nil {
-		return nil
+		return nil, err
 	}
-	return s.policy.DecisionsForTenant(actor.TenantID)
+	return s.policy.DecisionsForTenant(actor.TenantID), nil
 }

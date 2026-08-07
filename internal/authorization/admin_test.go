@@ -29,7 +29,11 @@ func TestAdminServiceRequiresStepUpAndScopesTenant(t *testing.T) {
 	if err := admin.UpdateRole(Request{TenantID: "tenant-b", Principal: "owner", SessionID: "session-1"}, "new-user", RoleAdmin); err != ErrTenantDenied {
 		t.Fatalf("cross tenant = %v", err)
 	}
-	if got := len(admin.Members(Request{TenantID: "tenant-a", Principal: "owner", SessionID: "session-1"})); got != 1 {
+	members, err := admin.Members(Request{TenantID: "tenant-a", Principal: "owner", SessionID: "session-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(members); got != 1 {
 		t.Fatalf("members = %d", got)
 	}
 }

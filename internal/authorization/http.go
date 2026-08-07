@@ -79,14 +79,32 @@ func (h *AdminHandler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 	case "revoke":
 		err = h.service.RevokeMember(actor, input.Principal)
 	case "members":
-		writeAdminJSON(writer, http.StatusOK, map[string]any{"ok": true, "members": h.service.Members(actor)})
-		return
+		var members []Member
+		members, err = h.service.Members(actor)
+		if err == nil {
+			writeAdminJSON(writer, http.StatusOK, map[string]any{"ok": true, "members": members})
+		}
+		if err == nil {
+			return
+		}
 	case "invitations":
-		writeAdminJSON(writer, http.StatusOK, map[string]any{"ok": true, "invitations": h.service.Invitations(actor)})
-		return
+		var invitations []Invitation
+		invitations, err = h.service.Invitations(actor)
+		if err == nil {
+			writeAdminJSON(writer, http.StatusOK, map[string]any{"ok": true, "invitations": invitations})
+		}
+		if err == nil {
+			return
+		}
 	case "audit":
-		writeAdminJSON(writer, http.StatusOK, map[string]any{"ok": true, "decisions": h.service.Audit(actor)})
-		return
+		var decisions []Decision
+		decisions, err = h.service.Audit(actor)
+		if err == nil {
+			writeAdminJSON(writer, http.StatusOK, map[string]any{"ok": true, "decisions": decisions})
+		}
+		if err == nil {
+			return
+		}
 	default:
 		writeAdminError(writer, http.StatusBadRequest, "unknown_action")
 		return
