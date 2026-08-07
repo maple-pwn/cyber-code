@@ -40,6 +40,7 @@ var (
 	ErrSessionMissing    = errors.New("session_missing")
 	ErrSessionRevoked    = errors.New("session_revoked")
 	ErrSessionExpired    = errors.New("session_expired")
+	ErrStepUpRequired    = errors.New("step_up_required")
 )
 
 type Member struct {
@@ -61,6 +62,7 @@ type Invitation struct {
 type Session struct {
 	ID, TenantID, Principal string
 	ExpiresAt               time.Time
+	StepUpUntil             time.Time
 	Revoked                 bool
 }
 type Decision struct {
@@ -155,6 +157,24 @@ func (p *Policy) RevokeSession(id string) error {
 	return nil
 }
 
+func (p *Policy) ElevateSession(id string, until time.Time) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	session, ok := p.sessions[id]
+	if !ok {
+		return ErrSessionMissing
+	}
+	if session.Revoked {
+		return ErrSessionRevoked
+	}
+	if !until.After(p.clock().UTC()) || !session.ExpiresAt.After(until) {
+		return ErrSessionExpired
+	}
+	session.StepUpUntil = until
+	p.sessions[id] = session
+	return nil
+}
+
 func (p *Policy) RevokeMember(tenantID, principal string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -194,6 +214,8 @@ func (p *Policy) Authorize(request Request) error {
 		err = ErrMembershipRevoked
 	} else if !roleAllows(member.Role, request.Capability) {
 		err = ErrCapabilityDenied
+	} else if isHighRisk(request.Capability) && (request.SessionID == "" || !p.sessions[request.SessionID].StepUpUntil.After(p.clock().UTC())) {
+		err = ErrStepUpRequired
 	}
 	decision := Decision{At: p.clock().UTC(), TenantID: request.TenantID, Principal: request.Principal, Capability: request.Capability, Allowed: err == nil}
 	if err != nil {
@@ -201,6 +223,10 @@ func (p *Policy) Authorize(request Request) error {
 	}
 	p.decisions = append(p.decisions, decision)
 	return err
+}
+
+func isHighRisk(capability Capability) bool {
+	return capability == CapabilityApproval || capability == CapabilityReportExport || capability == CapabilityAdministration
 }
 
 func (p *Policy) Decisions() []Decision {

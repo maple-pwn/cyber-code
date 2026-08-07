@@ -64,3 +64,26 @@ func TestInvitationMembershipAndSessionRevocation(t *testing.T) {
 		t.Fatalf("revoked member = %v, want %v", err, ErrMembershipRevoked)
 	}
 }
+
+func TestHighRiskCapabilityRequiresStepUpSession(t *testing.T) {
+	clock := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	policy := NewPolicy([]Member{{TenantID: "tenant-a", Principal: "alice", Role: RoleApprover, Active: true}})
+	policy.SetClock(func() time.Time { return clock })
+	if err := policy.RegisterSession(Session{ID: "session-1", TenantID: "tenant-a", Principal: "alice", ExpiresAt: clock.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	req := Request{TenantID: "tenant-a", Principal: "alice", SessionID: "session-1", Capability: CapabilityApproval}
+	if err := policy.Authorize(req); err != ErrStepUpRequired {
+		t.Fatalf("without step-up = %v, want %v", err, ErrStepUpRequired)
+	}
+	if err := policy.ElevateSession("session-1", clock.Add(10*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := policy.Authorize(req); err != nil {
+		t.Fatalf("with step-up: %v", err)
+	}
+	clock = clock.Add(11 * time.Minute)
+	if err := policy.Authorize(req); err != ErrStepUpRequired {
+		t.Fatalf("expired step-up = %v, want %v", err, ErrStepUpRequired)
+	}
+}
