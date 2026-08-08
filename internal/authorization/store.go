@@ -14,6 +14,16 @@ type FileStore struct {
 	lockPath string
 }
 
+// SnapshotStore is the persistence boundary used by remote authorization
+// services. FileStore is the portable single-node implementation; database
+// adapters can implement the same contract without changing Policy logic.
+type SnapshotStore interface {
+	Save(*Policy) error
+	Load() (*Policy, error)
+}
+
+var _ SnapshotStore = (*FileStore)(nil)
+
 func NewFileStore(path string) (*FileStore, error) {
 	if path == "" {
 		return nil, fmt.Errorf("authorization store path is required")
