@@ -113,12 +113,16 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 	if options.PermissionMode != "" {
 		source = permissions.SourceCliArg
 	}
+	trustRules, err := permissions.TrustRules(permissions.TrustLevel(loaded.TrustLevel), loaded.AllowedTools, loaded.DenyTools)
+	if err != nil {
+		return nil, fmt.Errorf("configure trust policy: %w", err)
+	}
 	audit, err := newPersistentAuditLog(filepath.Join(options.StateDir, "audit.json"), 1000)
 	if err != nil {
 		return nil, err
 	}
 	broker, err := permissions.NewBroker(permissions.Options{
-		Mode: mode, ModeSource: source, Headless: options.Headless, Confirmer: options.Confirmer, Audit: audit,
+		Mode: mode, ModeSource: source, Rules: trustRules, Headless: options.Headless, Confirmer: options.Confirmer, Audit: audit,
 	})
 	if err != nil {
 		return nil, err
