@@ -108,6 +108,21 @@ func TestNarrativeStreamRendersMeaningfulEventsChronologically(t *testing.T) {
 	}
 }
 
+func TestInspectorRendersAssetGraphTextSummary(t *testing.T) {
+	t.Parallel()
+	state := missionState()
+	state.AssetNodes["asset:target:lab"] = productprotocol.AssetNodeState{ID: "asset:target:lab", Kind: "target", Label: "lab", Status: "active"}
+	state.AssetNodes["asset:route:admin"] = productprotocol.AssetNodeState{ID: "asset:route:admin", Kind: "route", Label: "/admin", Status: "observed"}
+	state.AssetEdges["edge:lab-admin"] = productprotocol.AssetEdgeState{ID: "edge:lab-admin", Kind: "exposes", SourceID: "asset:target:lab", TargetID: "asset:route:admin", Directed: true}
+	model := NewModel(state, Options{Width: 160, Height: 80})
+	view := modelView(model)
+	for _, want := range []string{"Asset Graph", "nodes: 2  edges: 1", "lab  TARGET · ACTIVE", "/admin  ROUTE · OBSERVED", "asset:target:lab -> asset:route:admin"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("graph summary missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestApprovalRequiresReviewBeforeAllowAndDeniesImmediately(t *testing.T) {
 	t.Parallel()
 

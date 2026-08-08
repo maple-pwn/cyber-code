@@ -1,15 +1,20 @@
 package cli
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"cyber-code/internal/authorization"
 	"cyber-code/internal/core"
 	"cyber-code/internal/filelock"
 	"cyber-code/internal/product"
@@ -19,6 +24,107 @@ import (
 func newRuntimeCommand(environment *commandEnvironment) *cobra.Command {
 	command := &cobra.Command{Use: "runtime", Short: "manage CYBER runtime sources", Args: cobra.NoArgs}
 	command.AddCommand(newRuntimeServeCommand(environment))
+	command.AddCommand(newRuntimeRemoteServeCommand(environment))
+	return command
+}
+
+func newRuntimeRemoteServeCommand(environment *commandEnvironment) *cobra.Command {
+	var listen, certFile, keyFile, bearer, tenant, principal, sessionID, role string
+	var origins []string
+	command := &cobra.Command{
+		Use: "remote-serve", Short: "serve authenticated runtime and admin APIs over HTTPS", Args: cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if strings.TrimSpace(certFile) == "" || strings.TrimSpace(keyFile) == "" {
+				return fmt.Errorf("--cert and --key are required")
+			}
+			if strings.TrimSpace(bearer) == "" {
+				return fmt.Errorf("--bearer is required")
+			}
+			if len(origins) == 0 {
+				return fmt.Errorf("at least one --origin is required")
+			}
+			if listen == "" {
+				listen = "127.0.0.1:8443"
+			}
+			if tenant == "" {
+				tenant = "local"
+			}
+			if principal == "" {
+				principal = "remote-admin"
+			}
+			if sessionID == "" {
+				sessionID = "remote-session"
+			}
+			if role == "" {
+				role = string(authorization.RoleOwner)
+			}
+			runtimeRoot := filepath.Join(environment.stateDir, "runtime-events")
+			if err := os.MkdirAll(runtimeRoot, 0o700); err != nil {
+				return fmt.Errorf("create remote runtime directory: %w", err)
+			}
+			store, err := runtimeapi.NewStore(runtimeRoot)
+			if err != nil {
+				return err
+			}
+			policyPath := filepath.Join(environment.stateDir, "authorization.json")
+			fileStore, err := authorization.NewFileStore(policyPath)
+			if err != nil {
+				return err
+			}
+			policy, err := fileStore.Load()
+			if err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					return fmt.Errorf("load authorization policy: %w", err)
+				}
+				policy = authorization.NewPolicy([]authorization.Member{{TenantID: tenant, Principal: principal, Role: authorization.Role(role), Active: true}})
+				if err := policy.RegisterSession(authorization.Session{ID: sessionID, TenantID: tenant, Principal: principal, ExpiresAt: time.Now().Add(24 * time.Hour)}); err != nil {
+					return err
+				}
+				if err := policy.ElevateSession(sessionID, time.Now().Add(12*time.Hour)); err != nil {
+					return err
+				}
+				if err := fileStore.Save(policy); err != nil {
+					return err
+				}
+			}
+			auth, err := runtimeapi.NewStaticRemoteAuthenticator(bearer, runtimeapi.RemoteClaims{
+				Principal: principal, TenantID: tenant, SessionID: sessionID, Role: role,
+				TaskContextID: "remote-default", ControllerID: "remote-controller",
+				Capabilities: []string{"events", "snapshot", "commands"},
+			})
+			if err != nil {
+				return err
+			}
+			service := runtimeapi.NewService(store, stableLocalRuntimeID(runtimeRoot), principal, nil)
+			remote, err := runtimeapi.NewRemoteServer(runtimeapi.RemoteServerOptions{Service: service, Authenticator: auth, Workspace: "", AllowedOrigins: origins, Authorization: policy})
+			if err != nil {
+				return err
+			}
+			handler, err := runtimeapi.NewTeamHandlerForRemote(remote, authorization.NewAdminService(policy), auth)
+			if err != nil {
+				return err
+			}
+			httpServer := &http.Server{Addr: listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+			go func() {
+				<-environment.ctx.Done()
+				_ = httpServer.Shutdown(context.Background())
+			}()
+			err = httpServer.ListenAndServeTLS(certFile, keyFile)
+			if errors.Is(err, http.ErrServerClosed) {
+				return nil
+			}
+			return err
+		},
+	}
+	command.Flags().StringVar(&listen, "listen", "127.0.0.1:8443", "HTTPS listen address")
+	command.Flags().StringVar(&certFile, "cert", "", "TLS certificate PEM path")
+	command.Flags().StringVar(&keyFile, "key", "", "TLS private key PEM path")
+	command.Flags().StringVar(&bearer, "bearer", "", "static bearer token for smoke/local deployments")
+	command.Flags().StringVar(&tenant, "tenant", "local", "initial tenant identifier")
+	command.Flags().StringVar(&principal, "principal", "remote-admin", "initial principal identifier")
+	command.Flags().StringVar(&sessionID, "session", "remote-session", "initial session identifier")
+	command.Flags().StringVar(&role, "role", string(authorization.RoleOwner), "initial role")
+	command.Flags().StringArrayVar(&origins, "origin", nil, "allowed browser origin (repeatable)")
 	return command
 }
 

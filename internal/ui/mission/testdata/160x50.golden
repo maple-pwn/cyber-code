@@ -13,15 +13,15 @@
 │└────────────────────────────┘                                                                           │Evidence                                            │
 │                                                                                                         │evidence-1  Observed admin route                    │
 │                                                                                                         │                                                    │
+│                                                                                                         │Asset Graph                                         │
+│                                                                                                         │nodes: 0  edges: 0                                  │
+│                                                                                                         │                                                    │
 │                                                                                                         │Finding                                             │
 │                                                                                                         │Admin access                                        │
 │                                                                                                         │HIGH · VERIFYING · ●●○ MEDIUM                       │
 │                                                                                                         │                                                    │
 │                                                                                                         │Report                                              │
 │                                                                                                         │DRAFT                                               │
-│                                                                                                         │                                                    │
-│                                                                                                         │                                                    │
-│                                                                                                         │                                                    │
 │                                                                                                         │                                                    │
 │                                                                                                         │                                                    │
 │                                                                                                         │                                                    │

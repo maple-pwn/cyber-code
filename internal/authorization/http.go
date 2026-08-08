@@ -125,7 +125,8 @@ func adminBearer(value string) (string, bool) {
 	return token, token != ""
 }
 func adminStatus(err error) int {
-	if errors.Is(err, ErrTenantDenied) || errors.Is(err, ErrMembershipRevoked) || errors.Is(err, ErrCapabilityDenied) || errors.Is(err, ErrStepUpRequired) {
+	if errors.Is(err, ErrTenantDenied) || errors.Is(err, ErrMembershipRevoked) || errors.Is(err, ErrCapabilityDenied) ||
+		errors.Is(err, ErrStepUpRequired) || errors.Is(err, ErrSessionMissing) || errors.Is(err, ErrSessionRevoked) || errors.Is(err, ErrSessionExpired) {
 		return http.StatusForbidden
 	}
 	return http.StatusBadRequest

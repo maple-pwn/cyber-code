@@ -215,6 +215,24 @@ func (model *Model) renderInspector() string {
 		evidence := model.state.Evidence[id]
 		lines = append(lines, fmt.Sprintf("%s  %s", clean(evidence.ID), clean(evidence.Summary)))
 	}
+	lines = append(lines, "", sectionStyle.Render("Asset Graph"))
+	lines = append(lines, fmt.Sprintf("nodes: %d  edges: %d", len(model.state.AssetNodes), len(model.state.AssetEdges)))
+	for _, id := range sortedAssetNodeIDs(model.state.AssetNodes) {
+		node := model.state.AssetNodes[id]
+		label := node.Label
+		if strings.TrimSpace(label) == "" {
+			label = node.ID
+		}
+		lines = append(lines, fmt.Sprintf("%s  %s · %s", clean(label), strings.ToUpper(clean(node.Kind)), strings.ToUpper(clean(node.Status))))
+	}
+	for _, id := range sortedAssetEdgeIDs(model.state.AssetEdges) {
+		edge := model.state.AssetEdges[id]
+		arrow := "->"
+		if !edge.Directed {
+			arrow = "--"
+		}
+		lines = append(lines, fmt.Sprintf("  %s %s %s", clean(edge.SourceID), arrow, clean(edge.TargetID)))
+	}
 	lines = append(lines, "", sectionStyle.Render("Finding"))
 	for _, id := range sortedFindingIDs(model.state.Findings) {
 		finding := model.state.Findings[id]
@@ -395,6 +413,24 @@ func sortedEvidenceIDs(values map[string]productprotocol.ImmutableEvidence) []st
 }
 
 func sortedFindingIDs(values map[string]productprotocol.FindingState) []string {
+	ids := make([]string, 0, len(values))
+	for id := range values {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func sortedAssetNodeIDs(values map[string]productprotocol.AssetNodeState) []string {
+	ids := make([]string, 0, len(values))
+	for id := range values {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func sortedAssetEdgeIDs(values map[string]productprotocol.AssetEdgeState) []string {
 	ids := make([]string, 0, len(values))
 	for id := range values {
 		ids = append(ids, id)

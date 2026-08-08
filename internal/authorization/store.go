@@ -5,9 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"cyber-code/internal/filelock"
 )
 
-type FileStore struct{ path string }
+type FileStore struct {
+	path     string
+	lockPath string
+}
 
 func NewFileStore(path string) (*FileStore, error) {
 	if path == "" {
@@ -17,13 +22,22 @@ func NewFileStore(path string) (*FileStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve authorization store path: %w", err)
 	}
-	return &FileStore{path: absolute}, nil
+	return &FileStore{path: absolute, lockPath: absolute + ".lock"}, nil
 }
 
 func (s *FileStore) Save(policy *Policy) (returnErr error) {
 	if s == nil || policy == nil {
 		return fmt.Errorf("authorization store and policy are required")
 	}
+	release, err := filelock.Acquire(s.lockPath)
+	if err != nil {
+		return fmt.Errorf("lock authorization store: %w", err)
+	}
+	defer func() {
+		if unlockErr := release(); returnErr == nil && unlockErr != nil {
+			returnErr = fmt.Errorf("unlock authorization store: %w", unlockErr)
+		}
+	}()
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return fmt.Errorf("create authorization store directory: %w", err)
 	}
@@ -67,6 +81,11 @@ func (s *FileStore) Load() (*Policy, error) {
 	if s == nil {
 		return nil, fmt.Errorf("authorization store is required")
 	}
+	release, err := filelock.Acquire(s.lockPath)
+	if err != nil {
+		return nil, fmt.Errorf("lock authorization store: %w", err)
+	}
+	defer release()
 	data, err := os.ReadFile(s.path)
 	if err != nil {
 		return nil, fmt.Errorf("read authorization snapshot: %w", err)
