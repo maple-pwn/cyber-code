@@ -37,7 +37,7 @@
 
 ## Exit gate
 
-Implementation status as of 2026-08-08: the portable and PostgreSQL-compatible persistence code, authenticated HTTPS composition, health endpoints, and recovery primitives are implemented. Real PostgreSQL failover, OIDC/SCIM, cloud-account smoke tests, and Windows/Linux native acceptance remain unchecked until external test environments provide evidence.
+Implementation status as of 2026-08-08: the portable and PostgreSQL-compatible persistence code, authenticated HTTPS composition, health endpoints, recovery primitives, managed trust bounds, emergency access, structured request observation, and a standard-library OIDC JWT verification adapter are implemented. The browser PKCE callback, real PostgreSQL failover, SCIM, cloud-account smoke tests, and Windows/Linux native acceptance remain unchecked until external test environments provide evidence.
 
 - Local-only mode remains functional without PostgreSQL, OIDC, or cloud credentials.
 - Remote mode has authenticated `/runtime` and `/admin` routes, durable multi-instance state, and revocation that takes effect without client refresh.
