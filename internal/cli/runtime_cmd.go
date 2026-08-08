@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -101,7 +102,12 @@ func newRuntimeRemoteServeCommand(environment *commandEnvironment) *cobra.Comman
 			if err != nil {
 				return err
 			}
-			handler, err := runtimeapi.NewTeamHandlerForRemote(remote, authorization.NewAdminService(policy), auth)
+			logger := slog.New(slog.NewJSONHandler(environment.stderr, nil))
+			observer := runtimeapi.TeamObserverFunc(func(observation runtimeapi.TeamObservation) {
+				logger.Info("remote HTTP request", "request_id", observation.RequestID, "path", observation.Path,
+					"method", observation.Method, "status", observation.Status, "duration_ms", observation.Duration.Milliseconds())
+			})
+			handler, err := runtimeapi.NewObservedTeamHandlerForRemote(remote, authorization.NewAdminService(policy), auth, observer)
 			if err != nil {
 				return err
 			}

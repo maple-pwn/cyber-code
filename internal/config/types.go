@@ -26,6 +26,9 @@ type Config struct {
 	Profiles                map[string]Profile `json:"profiles" yaml:"profiles"`
 	PermissionMode          string             `json:"permission_mode,omitempty" yaml:"permission_mode,omitempty"`
 	SandboxMode             string             `json:"sandbox_mode,omitempty" yaml:"sandbox_mode,omitempty"`
+	TrustLevel              string             `json:"trust_level,omitempty" yaml:"trust_level,omitempty"`
+	AllowedTools            []string           `json:"allowed_tools,omitempty" yaml:"allowed_tools,omitempty"`
+	DenyTools               []string           `json:"deny_tools,omitempty" yaml:"deny_tools,omitempty"`
 	ContextWarningThreshold float64            `json:"context_warning_threshold,omitempty" yaml:"context_warning_threshold,omitempty"`
 	ContextCompactThreshold float64            `json:"context_compact_threshold,omitempty" yaml:"context_compact_threshold,omitempty"`
 }
@@ -57,6 +60,7 @@ func Default() Config {
 		},
 		PermissionMode:          "default",
 		SandboxMode:             "best-effort",
+		TrustLevel:              "suggested",
 		ContextWarningThreshold: 0.80,
 		ContextCompactThreshold: 0.90,
 	}

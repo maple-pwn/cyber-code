@@ -17,8 +17,8 @@
 ## 6B: Identity and enterprise policy
 
 - [ ] Add OIDC/OAuth browser login with PKCE callback, issuer/audience validation, and secure session registration.
-- [ ] Add managed rules, trust levels, `allowed_tools`, and `deny_tools` without trusting client-provided role/capability fields.
-- [ ] Define emergency access with bounded TTL, explicit reason, dual audit events, and mandatory revocation.
+- [x] Add managed rules, trust levels, `allowed_tools`, and `deny_tools` without trusting client-provided role/capability fields.
+- [x] Define emergency access with bounded TTL, explicit reason, dual audit events, and mandatory revocation.
 - [ ] Add SCIM-compatible membership provisioning behind an explicit deployment flag.
 
 ## 6C: Operations and observability

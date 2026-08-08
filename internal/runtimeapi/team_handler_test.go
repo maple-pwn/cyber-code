@@ -38,7 +38,8 @@ func TestTeamHandlerRequiresBothSecurityBoundaries(t *testing.T) {
 }
 
 func TestTeamHandlerExposesHealthAndBoundedRequestIDs(t *testing.T) {
-	handler, err := NewTeamHandler(http.NotFoundHandler(), http.NotFoundHandler())
+	metrics := &TeamMetrics{}
+	handler, err := NewObservedTeamHandler(http.NotFoundHandler(), http.NotFoundHandler(), metrics)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,6 +61,12 @@ func TestTeamHandlerExposesHealthAndBoundedRequestIDs(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusMethodNotAllowed || !strings.HasPrefix(response.Header().Get("X-Request-ID"), "team-") {
 		t.Fatalf("invalid request ID response = %d id=%q", response.Code, response.Header().Get("X-Request-ID"))
+	}
+	notFound := httptest.NewRecorder()
+	handler.ServeHTTP(notFound, httptest.NewRequest(http.MethodGet, "/missing", nil))
+	snapshot := metrics.Snapshot()
+	if snapshot.Requests != 4 || snapshot.Health != 3 || snapshot.NotFound != 1 || snapshot.Failures != 2 {
+		t.Fatalf("metrics = %+v", snapshot)
 	}
 }
 

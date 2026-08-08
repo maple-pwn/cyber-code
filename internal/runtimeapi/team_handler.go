@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"cyber-code/internal/authorization"
 )
@@ -16,10 +17,17 @@ var teamRequestSequence uint64
 // NewTeamHandler composes the runtime and organization administration APIs
 // without allowing path-prefix fallthrough between their authorization domains.
 func NewTeamHandler(runtimeHandler, adminHandler http.Handler) (http.Handler, error) {
+	return NewObservedTeamHandler(runtimeHandler, adminHandler, nil)
+}
+
+func NewObservedTeamHandler(runtimeHandler, adminHandler http.Handler, observer TeamObserver) (http.Handler, error) {
 	if runtimeHandler == nil || adminHandler == nil {
 		return nil, fmt.Errorf("runtime and admin handlers are required")
 	}
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		started := time.Now()
+		statusWriter := &teamStatusWriter{ResponseWriter: writer, status: http.StatusOK}
+		writer = statusWriter
 		writer.Header().Set("Cache-Control", "no-store")
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
 		requestID := strings.TrimSpace(request.Header.Get("X-Request-ID"))
@@ -27,6 +35,11 @@ func NewTeamHandler(runtimeHandler, adminHandler http.Handler) (http.Handler, er
 			requestID = "team-" + strconv.FormatUint(atomic.AddUint64(&teamRequestSequence, 1), 10)
 		}
 		writer.Header().Set("X-Request-ID", requestID)
+		if observer != nil {
+			defer func() {
+				observer.Observe(TeamObservation{RequestID: requestID, Path: request.URL.Path, Method: request.Method, Status: statusWriter.status, Duration: time.Since(started)})
+			}()
+		}
 		switch request.URL.Path {
 		case "/healthz", "/readyz":
 			if request.Method != http.MethodGet {
@@ -44,6 +57,20 @@ func NewTeamHandler(runtimeHandler, adminHandler http.Handler) (http.Handler, er
 			http.NotFound(writer, request)
 		}
 	}), nil
+}
+
+type teamStatusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (writer *teamStatusWriter) WriteHeader(status int) {
+	writer.status = status
+	writer.ResponseWriter.WriteHeader(status)
+}
+
+func (writer *teamStatusWriter) Write(data []byte) (int, error) {
+	return writer.ResponseWriter.Write(data)
 }
 
 // RemoteAdminAuthenticator transports authenticated runtime claims into the
@@ -75,6 +102,10 @@ func (a *RemoteAdminAuthenticator) Authenticate(ctx context.Context, token strin
 // NewTeamHandlerForRemote wires the runtime and tenant administration APIs to
 // one authenticator and one policy-backed admin service.
 func NewTeamHandlerForRemote(runtime *RemoteServer, service *authorization.AdminService, authenticator RemoteAuthenticator) (http.Handler, error) {
+	return NewObservedTeamHandlerForRemote(runtime, service, authenticator, nil)
+}
+
+func NewObservedTeamHandlerForRemote(runtime *RemoteServer, service *authorization.AdminService, authenticator RemoteAuthenticator, observer TeamObserver) (http.Handler, error) {
 	if runtime == nil || service == nil {
 		return nil, fmt.Errorf("remote runtime and admin service are required")
 	}
@@ -82,5 +113,5 @@ func NewTeamHandlerForRemote(runtime *RemoteServer, service *authorization.Admin
 	if err != nil {
 		return nil, err
 	}
-	return NewTeamHandler(runtime, authorization.NewAdminHandler(service, adminAuthenticator))
+	return NewObservedTeamHandler(runtime, authorization.NewAdminHandler(service, adminAuthenticator), observer)
 }

@@ -324,6 +324,57 @@ profiles:
 	}
 }
 
+func TestLoadTrustAndToolBounds(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	writeConfigFile(t, path, `
+active_profile: anthropic
+trust_level: managed
+allowed_tools: [read_file, shell]
+deny_tools: [shell]
+profiles:
+  anthropic:
+    provider: anthropic
+    model: model
+`)
+	loaded, err := Load(LoadOptions{UserFile: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.TrustLevel != "managed" || len(loaded.AllowedTools) != 2 || len(loaded.DenyTools) != 1 {
+		t.Fatalf("trust config = %#v", loaded)
+	}
+	loaded.DenyTools = []string{"shell", "shell"}
+	if err := Validate(loaded); err == nil || !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("duplicate tool error = %v", err)
+	}
+}
+
+func TestProjectTrustPolicyCanOnlyReduceUserAuthority(t *testing.T) {
+	root := t.TempDir()
+	userFile := filepath.Join(root, "user.yaml")
+	projectFile := filepath.Join(root, "project.yaml")
+	writeConfigFile(t, userFile, `
+active_profile: anthropic
+trust_level: managed
+allowed_tools: [read_file, shell]
+deny_tools: [delete_file]
+profiles:
+  anthropic: {provider: anthropic, model: model}
+`)
+	writeConfigFile(t, projectFile, `
+trust_level: trusted
+allowed_tools: [shell, write_file]
+deny_tools: [shell]
+`)
+	loaded, err := Load(LoadOptions{UserFile: userFile, ProjectFile: projectFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.TrustLevel != "managed" || strings.Join(loaded.AllowedTools, ",") != "shell" || strings.Join(loaded.DenyTools, ",") != "delete_file,shell" {
+		t.Fatalf("project relaxed trust policy: %#v", loaded)
+	}
+}
+
 func writeConfigFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {

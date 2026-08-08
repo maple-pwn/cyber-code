@@ -61,3 +61,34 @@ func TestAdminHandlerReturnsForbiddenForUnauthorizedQueries(t *testing.T) {
 		t.Fatalf("response = %d %s", res.Code, res.Body.String())
 	}
 }
+
+func TestAdminHandlerGrantsAndRevokesBoundedEmergencyAccess(t *testing.T) {
+	clock := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	policy := NewPolicy([]Member{{TenantID: "tenant-a", Principal: "owner", Role: RoleOwner, Active: true}, {TenantID: "tenant-a", Principal: "auditor", Role: RoleAuditor, Active: true}})
+	policy.SetClock(func() time.Time { return clock })
+	for _, session := range []Session{{ID: "owner-session", TenantID: "tenant-a", Principal: "owner", ExpiresAt: clock.Add(time.Hour)}, {ID: "auditor-session", TenantID: "tenant-a", Principal: "auditor", ExpiresAt: clock.Add(time.Hour)}} {
+		if err := policy.RegisterSession(session); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := policy.ElevateSession("owner-session", clock.Add(10*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewAdminHandler(NewAdminService(policy), testAdminAuthenticator{request: Request{TenantID: "tenant-a", Principal: "owner", SessionID: "owner-session"}})
+	call := func(body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", "/admin", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer token")
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		return res
+	}
+	if res := call(`{"action":"emergency_grant","sessionId":"auditor-session","reason":"incident response","until":"2026-08-08T12:15:00Z"}`); res.Code != 200 {
+		t.Fatalf("grant = %d %s", res.Code, res.Body.String())
+	}
+	if err := policy.Authorize(Request{TenantID: "tenant-a", Principal: "auditor", SessionID: "auditor-session", Capability: CapabilityReportExport}); err != nil {
+		t.Fatal(err)
+	}
+	if res := call(`{"action":"emergency_revoke","sessionId":"auditor-session"}`); res.Code != 200 {
+		t.Fatalf("revoke = %d %s", res.Code, res.Body.String())
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type AdminAuthenticator interface {
@@ -27,6 +28,9 @@ type adminRequest struct {
 	Principal  string      `json:"principal,omitempty"`
 	Role       Role        `json:"role,omitempty"`
 	Invitation *Invitation `json:"invitation,omitempty"`
+	SessionID  string      `json:"sessionId,omitempty"`
+	Reason     string      `json:"reason,omitempty"`
+	Until      time.Time   `json:"until,omitempty"`
 }
 
 func (h *AdminHandler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -105,6 +109,10 @@ func (h *AdminHandler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 		if err == nil {
 			return
 		}
+	case "emergency_grant":
+		err = h.service.GrantEmergencyAccess(actor, input.SessionID, input.Reason, input.Until)
+	case "emergency_revoke":
+		err = h.service.RevokeEmergencyAccess(actor, input.SessionID)
 	default:
 		writeAdminError(writer, http.StatusBadRequest, "unknown_action")
 		return

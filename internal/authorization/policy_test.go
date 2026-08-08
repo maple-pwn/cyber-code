@@ -137,3 +137,50 @@ func TestMemberAdministrationAndTenantScopedAudit(t *testing.T) {
 		t.Fatalf("missing member = %v", err)
 	}
 }
+
+func TestEmergencyAccessIsBoundedAuditedAndRevocable(t *testing.T) {
+	clock := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	policy := NewPolicy([]Member{
+		{TenantID: "tenant-a", Principal: "owner", Role: RoleOwner, Active: true},
+		{TenantID: "tenant-a", Principal: "auditor", Role: RoleAuditor, Active: true},
+	})
+	policy.SetClock(func() time.Time { return clock })
+	for _, session := range []Session{
+		{ID: "owner-session", TenantID: "tenant-a", Principal: "owner", ExpiresAt: clock.Add(time.Hour)},
+		{ID: "auditor-session", TenantID: "tenant-a", Principal: "auditor", ExpiresAt: clock.Add(time.Hour)},
+	} {
+		if err := policy.RegisterSession(session); err != nil {
+			t.Fatal(err)
+		}
+	}
+	actor := Request{TenantID: "tenant-a", Principal: "owner", SessionID: "owner-session"}
+	if err := policy.GrantEmergencyAccess(actor, "auditor-session", "incident response", clock.Add(15*time.Minute)); err != ErrStepUpRequired {
+		t.Fatalf("grant without owner step-up = %v", err)
+	}
+	if err := policy.ElevateSession("owner-session", clock.Add(10*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := policy.GrantEmergencyAccess(actor, "auditor-session", "incident response", clock.Add(31*time.Minute)); err != ErrEmergencyAccessInvalid {
+		t.Fatalf("overlong grant = %v", err)
+	}
+	if err := policy.GrantEmergencyAccess(actor, "auditor-session", "incident response", clock.Add(15*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	export := Request{TenantID: "tenant-a", Principal: "auditor", SessionID: "auditor-session", Capability: CapabilityReportExport}
+	if err := policy.Authorize(export); err != nil {
+		t.Fatalf("emergency authorization = %v", err)
+	}
+	if err := policy.RevokeEmergencyAccess(actor, "auditor-session"); err != nil {
+		t.Fatal(err)
+	}
+	if err := policy.Authorize(export); err != ErrStepUpRequired {
+		t.Fatalf("revoked emergency access = %v", err)
+	}
+	decisions := policy.DecisionsForTenant("tenant-a")
+	if len(decisions) < 6 || decisions[len(decisions)-2].Reason != "emergency access revoked" {
+		t.Fatalf("emergency audit incomplete: %+v", decisions)
+	}
+	if err := VerifyDecisions(decisions); err != nil {
+		t.Fatalf("emergency audit chain = %v", err)
+	}
+}

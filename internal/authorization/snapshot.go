@@ -58,6 +58,10 @@ func NewPolicyFromSnapshot(snapshot Snapshot) (*Policy, error) {
 		if session.ID == "" || session.TenantID == "" || session.Principal == "" {
 			return nil, ErrSessionMissing
 		}
+		if (!session.EmergencyUntil.IsZero() && (session.EmergencyReason == "" || session.EmergencyUntil.After(session.ExpiresAt))) ||
+			(session.EmergencyUntil.IsZero() && session.EmergencyReason != "") {
+			return nil, ErrEmergencyAccessInvalid
+		}
 		if _, exists := policy.sessions[session.ID]; exists {
 			return nil, ErrSessionMissing
 		}

@@ -1,5 +1,7 @@
 package authorization
 
+import "time"
+
 type AdminService struct{ policy *Policy }
 
 func NewAdminService(policy *Policy) *AdminService { return &AdminService{policy: policy} }
@@ -62,4 +64,18 @@ func (s *AdminService) Audit(actor Request) ([]Decision, error) {
 		return nil, err
 	}
 	return s.policy.DecisionsForTenant(actor.TenantID), nil
+}
+
+func (s *AdminService) GrantEmergencyAccess(actor Request, sessionID, reason string, until time.Time) error {
+	if s == nil || s.policy == nil {
+		return ErrTenantDenied
+	}
+	return s.policy.GrantEmergencyAccess(actor, sessionID, reason, until)
+}
+
+func (s *AdminService) RevokeEmergencyAccess(actor Request, sessionID string) error {
+	if s == nil || s.policy == nil {
+		return ErrTenantDenied
+	}
+	return s.policy.RevokeEmergencyAccess(actor, sessionID)
 }

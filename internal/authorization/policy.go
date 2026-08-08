@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -25,13 +26,14 @@ const (
 type Capability string
 
 const (
-	CapabilityTaskCreate     Capability = "task.create"
-	CapabilityScopeConfirm   Capability = "scope.confirm"
-	CapabilityApproval       Capability = "approval.respond"
-	CapabilityControlTake    Capability = "control.take"
-	CapabilityEvidenceRead   Capability = "evidence.read"
-	CapabilityReportExport   Capability = "report.export"
-	CapabilityAdministration Capability = "organization.admin"
+	CapabilityTaskCreate      Capability = "task.create"
+	CapabilityScopeConfirm    Capability = "scope.confirm"
+	CapabilityApproval        Capability = "approval.respond"
+	CapabilityControlTake     Capability = "control.take"
+	CapabilityEvidenceRead    Capability = "evidence.read"
+	CapabilityReportExport    Capability = "report.export"
+	CapabilityAdministration  Capability = "organization.admin"
+	CapabilityEmergencyAccess Capability = "emergency.access.grant"
 )
 
 var (
@@ -48,6 +50,7 @@ var (
 	ErrStepUpRequired              = errors.New("step_up_required")
 	ErrInvalidRole                 = errors.New("invalid_role")
 	ErrAuditTampered               = errors.New("audit_tampered")
+	ErrEmergencyAccessInvalid      = errors.New("emergency_access_invalid")
 )
 
 type Member struct {
@@ -70,6 +73,8 @@ type Session struct {
 	ID, TenantID, Principal string
 	ExpiresAt               time.Time
 	StepUpUntil             time.Time
+	EmergencyUntil          time.Time
+	EmergencyReason         string
 	Revoked                 bool
 }
 type Decision struct {
@@ -206,6 +211,66 @@ func (p *Policy) ElevateSession(id string, until time.Time) error {
 	return nil
 }
 
+func (p *Policy) GrantEmergencyAccess(actor Request, sessionID, reason string, until time.Time) error {
+	actor.Capability = CapabilityEmergencyAccess
+	if err := p.Authorize(actor); err != nil {
+		return err
+	}
+	reason = strings.TrimSpace(reason)
+	now := p.currentTime()
+	if len(reason) < 8 || len(reason) > 256 || strings.ContainsAny(reason, "\x00\r\n") || !until.After(now) || until.After(now.Add(30*time.Minute)) {
+		return ErrEmergencyAccessInvalid
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	session, ok := p.sessions[sessionID]
+	if !ok {
+		return ErrSessionMissing
+	}
+	if session.TenantID != actor.TenantID {
+		return ErrTenantDenied
+	}
+	if session.Revoked {
+		return ErrSessionRevoked
+	}
+	if !session.ExpiresAt.After(until) {
+		return ErrSessionExpired
+	}
+	session.EmergencyUntil = until.UTC()
+	session.EmergencyReason = reason
+	p.sessions[sessionID] = session
+	p.appendDecisionLocked(Decision{At: now, TenantID: session.TenantID, Principal: session.Principal, Capability: CapabilityEmergencyAccess, Allowed: true, Reason: "emergency access granted: " + reason})
+	return nil
+}
+
+func (p *Policy) RevokeEmergencyAccess(actor Request, sessionID string) error {
+	actor.Capability = CapabilityEmergencyAccess
+	if err := p.Authorize(actor); err != nil {
+		return err
+	}
+	now := p.currentTime()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	session, ok := p.sessions[sessionID]
+	if !ok {
+		return ErrSessionMissing
+	}
+	if session.TenantID != actor.TenantID {
+		return ErrTenantDenied
+	}
+	session.EmergencyUntil = time.Time{}
+	session.EmergencyReason = ""
+	p.sessions[sessionID] = session
+	p.appendDecisionLocked(Decision{At: now, TenantID: session.TenantID, Principal: session.Principal, Capability: CapabilityEmergencyAccess, Allowed: false, Reason: "emergency access revoked"})
+	return nil
+}
+
+func (p *Policy) currentTime() time.Time {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.clock().UTC()
+}
+
 func (p *Policy) RevokeMember(tenantID, principal string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -299,7 +364,8 @@ func (p *Policy) Authorize(request Request) error {
 		err = ErrMembershipRevoked
 	} else if !roleAllows(member.Role, request.Capability) {
 		err = ErrCapabilityDenied
-	} else if isHighRisk(request.Capability) && (request.SessionID == "" || !p.sessions[request.SessionID].StepUpUntil.After(p.clock().UTC())) {
+	} else if isHighRisk(request.Capability) && (request.SessionID == "" ||
+		(!p.sessions[request.SessionID].StepUpUntil.After(p.clock().UTC()) && !p.sessions[request.SessionID].EmergencyUntil.After(p.clock().UTC()))) {
 		err = ErrStepUpRequired
 	}
 	decision := Decision{At: p.clock().UTC(), TenantID: request.TenantID, Principal: request.Principal, Capability: request.Capability, Allowed: err == nil}
@@ -336,7 +402,7 @@ func decisionHash(decision Decision) string {
 }
 
 func isHighRisk(capability Capability) bool {
-	return capability == CapabilityApproval || capability == CapabilityReportExport || capability == CapabilityAdministration
+	return capability == CapabilityApproval || capability == CapabilityReportExport || capability == CapabilityAdministration || capability == CapabilityEmergencyAccess
 }
 
 func validRole(role Role) bool {

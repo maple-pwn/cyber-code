@@ -19,6 +19,7 @@ var allowedPermissionModes = map[string]struct{}{
 }
 
 var allowedSandboxModes = map[string]struct{}{"off": {}, "best-effort": {}, "required": {}}
+var allowedTrustLevels = map[string]struct{}{"trusted": {}, "suggested": {}, "managed": {}}
 
 // Validate checks profile references and values without resolving secrets.
 func Validate(config *Config) error {
@@ -78,6 +79,25 @@ func Validate(config *Config) error {
 	}
 	if _, ok := allowedSandboxModes[config.SandboxMode]; !ok {
 		return fmt.Errorf("sandbox_mode %q is not supported", config.SandboxMode)
+	}
+	if config.TrustLevel == "" {
+		config.TrustLevel = "suggested"
+	}
+	if _, ok := allowedTrustLevels[config.TrustLevel]; !ok {
+		return fmt.Errorf("trust_level %q is not supported", config.TrustLevel)
+	}
+	for name, tools := range map[string][]string{"allowed_tools": config.AllowedTools, "deny_tools": config.DenyTools} {
+		seen := make(map[string]struct{}, len(tools))
+		for _, tool := range tools {
+			tool = strings.TrimSpace(tool)
+			if tool == "" || len(tool) > 128 || strings.ContainsAny(tool, " \t\r\n") {
+				return fmt.Errorf("%s contains an invalid tool name", name)
+			}
+			if _, exists := seen[tool]; exists {
+				return fmt.Errorf("%s contains duplicate tool %q", name, tool)
+			}
+			seen[tool] = struct{}{}
+		}
 	}
 	return nil
 }
