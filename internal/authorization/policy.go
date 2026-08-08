@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"cyber-code/internal/security"
 )
 
 type Role string
@@ -217,6 +219,7 @@ func (p *Policy) GrantEmergencyAccess(actor Request, sessionID, reason string, u
 		return err
 	}
 	reason = strings.TrimSpace(reason)
+	reason = security.NewRedactor().Text(reason)
 	now := p.currentTime()
 	if len(reason) < 8 || len(reason) > 256 || strings.ContainsAny(reason, "\x00\r\n") || !until.After(now) || until.After(now.Add(30*time.Minute)) {
 		return ErrEmergencyAccessInvalid

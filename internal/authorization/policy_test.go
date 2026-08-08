@@ -1,6 +1,7 @@
 package authorization
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -163,7 +164,7 @@ func TestEmergencyAccessIsBoundedAuditedAndRevocable(t *testing.T) {
 	if err := policy.GrantEmergencyAccess(actor, "auditor-session", "incident response", clock.Add(31*time.Minute)); err != ErrEmergencyAccessInvalid {
 		t.Fatalf("overlong grant = %v", err)
 	}
-	if err := policy.GrantEmergencyAccess(actor, "auditor-session", "incident response", clock.Add(15*time.Minute)); err != nil {
+	if err := policy.GrantEmergencyAccess(actor, "auditor-session", "incident response Bearer secret-token", clock.Add(15*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	export := Request{TenantID: "tenant-a", Principal: "auditor", SessionID: "auditor-session", Capability: CapabilityReportExport}
@@ -182,5 +183,10 @@ func TestEmergencyAccessIsBoundedAuditedAndRevocable(t *testing.T) {
 	}
 	if err := VerifyDecisions(decisions); err != nil {
 		t.Fatalf("emergency audit chain = %v", err)
+	}
+	for _, decision := range decisions {
+		if strings.Contains(decision.Reason, "secret-token") {
+			t.Fatalf("emergency audit leaked credential: %+v", decision)
+		}
 	}
 }
