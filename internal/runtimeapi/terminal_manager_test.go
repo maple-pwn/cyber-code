@@ -87,6 +87,45 @@ func TestTerminalManagerKillsProcessAtOutputLimit(t *testing.T) {
 	}
 }
 
+func TestTerminalManagerSanitizesHostileOutputBeforeAudit(t *testing.T) {
+	t.Parallel()
+	server, taskID, workspace := newTerminalAuthorityServer(t, []string{"events", "commands", "terminal.input"})
+	process := newFakeTerminalProcess()
+	manager := NewTerminalManager(server.service, &fakeTerminalBackend{process: process})
+	command := terminalOpenCommand{SessionID: "terminal-hostile", ProfileID: "default-shell", WorkingDirectory: workspace, ScopeID: "scope-terminal", Columns: 80, Rows: 24, OutputLimitBytes: 1024, ExpectedLeaseRevision: 1}
+	if err := manager.Open(context.Background(), taskID, "client-1", command, server.terminalProfiles[command.ProfileID]); err != nil {
+		t.Fatal(err)
+	}
+	process.output <- []byte("visible\x1b]52;c;secret\x07after\xe2\x80\xae")
+	want := "visibleafter"
+	waitForTerminalState(t, server.service, taskID, func(state terminalStateView) bool { return state.OutputBytes == len(want) })
+	events, _, err := server.service.Store().Load(context.Background(), taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if event.Type != "terminal.output" {
+			continue
+		}
+		var payload struct {
+			Data string `json:"data"`
+		}
+		if json.Unmarshal(event.Payload, &payload) != nil {
+			t.Fatalf("payload = %s", event.Payload)
+		}
+		decoded, err := base64.StdEncoding.DecodeString(payload.Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(decoded) != want {
+			t.Fatalf("terminal output = %q, want %q", decoded, want)
+		}
+		_ = manager.Cancel(context.Background(), taskID, "client-1", terminalCancelCommand{SessionID: command.SessionID, ExpectedLeaseRevision: 1})
+		return
+	}
+	t.Fatal("missing terminal output event")
+}
+
 func TestTerminalCommandsDispatchThroughRuntimeOwnedManager(t *testing.T) {
 	t.Parallel()
 	server, taskID, workspace := newTerminalAuthorityServer(t, []string{"events", "commands", "terminal.input"})

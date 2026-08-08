@@ -61,20 +61,22 @@ type terminalCancelCommand struct {
 }
 
 type managedTerminal struct {
-	mu                 sync.Mutex
-	process            TerminalProcess
-	taskID             string
-	sessionID          string
-	ownerClientID      string
-	scopeID            string
-	leaseRevision      int
-	nextInputSequence  int
-	nextOutputSequence int
-	outputBytes        int
-	outputLimitBytes   int
-	closed             bool
-	exitReason         string
-	done               chan struct{}
+	mu                  sync.Mutex
+	process             TerminalProcess
+	taskID              string
+	sessionID           string
+	ownerClientID       string
+	scopeID             string
+	leaseRevision       int
+	nextInputSequence   int
+	nextOutputSequence  int
+	outputBytes         int
+	outputReceivedBytes int
+	outputLimitBytes    int
+	sanitizer           *terminalOutputSanitizer
+	closed              bool
+	exitReason          string
+	done                chan struct{}
 }
 
 type TerminalManager struct {
@@ -109,7 +111,7 @@ func (manager *TerminalManager) Open(ctx context.Context, taskID, clientID strin
 	session := &managedTerminal{
 		process: process, taskID: taskID, sessionID: command.SessionID, ownerClientID: clientID, scopeID: command.ScopeID,
 		leaseRevision: command.ExpectedLeaseRevision, nextInputSequence: 1, nextOutputSequence: 1,
-		outputLimitBytes: command.OutputLimitBytes, exitReason: "exited", done: make(chan struct{}),
+		outputLimitBytes: command.OutputLimitBytes, sanitizer: newTerminalOutputSanitizer(), exitReason: "exited", done: make(chan struct{}),
 	}
 	manager.mu.Lock()
 	if _, exists := manager.used[command.SessionID]; exists {
@@ -214,6 +216,7 @@ func (manager *TerminalManager) readOutput(session *managedTerminal) {
 			manager.commitOutput(session, buffer[:count])
 		}
 		if err != nil {
+			manager.flushOutput(session)
 			return
 		}
 	}
@@ -225,7 +228,7 @@ func (manager *TerminalManager) commitOutput(session *managedTerminal, data []by
 	if session.closed {
 		return
 	}
-	remaining := session.outputLimitBytes - session.outputBytes
+	remaining := session.outputLimitBytes - session.outputReceivedBytes
 	if remaining <= 0 {
 		session.exitReason = "output_limit"
 		_ = session.process.Kill()
@@ -234,6 +237,30 @@ func (manager *TerminalManager) commitOutput(session *managedTerminal, data []by
 	if len(data) > remaining {
 		data = data[:remaining]
 	}
+	session.outputReceivedBytes += len(data)
+	clean := session.sanitizer.Push(data)
+	if len(clean) > 0 && !manager.emitOutputLocked(session, clean) {
+		return
+	}
+	if session.outputReceivedBytes >= session.outputLimitBytes {
+		session.exitReason = "output_limit"
+		_ = session.process.Kill()
+	}
+}
+
+func (manager *TerminalManager) flushOutput(session *managedTerminal) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.closed {
+		return
+	}
+	clean := session.sanitizer.Flush()
+	if len(clean) > 0 {
+		manager.emitOutputLocked(session, clean)
+	}
+}
+
+func (manager *TerminalManager) emitOutputLocked(session *managedTerminal, data []byte) bool {
 	sequence := session.nextOutputSequence
 	_, err := manager.service.emit(context.Background(), session.taskID, "terminal.output", map[string]any{
 		"sessionId": session.sessionID, "sequence": sequence, "data": base64.StdEncoding.EncodeToString(data), "byteLength": len(data),
@@ -241,14 +268,11 @@ func (manager *TerminalManager) commitOutput(session *managedTerminal, data []by
 	if err != nil {
 		session.exitReason = "audit_failed"
 		_ = session.process.Kill()
-		return
+		return false
 	}
 	session.outputBytes += len(data)
 	session.nextOutputSequence++
-	if session.outputBytes >= session.outputLimitBytes {
-		session.exitReason = "output_limit"
-		_ = session.process.Kill()
-	}
+	return true
 }
 
 func (manager *TerminalManager) wait(session *managedTerminal) {
