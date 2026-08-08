@@ -8,10 +8,10 @@
 
 ## 6A: Remote service and persistence
 
-- [ ] Add `cyber-code runtime remote-serve` with configurable listen address, TLS certificate/key, allowed origins, and graceful shutdown.
-- [ ] Mount `/runtime` and `/admin` through the shared authenticated team handler; add request IDs, bounded bodies, and health/readiness endpoints.
-- [ ] Define a concurrency-safe `SnapshotStore` interface and PostgreSQL implementation with migrations and transaction boundaries.
-- [ ] Add crash recovery, multi-instance locking, optimistic revision checks, and backup/restore verification.
+- [x] Add `cyber-code runtime remote-serve` with configurable listen address, TLS certificate/key, allowed origins, and graceful shutdown.
+- [x] Mount `/runtime` and `/admin` through the shared authenticated team handler; add request IDs, bounded bodies, and health/readiness endpoints.
+- [x] Define a concurrency-safe `SnapshotStore` interface and PostgreSQL implementation with migrations and transaction boundaries.
+- [x] Add crash recovery, multi-instance locking, optimistic revision checks, and backup/restore verification.
 - [ ] Run multi-process integration tests for tenant isolation, stale claims, revocation, and concurrent admin writes.
 
 ## 6B: Identity and enterprise policy
@@ -36,6 +36,8 @@
 - [ ] Run Web/Desktop/TUI/VS Code/Go/Rust packaging matrix and document migration/rollback per capability.
 
 ## Exit gate
+
+Implementation status as of 2026-08-08: the portable and PostgreSQL-compatible persistence code, authenticated HTTPS composition, health endpoints, and recovery primitives are implemented. Real PostgreSQL failover, OIDC/SCIM, cloud-account smoke tests, and Windows/Linux native acceptance remain unchecked until external test environments provide evidence.
 
 - Local-only mode remains functional without PostgreSQL, OIDC, or cloud credentials.
 - Remote mode has authenticated `/runtime` and `/admin` routes, durable multi-instance state, and revocation that takes effect without client refresh.

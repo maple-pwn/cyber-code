@@ -29,7 +29,7 @@ func newRuntimeCommand(environment *commandEnvironment) *cobra.Command {
 }
 
 func newRuntimeRemoteServeCommand(environment *commandEnvironment) *cobra.Command {
-	var listen, certFile, keyFile, bearer, tenant, principal, sessionID, role string
+	var listen, certFile, keyFile, bearerEnv, tenant, principal, sessionID, role string
 	var origins []string
 	command := &cobra.Command{
 		Use: "remote-serve", Short: "serve authenticated runtime and admin APIs over HTTPS", Args: cobra.NoArgs,
@@ -37,8 +37,9 @@ func newRuntimeRemoteServeCommand(environment *commandEnvironment) *cobra.Comman
 			if strings.TrimSpace(certFile) == "" || strings.TrimSpace(keyFile) == "" {
 				return fmt.Errorf("--cert and --key are required")
 			}
-			if strings.TrimSpace(bearer) == "" {
-				return fmt.Errorf("--bearer is required")
+			bearer := strings.TrimSpace(os.Getenv(bearerEnv))
+			if bearer == "" {
+				return fmt.Errorf("remote bearer environment variable %s is not set", bearerEnv)
 			}
 			if len(origins) == 0 {
 				return fmt.Errorf("at least one --origin is required")
@@ -104,7 +105,11 @@ func newRuntimeRemoteServeCommand(environment *commandEnvironment) *cobra.Comman
 			if err != nil {
 				return err
 			}
-			httpServer := &http.Server{Addr: listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+			httpServer := &http.Server{
+				Addr: listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second,
+				ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second,
+				MaxHeaderBytes: 32 * 1024,
+			}
 			go func() {
 				<-environment.ctx.Done()
 				_ = httpServer.Shutdown(context.Background())
@@ -119,7 +124,7 @@ func newRuntimeRemoteServeCommand(environment *commandEnvironment) *cobra.Comman
 	command.Flags().StringVar(&listen, "listen", "127.0.0.1:8443", "HTTPS listen address")
 	command.Flags().StringVar(&certFile, "cert", "", "TLS certificate PEM path")
 	command.Flags().StringVar(&keyFile, "key", "", "TLS private key PEM path")
-	command.Flags().StringVar(&bearer, "bearer", "", "static bearer token for smoke/local deployments")
+	command.Flags().StringVar(&bearerEnv, "bearer-env", product.EnvRuntimeBearer, "environment variable containing the static bearer token")
 	command.Flags().StringVar(&tenant, "tenant", "local", "initial tenant identifier")
 	command.Flags().StringVar(&principal, "principal", "remote-admin", "initial principal identifier")
 	command.Flags().StringVar(&sessionID, "session", "remote-session", "initial session identifier")

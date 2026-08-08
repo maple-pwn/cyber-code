@@ -106,3 +106,36 @@ func (s *FileStore) Load() (*Policy, error) {
 	}
 	return NewPolicyFromSnapshot(snapshot)
 }
+
+// Backup writes a separately validated, atomic copy of the current policy.
+func (s *FileStore) Backup(destination string) error {
+	policy, err := s.Load()
+	if err != nil {
+		return err
+	}
+	backup, err := NewFileStore(destination)
+	if err != nil {
+		return err
+	}
+	if backup.path == s.path {
+		return fmt.Errorf("authorization backup destination must differ from the store")
+	}
+	return backup.Save(policy)
+}
+
+// Restore validates the complete backup, including the audit hash chain,
+// before atomically replacing the active snapshot.
+func (s *FileStore) Restore(source string) error {
+	backup, err := NewFileStore(source)
+	if err != nil {
+		return err
+	}
+	if backup.path == s.path {
+		return fmt.Errorf("authorization restore source must differ from the store")
+	}
+	policy, err := backup.Load()
+	if err != nil {
+		return fmt.Errorf("validate authorization backup: %w", err)
+	}
+	return s.Save(policy)
+}

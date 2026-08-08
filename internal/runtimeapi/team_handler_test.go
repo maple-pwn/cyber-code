@@ -37,6 +37,32 @@ func TestTeamHandlerRequiresBothSecurityBoundaries(t *testing.T) {
 	}
 }
 
+func TestTeamHandlerExposesHealthAndBoundedRequestIDs(t *testing.T) {
+	handler, err := NewTeamHandler(http.NotFoundHandler(), http.NotFoundHandler())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/healthz", "/readyz"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.Header.Set("X-Request-ID", "request-123")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusOK || response.Body.String() != "{\"ok\":true}\n" {
+			t.Fatalf("%s = %d %q", path, response.Code, response.Body.String())
+		}
+		if response.Header().Get("X-Request-ID") != "request-123" {
+			t.Fatalf("request ID = %q", response.Header().Get("X-Request-ID"))
+		}
+	}
+	request := httptest.NewRequest(http.MethodPost, "/healthz", nil)
+	request.Header.Set("X-Request-ID", strings.Repeat("x", 129))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusMethodNotAllowed || !strings.HasPrefix(response.Header().Get("X-Request-ID"), "team-") {
+		t.Fatalf("invalid request ID response = %d id=%q", response.Code, response.Header().Get("X-Request-ID"))
+	}
+}
+
 func TestRemoteTeamHandlerUsesPolicyForAdminClaims(t *testing.T) {
 	store, err := NewStore(t.TempDir())
 	if err != nil {

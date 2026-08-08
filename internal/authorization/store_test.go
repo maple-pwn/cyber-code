@@ -73,3 +73,41 @@ func TestFileStoreSerializesConcurrentWritersAndIgnoresCrashTempFiles(t *testing
 		t.Fatalf("load with crash residue: %v", err)
 	}
 }
+
+func TestFileStoreBackupRestoreRejectsTamperingBeforeReplacement(t *testing.T) {
+	root := t.TempDir()
+	activePath := filepath.Join(root, "active.json")
+	backupPath := filepath.Join(root, "backup.json")
+	store, err := NewFileStore(activePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := NewPolicy([]Member{{TenantID: "tenant-a", Principal: "owner", Role: RoleOwner, Active: true}})
+	if err := store.Save(original); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Backup(backupPath); err != nil {
+		t.Fatal(err)
+	}
+	replacement := NewPolicy([]Member{{TenantID: "tenant-a", Principal: "viewer", Role: RoleViewer, Active: true}})
+	if err := store.Save(replacement); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Restore(backupPath); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := store.Load()
+	if err != nil || len(restored.Members("tenant-a")) != 1 || restored.Members("tenant-a")[0].Principal != "owner" {
+		t.Fatalf("restored policy = %+v err=%v", restored, err)
+	}
+	if err := os.WriteFile(backupPath, []byte(`{"members":[],"decisions":[{"hash":"forged"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Restore(backupPath); err == nil {
+		t.Fatal("tampered backup was restored")
+	}
+	stillValid, err := store.Load()
+	if err != nil || stillValid.Members("tenant-a")[0].Principal != "owner" {
+		t.Fatalf("tampered restore changed active policy: %+v err=%v", stillValid, err)
+	}
+}

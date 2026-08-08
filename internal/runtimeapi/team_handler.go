@@ -4,9 +4,14 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
+	"sync/atomic"
 
 	"cyber-code/internal/authorization"
 )
+
+var teamRequestSequence uint64
 
 // NewTeamHandler composes the runtime and organization administration APIs
 // without allowing path-prefix fallthrough between their authorization domains.
@@ -17,7 +22,20 @@ func NewTeamHandler(runtimeHandler, adminHandler http.Handler) (http.Handler, er
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Cache-Control", "no-store")
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
+		requestID := strings.TrimSpace(request.Header.Get("X-Request-ID"))
+		if requestID == "" || len(requestID) > 128 || strings.ContainsAny(requestID, "\r\n") {
+			requestID = "team-" + strconv.FormatUint(atomic.AddUint64(&teamRequestSequence, 1), 10)
+		}
+		writer.Header().Set("X-Request-ID", requestID)
 		switch request.URL.Path {
+		case "/healthz", "/readyz":
+			if request.Method != http.MethodGet {
+				writer.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			writer.WriteHeader(http.StatusOK)
+			_, _ = writer.Write([]byte(`{"ok":true}` + "\n"))
 		case "/runtime":
 			runtimeHandler.ServeHTTP(writer, request)
 		case "/admin":
