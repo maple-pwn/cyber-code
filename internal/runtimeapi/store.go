@@ -160,6 +160,86 @@ func (s *Store) Commit(ctx context.Context, draft DraftEvent, options ...CommitO
 	return event, projected.State, nil
 }
 
+// CommitExternal durably records an already validated event whose cursor and
+// identity are authoritative in an external runtime. Exact replays are
+// idempotent; conflicting identities are rejected.
+func (s *Store) CommitExternal(ctx context.Context, candidate productprotocol.Event) (productstate.State, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return productstate.State{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	events, previous, err := s.loadLocked(ctx, candidate.TaskID)
+	if err != nil {
+		return productstate.State{}, err
+	}
+	raw, err := json.Marshal(candidate)
+	if err != nil {
+		return productstate.State{}, err
+	}
+	event, err := productprotocol.Validate(raw)
+	if err != nil {
+		return productstate.State{}, fmt.Errorf("validate external product event: %w", err)
+	}
+	if event.Cursor <= previous.CommittedCursor {
+		for _, existing := range events {
+			if existing.Cursor != event.Cursor {
+				continue
+			}
+			left, _ := productprotocol.CanonicalJSON(existing)
+			right, _ := productprotocol.CanonicalJSON(event)
+			if existing.EventID == event.EventID && bytes.Equal(left, right) {
+				return previous, nil
+			}
+			return productstate.State{}, ErrEventIdentityConflict
+		}
+		return productstate.State{}, ErrEventIdentityConflict
+	}
+	if event.Cursor != previous.CommittedCursor+1 {
+		return productstate.State{}, fmt.Errorf("external event cursor gap: expected %d, got %d", previous.CommittedCursor+1, event.Cursor)
+	}
+	if err := rejectEvidenceMutation(previous, event); err != nil {
+		return productstate.State{}, err
+	}
+	projected, err := productstate.Project(previous, event)
+	if err != nil || projected.Kind != productstate.ProjectionApplied {
+		if err != nil {
+			return productstate.State{}, err
+		}
+		return productstate.State{}, fmt.Errorf("unexpected projection result %q", projected.Kind)
+	}
+	record := transactionRecord{Event: event, Snapshot: projected.State}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		return productstate.State{}, err
+	}
+	path, err := s.transactionPath(event.TaskID)
+	if err != nil {
+		return productstate.State{}, err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return productstate.State{}, fmt.Errorf("open transaction log: %w", err)
+	}
+	if _, err = file.Write(append(encoded, '\n')); err == nil {
+		err = file.Sync()
+	}
+	closeErr := file.Close()
+	if err != nil {
+		return productstate.State{}, fmt.Errorf("commit external transaction: %w", err)
+	}
+	if closeErr != nil {
+		return productstate.State{}, fmt.Errorf("close transaction log: %w", closeErr)
+	}
+	if err := syncDirectory(s.root); err != nil {
+		return productstate.State{}, fmt.Errorf("sync transaction directory: %w", err)
+	}
+	return projected.State, nil
+}
+
 func (s *Store) Load(ctx context.Context, taskID string) ([]productprotocol.Event, productstate.State, error) {
 	if ctx == nil {
 		ctx = context.Background()

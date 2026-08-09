@@ -37,6 +37,9 @@ var knownEventTypes = map[string]struct{}{
 	"editor.draft.opened": {}, "editor.draft.saved": {}, "editor.patch.applied": {},
 	"editor.patch.verified": {}, "editor.draft.discarded": {},
 	"asset.node.committed": {}, "asset.edge.committed": {}, "asset.node.status.changed": {},
+	"plan.created": {}, "plan.revised": {}, "agent.dispatched": {}, "tool.receipt": {},
+	"evidence.references.committed": {}, "artifact.available": {},
+	"interaction.requested": {}, "interaction.responded": {}, "interaction.cancelled": {},
 }
 
 func Validate(raw json.RawMessage) (Event, error) {
@@ -93,6 +96,14 @@ func Validate(raw json.RawMessage) (Event, error) {
 	if _, known := knownEventTypes[eventType]; known {
 		kind = EventKindKnown
 	}
+	var origin *EventOrigin
+	if rawOrigin, exists := object["origin"]; exists {
+		parsed, valid := validOrigin(rawOrigin, eventID, cursor)
+		if !valid {
+			return Event{}, ErrInvalidEvent
+		}
+		origin = &parsed
+	}
 	return Event{
 		SchemaVersion: schemaVersion,
 		EventID:       eventID,
@@ -103,7 +114,28 @@ func Validate(raw json.RawMessage) (Event, error) {
 		Source:        source,
 		Payload:       payloadJSON,
 		Kind:          kind,
+		Origin:        origin,
 	}, nil
+}
+
+func validOrigin(value any, eventID string, cursor int) (EventOrigin, bool) {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return EventOrigin{}, false
+	}
+	sequence, sequenceOK := safeInteger(object["sourceSequence"])
+	origin := EventOrigin{}
+	origin.SourceSessionID, ok = nonEmptyString(object["sourceSessionId"])
+	if !ok || !sequenceOK || sequence != cursor {
+		return EventOrigin{}, false
+	}
+	origin.SourceSequence = sequence
+	origin.SourceEventID, ok = nonEmptyString(object["sourceEventId"])
+	if !ok || origin.SourceEventID != eventID {
+		return EventOrigin{}, false
+	}
+	origin.SourceTopic, ok = nonEmptyString(object["sourceTopic"])
+	return origin, ok
 }
 
 func CanonicalJSON(value any) ([]byte, error) {
@@ -209,6 +241,8 @@ func validKnownPayload(eventType string, payload map[string]any) bool {
 		return hasString(payload, "questionId") && hasString(payload, "answer")
 	case "agent.started":
 		return validAgent(payload["agent"])
+	case "agent.dispatched":
+		return validObjectSlice(payload["agents"], validAgent)
 	case "agent.progressed":
 		return hasString(payload, "agentId") && isNumber(payload["progress"])
 	case "agent.completed":
@@ -222,8 +256,18 @@ func validKnownPayload(eventType string, payload map[string]any) bool {
 		return hasString(payload, "callId") && success && isStringSlice(payload["evidenceIds"])
 	case "tool.failed":
 		return hasString(payload, "callId") && hasString(payload, "reason")
+	case "tool.receipt":
+		return validToolReceipt(payload["receipt"])
 	case "evidence.committed":
 		return validEvidence(payload["evidence"])
+	case "evidence.references.committed":
+		return validObjectSlice(payload["references"], validEvidenceReference)
+	case "artifact.available":
+		return validArtifact(payload["artifact"])
+	case "plan.created", "plan.revised":
+		return validPlan(payload["plan"])
+	case "interaction.requested", "interaction.responded", "interaction.cancelled":
+		return validInteraction(payload["interaction"])
 	case "finding.created":
 		return validFinding(payload["finding"])
 	case "finding.verifying", "finding.confirmed", "finding.mitigated":
@@ -458,6 +502,50 @@ func validScope(value any) bool {
 func validAgent(value any) bool {
 	object, ok := value.(map[string]any)
 	return ok && hasString(object, "id") && hasString(object, "name") && hasString(object, "status")
+}
+
+func validPlan(value any) bool {
+	object, ok := value.(map[string]any)
+	revision, revisionOK := safeInteger(object["revision"])
+	return ok && hasString(object, "runId") && revisionOK && revision > 0 && isStringSlice(object["stepIds"])
+}
+
+func validToolReceipt(value any) bool {
+	object, ok := value.(map[string]any)
+	if !ok || !hasString(object, "callId") || !hasString(object, "actionId") || !hasString(object, "tool") || !hasString(object, "effect") {
+		return false
+	}
+	_, success := object["success"].(bool)
+	return success && isStringSlice(object["evidenceIds"]) && isStringSlice(object["artifactRefs"])
+}
+
+func validEvidenceReference(value any) bool {
+	object, ok := value.(map[string]any)
+	return ok && hasString(object, "id") && hasString(object, "kind") && hasString(object, "sourceRef") && isStringSlice(object["artifactRefs"])
+}
+
+func validArtifact(value any) bool {
+	object, ok := value.(map[string]any)
+	digest, digestOK := nonEmptyString(object["sha256"])
+	return ok && hasString(object, "id") && hasString(object, "reference") && hasString(object, "kind") && digestOK && validSHA256(digest) && isStringSlice(object["evidenceIds"])
+}
+
+func validInteraction(value any) bool {
+	object, ok := value.(map[string]any)
+	return ok && hasString(object, "id") && hasString(object, "kind") && hasString(object, "status")
+}
+
+func validObjectSlice(value any, validator func(any) bool) bool {
+	items, ok := value.([]any)
+	if !ok || len(items) == 0 {
+		return false
+	}
+	for _, item := range items {
+		if !validator(item) {
+			return false
+		}
+	}
+	return true
 }
 
 func validEvidence(value any) bool {

@@ -18,6 +18,13 @@ type EventSourceRef struct {
 	ToolCallID string `json:"toolCallId,omitempty"`
 }
 
+type EventOrigin struct {
+	SourceSessionID string `json:"sourceSessionId"`
+	SourceSequence  int    `json:"sourceSequence"`
+	SourceEventID   string `json:"sourceEventId"`
+	SourceTopic     string `json:"sourceTopic"`
+}
+
 type Event struct {
 	SchemaVersion int             `json:"schemaVersion"`
 	EventID       string          `json:"eventId"`
@@ -28,6 +35,46 @@ type Event struct {
 	Source        EventSourceRef  `json:"source"`
 	Payload       json.RawMessage `json:"payload"`
 	Kind          EventKind       `json:"kind"`
+	Origin        *EventOrigin    `json:"origin,omitempty"`
+}
+
+type PlanState struct {
+	RunID    string   `json:"runId"`
+	Revision int      `json:"revision"`
+	StepIDs  []string `json:"stepIds"`
+}
+
+type ToolReceiptState struct {
+	CallID       string   `json:"callId"`
+	ActionID     string   `json:"actionId"`
+	Tool         string   `json:"tool"`
+	Success      bool     `json:"success"`
+	Effect       string   `json:"effect"`
+	EvidenceIDs  []string `json:"evidenceIds"`
+	ArtifactRefs []string `json:"artifactRefs"`
+}
+
+type EvidenceReferenceState struct {
+	ID           string   `json:"id"`
+	Kind         string   `json:"kind"`
+	SourceRef    string   `json:"sourceRef"`
+	ArtifactRefs []string `json:"artifactRefs"`
+}
+
+type ArtifactState struct {
+	ID          string   `json:"id"`
+	Reference   string   `json:"reference"`
+	Kind        string   `json:"kind"`
+	SHA256      string   `json:"sha256"`
+	EvidenceIDs []string `json:"evidenceIds"`
+}
+
+type InteractionState struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	ActionRef string `json:"actionRef,omitempty"`
+	Status    string `json:"status"`
+	Outcome   string `json:"outcome,omitempty"`
 }
 
 type ScopeSnapshot struct {
@@ -190,4 +237,7 @@ type ReportState struct {
 	Recommendations string          `json:"recommendations"`
 	HumanNotes      string          `json:"humanNotes"`
 	Findings        []ReportFinding `json:"findings"`
+	FindingIDs      []string        `json:"findingIds,omitempty"`
+	EvidenceIDs     []string        `json:"evidenceIds,omitempty"`
+	ArtifactRefs    []string        `json:"artifactRefs,omitempty"`
 }

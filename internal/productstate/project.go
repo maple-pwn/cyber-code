@@ -91,6 +91,18 @@ func Project(previous State, event productprotocol.Event) (ProjectionResult, err
 	if state.AssetEdges == nil {
 		state.AssetEdges = make(map[string]productprotocol.AssetEdgeState)
 	}
+	if state.EvidenceReferences == nil {
+		state.EvidenceReferences = make(map[string]productprotocol.EvidenceReferenceState)
+	}
+	if state.Artifacts == nil {
+		state.Artifacts = make(map[string]productprotocol.ArtifactState)
+	}
+	if state.ToolReceipts == nil {
+		state.ToolReceipts = make(map[string]productprotocol.ToolReceiptState)
+	}
+	if state.Interactions == nil {
+		state.Interactions = make(map[string]productprotocol.InteractionState)
+	}
 	storedEvent := event
 	storedEvent.Payload = append(json.RawMessage(nil), event.Payload...)
 	state.CommittedCursor = event.Cursor
@@ -140,6 +152,16 @@ func applyKnownEvent(state *State, event productprotocol.Event) error {
 			return err
 		}
 		state.Agents[payload.Agent.ID] = payload.Agent
+	case "agent.dispatched":
+		var payload struct {
+			Agents []productprotocol.AgentState `json:"agents"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		for _, agent := range payload.Agents {
+			state.Agents[agent.ID] = agent
+		}
 	case "agent.progressed":
 		var payload struct {
 			AgentID       string  `json:"agentId"`
@@ -176,6 +198,48 @@ func applyKnownEvent(state *State, event productprotocol.Event) error {
 			return err
 		}
 		state.Evidence[payload.Evidence.ID] = payload.Evidence
+	case "evidence.references.committed":
+		var payload struct {
+			References []productprotocol.EvidenceReferenceState `json:"references"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		for _, reference := range payload.References {
+			state.EvidenceReferences[reference.ID] = reference
+		}
+	case "artifact.available":
+		var payload struct {
+			Artifact productprotocol.ArtifactState `json:"artifact"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		state.Artifacts[payload.Artifact.ID] = payload.Artifact
+	case "tool.receipt":
+		var payload struct {
+			Receipt productprotocol.ToolReceiptState `json:"receipt"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		state.ToolReceipts[payload.Receipt.CallID] = payload.Receipt
+	case "plan.created", "plan.revised":
+		var payload struct {
+			Plan productprotocol.PlanState `json:"plan"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		state.Plan = &payload.Plan
+	case "interaction.requested", "interaction.responded", "interaction.cancelled":
+		var payload struct {
+			Interaction productprotocol.InteractionState `json:"interaction"`
+		}
+		if err := decodePayload(event, &payload); err != nil {
+			return err
+		}
+		state.Interactions[payload.Interaction.ID] = payload.Interaction
 	case "finding.created":
 		var payload struct {
 			Finding productprotocol.FindingState `json:"finding"`
