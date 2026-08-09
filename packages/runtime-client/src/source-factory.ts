@@ -1,5 +1,6 @@
 import type { EventSource } from './index';
 import type { RuntimeSourceMode } from './conformance';
+import { CyberAgentEventSource, type CyberAgentTransport } from './cyber-agent-event-source';
 
 export type RuntimeSourceOption = {
   id: string;
@@ -17,6 +18,21 @@ export type RuntimeSourceDefinition = RuntimeSourceOption & {
 export type RuntimeSourceFactoryOptions = {
   realSourcesEnabled?: boolean;
 };
+
+export function cyberAgentSourceDefinition(
+  transport: CyberAgentTransport,
+  options: { available?: boolean; setupStatus?: string; label?: string } = {},
+): RuntimeSourceDefinition {
+  return {
+    id: 'cyber-agent',
+    mode: 'remote',
+    label: options.label ?? 'Security Runtime - cyber-agent',
+    capabilities: ['security-runtime', 'session.events.v1'],
+    available: options.available ?? true,
+    ...(options.setupStatus === undefined ? {} : { setupStatus: options.setupStatus }),
+    create: () => new CyberAgentEventSource(transport),
+  };
+}
 
 export class RuntimeSourceFactory {
   private readonly definitions = new Map<string, RuntimeSourceDefinition>();

@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 
 import type { EventSource } from './index';
 import { RuntimeSourceFactory } from './source-factory';
+import { cyberAgentSourceDefinition } from './source-factory';
 
 const source = {} as EventSource;
 
@@ -55,5 +56,16 @@ describe('RuntimeSourceFactory', () => {
 
     const enabled = new RuntimeSourceFactory(definitions, { realSourcesEnabled: true });
     expect(enabled.options()[1]).toMatchObject({ id: 'local', available: true });
+  });
+
+  test('registers cyber-agent as an explicit remote source without a Demo fallback', () => {
+    const transport = { request: vi.fn(), events: async function* () { yield undefined; } };
+    const definition = cyberAgentSourceDefinition(transport);
+    const factory = new RuntimeSourceFactory([
+      { id: 'demo', mode: 'demo', label: 'Demo', capabilities: [], available: true, create: () => source },
+      definition,
+    ], { realSourcesEnabled: true });
+    expect(factory.options()[1]).toMatchObject({ id: 'cyber-agent', mode: 'remote', available: true });
+    expect(factory.create('cyber-agent')).not.toBe(source);
   });
 });
