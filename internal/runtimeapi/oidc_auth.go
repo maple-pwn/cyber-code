@@ -43,6 +43,16 @@ func NewOIDCRemoteAuthenticator(issuer, audience string, key OIDCKeyFunc) (*OIDC
 	return &OIDCRemoteAuthenticator{issuer: strings.TrimRight(parsed.String(), "/"), audience: audience, key: key, clock: time.Now}, nil
 }
 
+// NewDiscoveredOIDCRemoteAuthenticator wires a bounded discovery/JWKS resolver
+// into the remote authenticator.
+func NewDiscoveredOIDCRemoteAuthenticator(audience string, options OIDCJWKResolverOptions) (*OIDCRemoteAuthenticator, error) {
+	resolver, err := NewOIDCJWKResolver(options)
+	if err != nil {
+		return nil, err
+	}
+	return NewOIDCRemoteAuthenticator(resolver.issuer, audience, resolver.Resolve)
+}
+
 func (authenticator *OIDCRemoteAuthenticator) Authenticate(ctx context.Context, token string) (RemoteClaims, error) {
 	identity, err := authenticator.Verify(ctx, token)
 	if err != nil {
