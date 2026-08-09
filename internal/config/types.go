@@ -31,6 +31,8 @@ type Config struct {
 	DenyTools               []string           `json:"deny_tools,omitempty" yaml:"deny_tools,omitempty"`
 	ContextWarningThreshold float64            `json:"context_warning_threshold,omitempty" yaml:"context_warning_threshold,omitempty"`
 	ContextCompactThreshold float64            `json:"context_compact_threshold,omitempty" yaml:"context_compact_threshold,omitempty"`
+	ManagedPolicyTenant     string             `json:"-" yaml:"-"`
+	ManagedPolicyRevision   uint64             `json:"-" yaml:"-"`
 }
 
 // Overrides contains command-line values. Empty fields do not override lower
