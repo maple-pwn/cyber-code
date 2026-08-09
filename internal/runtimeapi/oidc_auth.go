@@ -78,6 +78,9 @@ func (authenticator *OIDCRemoteAuthenticator) Verify(ctx context.Context, token 
 		if err != nil {
 			return err
 		}
+		if base64.RawURLEncoding.EncodeToString(data) != value {
+			return errors.New("non-canonical base64url")
+		}
 		return json.Unmarshal(data, target)
 	}
 	var header struct {
@@ -111,7 +114,7 @@ func (authenticator *OIDCRemoteAuthenticator) Verify(ctx context.Context, token 
 	}
 	signingInput := []byte(parts[0] + "." + parts[1])
 	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
-	if err != nil || !verifyOIDCSignature(header.Algorithm, key, signingInput, signature) {
+	if err != nil || base64.RawURLEncoding.EncodeToString(signature) != parts[2] || !verifyOIDCSignature(header.Algorithm, key, signingInput, signature) {
 		return OIDCIdentity{}, errors.New("invalid OIDC token signature")
 	}
 	if claims.Issuer != authenticator.issuer || claims.Expires <= authenticator.clock().Unix() {

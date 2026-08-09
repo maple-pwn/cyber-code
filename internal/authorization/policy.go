@@ -53,12 +53,18 @@ var (
 	ErrInvalidRole                 = errors.New("invalid_role")
 	ErrAuditTampered               = errors.New("audit_tampered")
 	ErrEmergencyAccessInvalid      = errors.New("emergency_access_invalid")
+	ErrRevisionConflict            = errors.New("revision_conflict")
 )
 
 type Member struct {
 	TenantID, Principal string
+	ExternalID          string
+	DisplayName         string
 	Role                Role
 	Active              bool
+	ProvisionedAt       time.Time
+	UpdatedAt           time.Time
+	Revision            uint64
 }
 type Request struct {
 	TenantID, Principal string
@@ -285,6 +291,45 @@ func (p *Policy) RevokeMember(tenantID, principal string) error {
 	member.Active = false
 	p.members[key] = member
 	return nil
+}
+
+// ProvisionMember applies an identity-provider mutation without allowing the
+// caller to cross tenant boundaries. Every mutation is appended to the audit
+// hash chain through the existing decision log.
+func (p *Policy) ProvisionMember(tenantID, actor, principal, externalID, displayName string, role Role, active bool) (Member, error) {
+	return p.provisionMember(tenantID, actor, principal, externalID, displayName, role, active, nil)
+}
+
+func (p *Policy) ProvisionMemberAtRevision(tenantID, actor, principal, externalID, displayName string, role Role, active bool, expected uint64) (Member, error) {
+	return p.provisionMember(tenantID, actor, principal, externalID, displayName, role, active, &expected)
+}
+
+func (p *Policy) provisionMember(tenantID, actor, principal, externalID, displayName string, role Role, active bool, expected *uint64) (Member, error) {
+	if !validProvisionText(tenantID) || !validProvisionText(actor) || !validProvisionText(principal) || !validRole(role) || strings.ContainsAny(externalID+displayName, "\x00\r\n") || len(externalID) > 256 || len(displayName) > 256 {
+		return Member{}, ErrTenantDenied
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	key := tenantID + "\x00" + principal
+	now := p.clock().UTC()
+	previous, exists := p.members[key]
+	if expected != nil && (!exists || previous.Revision != *expected) {
+		return Member{}, ErrRevisionConflict
+	}
+	created := previous.ProvisionedAt
+	if created.IsZero() {
+		created = now
+	}
+	revision := previous.Revision + 1
+	member := Member{TenantID: tenantID, Principal: principal, ExternalID: externalID, DisplayName: displayName, Role: role, Active: active, ProvisionedAt: created, UpdatedAt: now, Revision: revision}
+	p.members[key] = member
+	p.appendDecisionLocked(Decision{At: now, TenantID: tenantID, Principal: actor, Capability: CapabilityAdministration, Allowed: active, Reason: "SCIM membership synchronized"})
+	return member, nil
+}
+
+func validProvisionText(value string) bool {
+	value = strings.TrimSpace(value)
+	return value != "" && len(value) <= 256 && !strings.ContainsAny(value, "\x00\r\n")
 }
 
 func (p *Policy) UpdateMemberRole(tenantID, principal string, role Role) error {

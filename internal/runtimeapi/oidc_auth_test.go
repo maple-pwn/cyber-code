@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -29,7 +30,13 @@ func TestOIDCAuthenticatorVerifiesEdDSAClaimsAndRejectsAudience(t *testing.T) {
 	if err != nil || claims.Principal != "owner@example.test" || claims.TenantID != "tenant-a" {
 		t.Fatalf("claims=%+v err=%v", claims, err)
 	}
-	bad := token[:len(token)-1] + "A"
+	parts := strings.Split(token, ".")
+	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature[0] ^= 1
+	bad := parts[0] + "." + parts[1] + "." + base64.RawURLEncoding.EncodeToString(signature)
 	if _, err := authenticator.Authenticate(context.Background(), bad); err == nil {
 		t.Fatal("accepted token with altered audience")
 	}

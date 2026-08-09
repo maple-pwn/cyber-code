@@ -37,6 +37,32 @@ func TestTeamHandlerRequiresBothSecurityBoundaries(t *testing.T) {
 	}
 }
 
+func TestTeamHandlerMountsSCIMOnlyWhenExplicitlyConfigured(t *testing.T) {
+	scimCalls := 0
+	scimHandler := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		scimCalls++
+		writer.WriteHeader(http.StatusOK)
+	})
+	handler, err := NewObservedTeamHandlerWithSCIM(http.NotFoundHandler(), http.NotFoundHandler(), scimHandler, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/scim/v2/Users", nil))
+	if response.Code != http.StatusOK || scimCalls != 1 {
+		t.Fatalf("configured SCIM route status=%d calls=%d", response.Code, scimCalls)
+	}
+	legacy, err := NewTeamHandler(http.NotFoundHandler(), http.NotFoundHandler())
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabled := httptest.NewRecorder()
+	legacy.ServeHTTP(disabled, httptest.NewRequest(http.MethodGet, "/scim/v2/Users", nil))
+	if disabled.Code != http.StatusNotFound {
+		t.Fatalf("legacy handler exposed SCIM: %d", disabled.Code)
+	}
+}
+
 func TestTeamHandlerExposesHealthAndBoundedRequestIDs(t *testing.T) {
 	metrics := &TeamMetrics{}
 	handler, err := NewObservedTeamHandler(http.NotFoundHandler(), http.NotFoundHandler(), metrics)

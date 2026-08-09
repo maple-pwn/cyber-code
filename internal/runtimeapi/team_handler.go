@@ -21,6 +21,12 @@ func NewTeamHandler(runtimeHandler, adminHandler http.Handler) (http.Handler, er
 }
 
 func NewObservedTeamHandler(runtimeHandler, adminHandler http.Handler, observer TeamObserver) (http.Handler, error) {
+	return NewObservedTeamHandlerWithSCIM(runtimeHandler, adminHandler, nil, observer)
+}
+
+// NewObservedTeamHandlerWithSCIM mounts provisioning only when an explicitly
+// enabled SCIM handler is supplied by the deployment.
+func NewObservedTeamHandlerWithSCIM(runtimeHandler, adminHandler, scimHandler http.Handler, observer TeamObserver) (http.Handler, error) {
 	if runtimeHandler == nil || adminHandler == nil {
 		return nil, fmt.Errorf("runtime and admin handlers are required")
 	}
@@ -54,6 +60,10 @@ func NewObservedTeamHandler(runtimeHandler, adminHandler http.Handler, observer 
 		case "/admin":
 			adminHandler.ServeHTTP(writer, request)
 		default:
+			if scimHandler != nil && strings.HasPrefix(request.URL.Path, "/scim/v2/") {
+				scimHandler.ServeHTTP(writer, request)
+				return
+			}
 			http.NotFound(writer, request)
 		}
 	}), nil
