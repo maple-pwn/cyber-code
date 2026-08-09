@@ -71,20 +71,20 @@ func (h *AdminHandler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			writeAdminError(writer, http.StatusBadRequest, "invitation_required")
 			return
 		}
-		err = h.service.Invite(actor, *input.Invitation)
+		err = h.service.InviteContext(request.Context(), actor, *input.Invitation)
 	case "accept_invitation":
 		if input.Invitation == nil {
 			writeAdminError(writer, http.StatusBadRequest, "invitation_required")
 			return
 		}
-		err = h.service.AcceptInvitation(actor, input.Invitation.ID)
+		err = h.service.AcceptInvitationContext(request.Context(), actor, input.Invitation.ID)
 	case "role":
-		err = h.service.UpdateRole(actor, input.Principal, input.Role)
+		err = h.service.UpdateRoleContext(request.Context(), actor, input.Principal, input.Role)
 	case "revoke":
-		err = h.service.RevokeMember(actor, input.Principal)
+		err = h.service.RevokeMemberContext(request.Context(), actor, input.Principal)
 	case "members":
 		var members []Member
-		members, err = h.service.Members(actor)
+		members, err = h.service.MembersContext(request.Context(), actor)
 		if err == nil {
 			writeAdminJSON(writer, http.StatusOK, map[string]any{"ok": true, "members": members})
 		}
@@ -93,7 +93,7 @@ func (h *AdminHandler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 		}
 	case "invitations":
 		var invitations []Invitation
-		invitations, err = h.service.Invitations(actor)
+		invitations, err = h.service.InvitationsContext(request.Context(), actor)
 		if err == nil {
 			writeAdminJSON(writer, http.StatusOK, map[string]any{"ok": true, "invitations": invitations})
 		}
@@ -102,7 +102,7 @@ func (h *AdminHandler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 		}
 	case "audit":
 		var decisions []Decision
-		decisions, err = h.service.Audit(actor)
+		decisions, err = h.service.AuditContext(request.Context(), actor)
 		if err == nil {
 			writeAdminJSON(writer, http.StatusOK, map[string]any{"ok": true, "decisions": decisions})
 		}
@@ -110,9 +110,9 @@ func (h *AdminHandler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			return
 		}
 	case "emergency_grant":
-		err = h.service.GrantEmergencyAccess(actor, input.SessionID, input.Reason, input.Until)
+		err = h.service.GrantEmergencyAccessContext(request.Context(), actor, input.SessionID, input.Reason, input.Until)
 	case "emergency_revoke":
-		err = h.service.RevokeEmergencyAccess(actor, input.SessionID)
+		err = h.service.RevokeEmergencyAccessContext(request.Context(), actor, input.SessionID)
 	default:
 		writeAdminError(writer, http.StatusBadRequest, "unknown_action")
 		return

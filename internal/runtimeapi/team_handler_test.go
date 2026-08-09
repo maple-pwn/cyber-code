@@ -1,14 +1,39 @@
 package runtimeapi
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"cyber-code/internal/authorization"
+	"cyber-code/internal/observability"
 )
+
+type runtimeTelemetryExporter struct {
+	mu      sync.Mutex
+	batches []observability.Batch
+	err     error
+}
+
+func (exporter *runtimeTelemetryExporter) Export(_ context.Context, batch observability.Batch) error {
+	exporter.mu.Lock()
+	defer exporter.mu.Unlock()
+	exporter.batches = append(exporter.batches, batch)
+	return exporter.err
+}
+
+func (exporter *runtimeTelemetryExporter) Shutdown(context.Context) error { return nil }
+
+func (exporter *runtimeTelemetryExporter) snapshot() []observability.Batch {
+	exporter.mu.Lock()
+	defer exporter.mu.Unlock()
+	return append([]observability.Batch(nil), exporter.batches...)
+}
 
 func TestTeamHandlerRoutesRuntimeAndAdminExactly(t *testing.T) {
 	runtimeCalls, adminCalls := 0, 0
@@ -93,6 +118,39 @@ func TestTeamHandlerExposesHealthAndBoundedRequestIDs(t *testing.T) {
 	snapshot := metrics.Snapshot()
 	if snapshot.Requests != 4 || snapshot.Health != 3 || snapshot.NotFound != 1 || snapshot.Failures != 2 {
 		t.Fatalf("metrics = %+v", snapshot)
+	}
+}
+
+func TestObservedTeamHandlerPropagatesRequestIDAndIgnoresExporterFailure(t *testing.T) {
+	exporter := &runtimeTelemetryExporter{err: errors.New("collector unavailable")}
+	telemetry, err := observability.New(observability.Options{Exporter: exporter, SampleRate: 1, QueueCapacity: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer telemetry.Shutdown(context.Background())
+	runtimeHandler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if got := observability.RequestIDFromContext(request.Context()); got != "request-runtime-1" {
+			t.Fatalf("request ID in context = %q", got)
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	})
+	handler, err := NewObservedTeamHandler(runtimeHandler, http.NotFoundHandler(), NewTelemetryTeamObserver(telemetry))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/runtime", nil)
+	request.Header.Set("X-Request-ID", "request-runtime-1")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("response status = %d", response.Code)
+	}
+	if err := telemetry.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	batches := exporter.snapshot()
+	if len(batches) != 1 || len(batches[0].Spans) != 1 || batches[0].Spans[0].RequestID != "request-runtime-1" {
+		t.Fatalf("telemetry batches = %#v", batches)
 	}
 }
 

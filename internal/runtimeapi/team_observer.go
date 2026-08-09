@@ -1,16 +1,39 @@
 package runtimeapi
 
 import (
+	"context"
 	"sync/atomic"
 	"time"
+
+	"cyber-code/internal/observability"
 )
 
 type TeamObservation struct {
+	Context   context.Context
 	RequestID string
 	Path      string
 	Method    string
 	Status    int
 	Duration  time.Duration
+}
+
+type telemetryTeamObserver struct{ observer *observability.Observer }
+
+func NewTelemetryTeamObserver(observer *observability.Observer) TeamObserver {
+	if observer == nil {
+		return nil
+	}
+	return telemetryTeamObserver{observer: observer}
+}
+
+func (observer telemetryTeamObserver) Observe(value TeamObservation) {
+	observer.observer.ObserveHTTP(value.Context, observability.HTTPObservation{
+		RequestID: value.RequestID,
+		Route:     value.Path,
+		Method:    value.Method,
+		Status:    value.Status,
+		Duration:  value.Duration,
+	})
 }
 
 type TeamObserver interface{ Observe(TeamObservation) }

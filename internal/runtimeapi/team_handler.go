@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cyber-code/internal/authorization"
+	"cyber-code/internal/observability"
 )
 
 var teamRequestSequence uint64
@@ -41,9 +42,10 @@ func NewObservedTeamHandlerWithSCIM(runtimeHandler, adminHandler, scimHandler ht
 			requestID = "team-" + strconv.FormatUint(atomic.AddUint64(&teamRequestSequence, 1), 10)
 		}
 		writer.Header().Set("X-Request-ID", requestID)
+		request = request.WithContext(observability.WithRequestID(request.Context(), requestID))
 		if observer != nil {
 			defer func() {
-				observer.Observe(TeamObservation{RequestID: requestID, Path: request.URL.Path, Method: request.Method, Status: statusWriter.status, Duration: time.Since(started)})
+				observer.Observe(TeamObservation{Context: request.Context(), RequestID: requestID, Path: request.URL.Path, Method: request.Method, Status: statusWriter.status, Duration: time.Since(started)})
 			}()
 		}
 		switch request.URL.Path {
