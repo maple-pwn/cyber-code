@@ -27,6 +27,13 @@ func TestBoardPersistsTransitionsAndRecoversInterruptedWork(t *testing.T) {
 	if err != nil || !ok || task.Status != TaskFailed || task.Error != "interrupted by process restart" {
 		t.Fatalf("task=%#v ok=%v err=%v", task, ok, err)
 	}
+	if err := reopened.RetryInterrupted(context.Background(), "task-1"); err != nil {
+		t.Fatal(err)
+	}
+	task, ok, err = reopened.Get(context.Background(), "task-1")
+	if err != nil || !ok || task.Status != TaskPending || task.Error != "" {
+		t.Fatalf("retried task=%#v ok=%v err=%v", task, ok, err)
+	}
 }
 
 func TestBoardRejectsInvalidStateTransition(t *testing.T) {

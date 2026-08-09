@@ -218,13 +218,22 @@ func composeRuntime(ctx context.Context, options compositionOptions) (_ *runtime
 	if err != nil {
 		return nil, fmt.Errorf("configure agent collaboration: %w", err)
 	}
+	taskQueue, err := tasks.OpenQueue(filepath.Join(options.StateDir, "tasks", sessionID+".json"), tasks.QueueOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("configure durable task queue: %w", err)
+	}
+	if _, err := taskQueue.CleanupTerminal(ctx, 7*24*time.Hour); err != nil {
+		_ = taskQueue.Close()
+		return nil, fmt.Errorf("clean durable task queue: %w", err)
+	}
 	taskService, err := configureTaskService(taskCompositionOptions{
 		Provider: modelProvider, Registry: childRegistry, Broker: broker, Hooks: hookRunner,
 		Model: profile.Model, ContextBuilder: contextBuilder, SessionID: sessionID,
 		ParentMode: mode, ParentMaxTurns: maxTurns, Definitions: agentDefinitions,
-		Board: coordinator.Board, Coordinator: coordinator,
+		Board: coordinator.Board, Coordinator: coordinator, Queue: taskQueue,
 	})
 	if err != nil {
+		_ = taskQueue.Close()
 		return nil, err
 	}
 	if err := tasks.RegisterTools(registry, taskService); err != nil {

@@ -10,6 +10,49 @@ import (
 	"cyber-code/internal/productprotocol"
 )
 
+type testRuntimeDrainer struct {
+	started chan struct{}
+	release chan struct{}
+	calls   int
+}
+
+func (drainer *testRuntimeDrainer) Drain(ctx context.Context) error {
+	drainer.calls++
+	close(drainer.started)
+	select {
+	case <-drainer.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func TestServiceDrainCoordinatesRegisteredWorkers(t *testing.T) {
+	service := newTestService(t, time.Date(2026, 8, 9, 5, 0, 0, 0, time.UTC))
+	drainer := &testRuntimeDrainer{started: make(chan struct{}), release: make(chan struct{})}
+	if err := service.RegisterDrainer(drainer); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- service.Drain(context.Background()) }()
+	<-drainer.started
+	if err := service.RegisterDrainer(&testRuntimeDrainer{}); !errors.Is(err, ErrRuntimeDraining) {
+		t.Fatalf("register while draining error=%v", err)
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("drain returned before worker: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(drainer.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Drain(context.Background()); err != nil || drainer.calls != 1 {
+		t.Fatalf("second drain error=%v calls=%d", err, drainer.calls)
+	}
+}
+
 func TestServiceDerivesApprovalDigestAndEnforcesConfirmedScope(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)

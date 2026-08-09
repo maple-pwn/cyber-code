@@ -23,7 +23,12 @@ var (
 	ErrUnknownApproval    = errors.New("unknown_approval")
 	ErrStaleLease         = errors.New("stale_control_revision")
 	ErrInvalidReportState = errors.New("invalid_report_state")
+	ErrRuntimeDraining    = errors.New("runtime_is_draining")
 )
+
+type RuntimeDrainer interface {
+	Drain(context.Context) error
+}
 
 type ApprovalRequest struct {
 	TaskID      string
@@ -42,6 +47,11 @@ type Service struct {
 	principal string
 	mu        sync.RWMutex
 	clock     func() time.Time
+	drainers  []RuntimeDrainer
+	draining  bool
+	drained   bool
+	drainDone chan struct{}
+	drainErr  error
 }
 
 func NewService(store *Store, runtimeID, principal string, clock func() time.Time) *Service {
@@ -66,6 +76,69 @@ func (s *Service) now() time.Time {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.clock().UTC()
+}
+
+func (s *Service) RegisterDrainer(drainer RuntimeDrainer) error {
+	if s == nil || drainer == nil {
+		return fmt.Errorf("runtime drainer is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.draining || s.drained {
+		return ErrRuntimeDraining
+	}
+	s.drainers = append(s.drainers, drainer)
+	return nil
+}
+
+// Drain stops registered worker lifecycles in reverse registration order.
+// Concurrent callers share the same terminal result.
+func (s *Service) Drain(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.mu.Lock()
+	if s.drained {
+		err := s.drainErr
+		s.mu.Unlock()
+		return err
+	}
+	if s.draining {
+		done := s.drainDone
+		s.mu.Unlock()
+		select {
+		case <-done:
+			s.mu.RLock()
+			err := s.drainErr
+			s.mu.RUnlock()
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	s.draining = true
+	s.drainDone = make(chan struct{})
+	done := s.drainDone
+	drainers := append([]RuntimeDrainer(nil), s.drainers...)
+	s.mu.Unlock()
+
+	var drainErrors []error
+	for index := len(drainers) - 1; index >= 0; index-- {
+		if err := drainers[index].Drain(ctx); err != nil {
+			drainErrors = append(drainErrors, err)
+		}
+	}
+	result := errors.Join(drainErrors...)
+	s.mu.Lock()
+	s.draining = false
+	s.drained = true
+	s.drainErr = result
+	close(done)
+	s.mu.Unlock()
+	return result
 }
 
 func (s *Service) Emit(ctx context.Context, draft DraftEvent) (productprotocol.Event, error) {
