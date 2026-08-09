@@ -43,3 +43,14 @@
 - Linux/Windows/macOS CLI 构建：通过
 
 macOS 原生 CLI smoke（config、doctor、marketplace、Print、sessions/resume、protocol）通过；经用户显式配置的 `deepseek-v4-pro` smoke 通过且未记录响应正文。Linux/Windows 原生 TUI、Windows 原生沙箱和 VS Code Extension Host UI 尚未在对应宿主运行，交叉构建不等同于原生验收。
+# Security Runtime Capability Addendum
+
+| Capability | Status | Evidence |
+| --- | --- | --- |
+| Explicit `cyber-agent` runtime selection | implemented | CLI/TUI/source adapters |
+| Referenced multi-format inputs | implemented | input manifest and Scope review tests |
+| Pentest loopback HTTP flow | implemented | Phase 10 scenario test |
+| Incident response flow | implemented | Phase 10 scenario test |
+| Vulnerability research flow | implemented | Phase 10 scenario test |
+| Reverse engineering flow | implemented | Phase 10 scenario test |
+| Native nmap/nuclei/yara/tshark/semgrep/binwalk/radare2/Ghidra | capability-discovered | environment-specific PASS/SKIP |

@@ -57,10 +57,13 @@ func TestControlPlaneSkillsManageCyberAgentLifecycle(t *testing.T) {
 			t.Fatalf("skills missing %q: %q, %v", want, text, err)
 		}
 	}
-	for command := range map[string]string{
-		"/skills search recon": "search", "/skills install skill://community/recon-notes 1.0.0": "install",
-		"/skills trust skill://community/recon-notes user-approved": "trust", "/skills remove skill://community/recon-notes": "remove",
-	} {
+	commands := []string{
+		"/skills search recon",
+		"/skills install skill://community/recon-notes 1.0.0",
+		"/skills trust skill://community/recon-notes user-approved",
+		"/skills remove skill://community/recon-notes",
+	}
+	for _, command := range commands {
 		if _, err := registry.Dispatch(context.Background(), command); err != nil {
 			t.Fatalf("%s: %v", command, err)
 		}

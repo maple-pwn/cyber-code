@@ -102,3 +102,17 @@ Release binaries embed the current metadata URL and public key. During a signing
 - Before removing a plugin, retain the last active revision until state persistence succeeds. Runtime loading must call `LoadVerified` with the recorded digest.
 
 PostgreSQL migration/restore procedures are in [postgres.md](postgres.md), telemetry and drain procedures are in [slo.md](slo.md), and release construction is in [../releases.md](../releases.md).
+# cyber-agent 集成验收补充
+
+| 检查项 | 确定性门禁 | 真机/外部门禁 |
+| --- | --- | --- |
+| Session binding | Go/TS client tests | local supervisor or HTTPS/OIDC |
+| Input manifest | upload, parse, Scope review tests | Web/Desktop/VS Code host |
+| Event projection | source adapter replay tests | reconnect/cursor conflict |
+| 子 Agent 可观测性 | product event fixtures | real child runtime |
+| Tool Receipt/Evidence/Finding/Report | four Phase 10 scenarios | native scanners and cloud |
+| Linux/Windows TUI | cross-build only | native terminal session |
+| Sandbox | policy/unit tests | bubblewrap and Windows Job Object |
+| MCP OAuth | PKCE contract tests | browser discovery/callback |
+
+任何 native、cloud、platform 或 browser 依赖不可用时必须在验收记录中写出 `SKIP:` 原因。

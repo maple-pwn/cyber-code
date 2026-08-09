@@ -219,6 +219,21 @@ cyber-code 会持久化 canonical 事件日志和原子快照。使用 `sessions
 
 使用 `cyber-code doctor` 查看当前机器的 Provider 凭据、状态目录、沙箱、通知、语音、MCP 和 LSP 状态及修复建议。`cyber-code terminal-setup` 只显示平台指导，不会修改 shell profile、注册表或终端配置。
 
+## Security Runtime：cyber-agent
+
+要运行网络安全任务，显式选择 `cyber-agent`，不会根据提示词自动切换：
+
+```bash
+./cyber-code --runtime cyber-agent --runtime-location local \
+  --input openapi.yaml \
+  "评估输入描述中的授权目标并生成可追踪报告"
+```
+
+Web、Desktop、VS Code 使用同一 Session API 和 InputManifest。安全任务的 Scope proposal、审批、
+子 Agent、工具回执、Evidence、Finding 和 Report 均由 cyber-agent 提供权威状态；客户端只投影。
+四个可复跑场景和 PASS/SKIP 边界见 [cyber-agent 运维指南](docs/operations/cyber-agent.md)、
+[能力矩阵](docs/capability-matrix.md) 和 [验收矩阵](docs/operations/acceptance-matrix.md)。
+
 ## MCP、插件与 VS Code
 
 ```bash
