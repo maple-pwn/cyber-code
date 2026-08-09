@@ -49,6 +49,8 @@ pub fn run() {
             runtime_process::runtime_request,
             runtime_process::runtime_restart,
             runtime_process::runtime_stop,
+            runtime_process::cyber_agent_start,
+            runtime_process::cyber_agent_stop,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run CYBER desktop shell");

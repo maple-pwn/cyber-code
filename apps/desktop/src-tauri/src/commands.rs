@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tauri_plugin_notification::NotificationExt;
 
-const OPERATIONS: [&str; 10] = [
+const OPERATIONS: [&str; 12] = [
     "capabilities",
     "notify",
     "store_secret",
@@ -13,6 +13,8 @@ const OPERATIONS: [&str; 10] = [
     "runtime_request",
     "runtime_restart",
     "runtime_stop",
+    "cyber_agent_start",
+    "cyber_agent_stop",
 ];
 const NOTIFICATION_KINDS: [&str; 3] = ["approval_required", "task_succeeded", "task_failed"];
 const MAX_REPORT_BYTES: usize = 16 * 1024 * 1024;
@@ -21,7 +23,7 @@ const KEYRING_SERVICE: &str = "com.cyber.code.desktop";
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CapabilitiesResponse {
-    pub operations: [&'static str; 10],
+    pub operations: [&'static str; 12],
 }
 
 #[derive(Debug, Deserialize)]
@@ -285,6 +287,8 @@ mod tests {
                 "runtime_request",
                 "runtime_restart",
                 "runtime_stop",
+                "cyber_agent_start",
+                "cyber_agent_stop",
             ]
         );
         assert!(!is_supported_operation("shell"));

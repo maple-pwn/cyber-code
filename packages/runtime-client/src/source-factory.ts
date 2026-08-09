@@ -21,16 +21,16 @@ export type RuntimeSourceFactoryOptions = {
 
 export function cyberAgentSourceDefinition(
   transport: CyberAgentTransport,
-  options: { available?: boolean; setupStatus?: string; label?: string } = {},
+  options: { available?: boolean; setupStatus?: string; label?: string; mode?: RuntimeSourceMode } = {},
 ): RuntimeSourceDefinition {
   return {
     id: 'cyber-agent',
-    mode: 'remote',
+	mode: options.mode ?? 'remote',
     label: options.label ?? 'Security Runtime - cyber-agent',
     capabilities: ['security-runtime', 'session.events.v1'],
     available: options.available ?? true,
     ...(options.setupStatus === undefined ? {} : { setupStatus: options.setupStatus }),
-    create: () => new CyberAgentEventSource(transport),
+	create: () => new CyberAgentEventSource(transport, `cyber-agent-${options.mode ?? 'remote'}`, options.mode ?? 'remote'),
   };
 }
 

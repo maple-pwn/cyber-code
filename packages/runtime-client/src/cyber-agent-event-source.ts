@@ -16,6 +16,7 @@ import {
   type RuntimeCommandReceipt,
   type RuntimeHandshakeRequest,
   type RuntimeHandshakeResponse,
+	  type RuntimeSourceMode,
 } from './conformance';
 
 export type CyberAgentRequest = {
@@ -30,6 +31,163 @@ export interface CyberAgentTransport {
   request(request: CyberAgentRequest): Promise<unknown>;
   events(sessionId: string, afterSequence: number, signal: AbortSignal): AsyncIterable<unknown>;
   close?(): Promise<void>;
+}
+
+export type CyberAgentTokenProvider = () => string | Promise<string>;
+export type FetchCyberAgentTransportOptions = {
+  fetch?: typeof globalThis.fetch;
+  allowInsecureLoopback?: boolean;
+  maxResponseBytes?: number;
+};
+
+export class FetchCyberAgentTransport implements CyberAgentTransport {
+  private readonly endpoint: URL;
+  private readonly fetch: typeof globalThis.fetch;
+  private readonly maxResponseBytes: number;
+  private readonly active = new Set<AbortController>();
+
+  constructor(endpoint: string, private readonly tokenProvider: CyberAgentTokenProvider, options: FetchCyberAgentTransportOptions = {}) {
+    const parsed = new URL(endpoint);
+    const loopback = parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost' || parsed.hostname === '[::1]';
+    if (parsed.protocol !== 'https:' && !(options.allowInsecureLoopback === true && parsed.protocol === 'http:' && loopback)) {
+      throw new Error('cyber_agent_tls_required');
+    }
+    if (parsed.username || parsed.password || parsed.hash) throw new Error('invalid_cyber_agent_endpoint');
+    this.endpoint = parsed;
+    this.fetch = options.fetch ?? globalThis.fetch;
+    this.maxResponseBytes = options.maxResponseBytes ?? (1 << 20);
+    if (!Number.isSafeInteger(this.maxResponseBytes) || this.maxResponseBytes < 1) throw new Error('invalid_cyber_agent_response_limit');
+  }
+
+  async request(request: CyberAgentRequest): Promise<unknown> {
+    const { response, cleanup } = await this.perform(request.path, request.method, request.body, request.idempotencyKey, request.signal, 'application/json');
+    try {
+      const bytes = await readBounded(response, this.maxResponseBytes);
+      try {
+        return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown;
+      } catch {
+        throw new Error('invalid_cyber_agent_response');
+      }
+    } finally {
+      cleanup();
+    }
+  }
+
+  async *events(sessionId: string, afterSequence: number, signal: AbortSignal): AsyncIterable<unknown> {
+    if (!text(sessionId) || !integer(afterSequence)) throw new Error('invalid_cyber_agent_cursor');
+    const path = `/v1/sessions/${encodeURIComponent(sessionId)}/events?after_sequence=${afterSequence}`;
+    const { response, cleanup } = await this.perform(path, 'GET', undefined, undefined, signal, 'text/event-stream');
+    if (!response.headers.get('content-type')?.toLowerCase().includes('text/event-stream') || response.body === null) {
+      cleanup();
+      throw new Error('invalid_cyber_agent_event_stream');
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    let buffered = '';
+    let data: string[] = [];
+    let eventBytes = 0;
+    const flush = (): unknown | undefined => {
+      if (data.length === 0) return undefined;
+      const encoded = data.join('\n');
+      data = [];
+      eventBytes = 0;
+      try { return JSON.parse(encoded) as unknown; } catch { throw new Error('invalid_cyber_agent_event'); }
+    };
+    try {
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        buffered += decoder.decode(chunk.value, { stream: true });
+        for (;;) {
+          const newline = buffered.indexOf('\n');
+          if (newline < 0) break;
+          let line = buffered.slice(0, newline);
+          buffered = buffered.slice(newline + 1);
+          if (line.endsWith('\r')) line = line.slice(0, -1);
+          if (line === '') {
+            const value = flush();
+            if (value !== undefined) yield value;
+          } else if (line.startsWith('data:')) {
+            const value = line.slice(5).replace(/^ /, '');
+            eventBytes += value.length;
+            if (eventBytes > this.maxResponseBytes) throw new Error('cyber_agent_event_too_large');
+            data.push(value);
+          }
+        }
+      }
+      buffered += decoder.decode();
+      if (buffered.startsWith('data:')) data.push(buffered.slice(5).replace(/^ /, ''));
+      const value = flush();
+      if (value !== undefined) yield value;
+    } finally {
+      await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
+      cleanup();
+    }
+  }
+
+  async close(): Promise<void> {
+    for (const controller of this.active) controller.abort();
+    this.active.clear();
+  }
+
+  private async perform(path: string, method: 'GET' | 'POST', body: unknown, idempotencyKey: string | undefined, parentSignal: AbortSignal | undefined, accept: string): Promise<{ response: Response; cleanup: () => void }> {
+    const token = (await this.tokenProvider()).trim();
+    if (!token) throw new Error('unauthorized');
+    const controller = new AbortController();
+    const abort = (): void => controller.abort();
+    parentSignal?.addEventListener('abort', abort, { once: true });
+    this.active.add(controller);
+    try {
+      const headers = new Headers({ Accept: accept, Authorization: `Bearer ${token}` });
+      if (body !== undefined) headers.set('Content-Type', 'application/json');
+      if (idempotencyKey !== undefined) headers.set('Idempotency-Key', idempotencyKey);
+      const response = await this.fetch(new URL(path, this.endpoint), {
+        method, headers, redirect: 'error', credentials: 'omit', signal: controller.signal,
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined);
+        if (response.status === 401) throw new Error('unauthorized');
+        if (response.status === 426) throw new Error('incompatible');
+        if (response.status === 409) throw new Error('cyber_agent_conflict');
+        throw new Error(`cyber_agent_http_${response.status}`);
+      }
+      return {
+        response,
+        cleanup: () => {
+          parentSignal?.removeEventListener('abort', abort);
+          this.active.delete(controller);
+        },
+      };
+    } catch (error) {
+      parentSignal?.removeEventListener('abort', abort);
+      this.active.delete(controller);
+      throw error;
+    }
+  }
+}
+
+async function readBounded(response: Response, limit: number): Promise<Uint8Array> {
+  if (response.body === null) return new Uint8Array();
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > limit) throw new Error('cyber_agent_response_too_large');
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const result = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.byteLength; }
+  return result;
 }
 
 type SourceEvent = {
@@ -64,6 +222,7 @@ export class CyberAgentEventSource implements EventSource {
   constructor(
     private readonly transport: CyberAgentTransport,
     private readonly runtimeId = 'cyber-agent-remote',
+	private readonly mode: RuntimeSourceMode = 'remote',
   ) {}
 
   async handshake(request: RuntimeHandshakeRequest): Promise<RuntimeHandshakeResponse> {
@@ -78,7 +237,7 @@ export class CyberAgentEventSource implements EventSource {
       principal: 'cyber-agent',
       role: 'owner',
       capabilities: [...capabilities],
-      source: { mode: 'remote', runtimeId: this.runtimeId, principal: 'cyber-agent', capabilities: [...capabilities] },
+      source: { mode: this.mode, runtimeId: this.runtimeId, principal: 'cyber-agent', capabilities: [...capabilities] },
     };
     negotiateHandshake(request, response);
     this.connected = true;

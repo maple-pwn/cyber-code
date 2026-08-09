@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     io::{BufRead, BufReader, Write},
+    net::TcpListener,
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
     sync::{
@@ -13,6 +14,8 @@ use std::{
 
 const RUNTIME_EXECUTABLE_ENV: &str = "CYBER_CODE_RUNTIME_EXECUTABLE";
 const RUNTIME_BEARER_ENV: &str = "CYBER_CODE_RUNTIME_BEARER";
+const CYBER_AGENT_EXECUTABLE_ENV: &str = "CYBER_AGENT_EXECUTABLE";
+const CYBER_AGENT_BEARER_ENV: &str = "CYBER_AGENT_BEARER";
 const RUNTIME_PROTOCOL_VERSION: u64 = 1;
 const MAX_RUNTIME_RESPONSE_BYTES: usize = 68 * 1024 * 1024;
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
@@ -200,11 +203,220 @@ pub struct RuntimeProcessManager {
 #[derive(Default)]
 pub struct RuntimeManagerState {
     manager: Mutex<Option<RuntimeProcessManager>>,
+    cyber_agent: Mutex<Option<CyberAgentProcessManager>>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct RuntimeStopReceipt {
     pub stopped: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CyberAgentStartReceipt {
+    pub endpoint: String,
+    pub token: String,
+    pub version: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CyberAgentReadinessLine {
+    endpoint: String,
+    pid: u32,
+    runtime_version: String,
+    protocol_version: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CyberAgentReadiness {
+    endpoint: String,
+    version: String,
+}
+
+fn parse_cyber_agent_readiness(value: &Value) -> Result<CyberAgentReadiness, String> {
+    let line: CyberAgentReadinessLine = serde_json::from_value(value.clone())
+        .map_err(|_| "cyber_agent_readiness_invalid".to_string())?;
+    let authority = line
+        .endpoint
+        .strip_prefix("http://")
+        .ok_or_else(|| "cyber_agent_readiness_invalid".to_string())?;
+    let address: std::net::SocketAddr = authority
+        .parse()
+        .map_err(|_| "cyber_agent_readiness_invalid".to_string())?;
+    if !address.ip().is_loopback()
+        || line.pid == 0
+        || line.runtime_version.trim().is_empty()
+        || line.protocol_version != RUNTIME_PROTOCOL_VERSION
+    {
+        return Err("cyber_agent_readiness_invalid".to_string());
+    }
+    Ok(CyberAgentReadiness {
+        endpoint: line.endpoint,
+        version: line.runtime_version,
+    })
+}
+
+trait CyberAgentProcess: Send {
+    fn readiness(&mut self, timeout: Duration) -> Result<Value, String>;
+    fn stop(&mut self);
+}
+
+trait CyberAgentLauncher: Send + Sync {
+    fn launch(
+        &self,
+        executable: &Path,
+        bearer: &str,
+        port: u16,
+    ) -> Result<Box<dyn CyberAgentProcess>, String>;
+}
+
+struct NativeCyberAgentLauncher;
+
+struct NativeCyberAgentProcess {
+    child: Child,
+    readiness: Receiver<Result<Value, String>>,
+}
+
+impl CyberAgentLauncher for NativeCyberAgentLauncher {
+    fn launch(
+        &self,
+        executable: &Path,
+        bearer: &str,
+        port: u16,
+    ) -> Result<Box<dyn CyberAgentProcess>, String> {
+        let mut child = Command::new(executable)
+            .arg("serve")
+            .env(CYBER_AGENT_BEARER_ENV, bearer)
+            .env("CYBER_AGENT_HOST", "127.0.0.1")
+            .env("CYBER_AGENT_PORT", port.to_string())
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|_| "cyber_agent_executable_unavailable".to_string())?;
+        let output = child
+            .stdout
+            .take()
+            .ok_or_else(|| "cyber_agent_startup_failed".to_string())?;
+        let (sender, readiness) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = read_bounded_line(&mut BufReader::new(output), 64 * 1024)
+                .and_then(|line| line.ok_or_else(|| "cyber_agent_crashed".to_string()))
+                .and_then(|line| {
+                    serde_json::from_slice(&line)
+                        .map_err(|_| "cyber_agent_readiness_invalid".to_string())
+                });
+            let _ = sender.send(result);
+        });
+        Ok(Box::new(NativeCyberAgentProcess { child, readiness }))
+    }
+}
+
+impl CyberAgentProcess for NativeCyberAgentProcess {
+    fn readiness(&mut self, timeout: Duration) -> Result<Value, String> {
+        match self.readiness.recv_timeout(timeout) {
+            Ok(value) => value,
+            Err(RecvTimeoutError::Timeout) => Err("cyber_agent_startup_timeout".to_string()),
+            Err(RecvTimeoutError::Disconnected) => Err("cyber_agent_crashed".to_string()),
+        }
+    }
+
+    fn stop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+struct ManagedCyberAgent {
+    process: Box<dyn CyberAgentProcess>,
+    receipt: CyberAgentStartReceipt,
+}
+
+pub struct CyberAgentProcessManager {
+    executable: PathBuf,
+    timeout: Duration,
+    launcher: Box<dyn CyberAgentLauncher>,
+    running: Option<ManagedCyberAgent>,
+}
+
+impl CyberAgentProcessManager {
+    fn new(executable: PathBuf) -> Self {
+        Self {
+            executable,
+            timeout: DEFAULT_STARTUP_TIMEOUT,
+            launcher: Box::new(NativeCyberAgentLauncher),
+            running: None,
+        }
+    }
+
+    fn start(&mut self) -> Result<CyberAgentStartReceipt, String> {
+        if let Some(running) = self.running.as_ref() {
+            return Ok(running.receipt.clone());
+        }
+        let listener = TcpListener::bind(("127.0.0.1", 0))
+            .map_err(|_| "cyber_agent_port_unavailable".to_string())?;
+        let port = listener
+            .local_addr()
+            .map_err(|_| "cyber_agent_port_unavailable".to_string())?
+            .port();
+        drop(listener);
+        let token = generate_launch_secret()?;
+        let mut process = self.launcher.launch(&self.executable, &token, port)?;
+        let raw = match process.readiness(self.timeout) {
+            Ok(value) => value,
+            Err(error) => {
+                process.stop();
+                return Err(error);
+            }
+        };
+        let readiness = match parse_cyber_agent_readiness(&raw) {
+            Ok(value) => value,
+            Err(error) => {
+                process.stop();
+                return Err(error);
+            }
+        };
+        if readiness.endpoint != format!("http://127.0.0.1:{port}") {
+            process.stop();
+            return Err("cyber_agent_readiness_invalid".to_string());
+        }
+        let receipt = CyberAgentStartReceipt {
+            endpoint: readiness.endpoint,
+            token,
+            version: readiness.version,
+        };
+        self.running = Some(ManagedCyberAgent {
+            process,
+            receipt: receipt.clone(),
+        });
+        Ok(receipt)
+    }
+
+    fn stop(&mut self) -> bool {
+        let Some(mut running) = self.running.take() else {
+            return false;
+        };
+        running.process.stop();
+        true
+    }
+}
+
+fn default_cyber_agent_executable() -> Result<PathBuf, String> {
+    if cfg!(debug_assertions)
+        && let Some(path) = std::env::var_os(CYBER_AGENT_EXECUTABLE_ENV)
+    {
+        return Ok(PathBuf::from(path));
+    }
+    let current =
+        std::env::current_exe().map_err(|_| "cyber_agent_executable_unavailable".to_string())?;
+    let parent = current
+        .parent()
+        .ok_or_else(|| "cyber_agent_executable_unavailable".to_string())?;
+    Ok(parent.join(if cfg!(windows) {
+        "cyber-agent.exe"
+    } else {
+        "cyber-agent"
+    }))
 }
 
 impl RuntimeProcessManager {
@@ -361,6 +573,37 @@ pub fn runtime_stop(
     if let Some(manager) = guard.as_mut() {
         manager.stop();
     }
+    Ok(RuntimeStopReceipt { stopped })
+}
+
+#[tauri::command]
+pub fn cyber_agent_start(
+    state: tauri::State<'_, RuntimeManagerState>,
+) -> Result<CyberAgentStartReceipt, String> {
+    let mut guard = state
+        .cyber_agent
+        .lock()
+        .map_err(|_| "cyber_agent_manager_unavailable".to_string())?;
+    if guard.is_none() {
+        *guard = Some(CyberAgentProcessManager::new(
+            default_cyber_agent_executable()?,
+        ));
+    }
+    guard
+        .as_mut()
+        .ok_or_else(|| "cyber_agent_manager_unavailable".to_string())?
+        .start()
+}
+
+#[tauri::command]
+pub fn cyber_agent_stop(
+    state: tauri::State<'_, RuntimeManagerState>,
+) -> Result<RuntimeStopReceipt, String> {
+    let mut guard = state
+        .cyber_agent
+        .lock()
+        .map_err(|_| "cyber_agent_manager_unavailable".to_string())?;
+    let stopped = guard.as_mut().is_some_and(CyberAgentProcessManager::stop);
     Ok(RuntimeStopReceipt { stopped })
 }
 
@@ -639,10 +882,50 @@ mod tests {
         let request: RuntimeBridgeRequest = serde_json::from_value(json!({
             "id":"editor-1", "type":"editor", "taskId":"task-1",
             "draftId":"draft-1", "expectedLeaseRevision":2
-        })).unwrap();
+        }))
+        .unwrap();
         let prepared = prepare_request(&request, "secret").unwrap();
         assert_eq!(prepared["draftId"], json!("draft-1"));
         assert_eq!(prepared["expectedLeaseRevision"], json!(2));
         assert_eq!(prepared["bearer"], json!("secret"));
+    }
+
+    #[test]
+    fn cyber_agent_readiness_requires_loopback_endpoint_and_protocol_version() {
+        let readiness = parse_cyber_agent_readiness(&json!({
+            "endpoint": "http://127.0.0.1:4242",
+            "pid": 42,
+            "runtime_version": "0.1.0",
+            "protocol_version": 1
+        }))
+        .unwrap();
+        assert_eq!(readiness.endpoint, "http://127.0.0.1:4242");
+        assert_eq!(readiness.version, "0.1.0");
+        for value in [
+            json!({"endpoint":"https://127.0.0.1:4242","pid":42,"runtime_version":"0.1.0","protocol_version":1}),
+            json!({"endpoint":"http://0.0.0.0:4242","pid":42,"runtime_version":"0.1.0","protocol_version":1}),
+            json!({"endpoint":"http://127.0.0.1:4242","pid":42,"runtime_version":"0.1.0","protocol_version":2}),
+        ] {
+            assert_eq!(
+                parse_cyber_agent_readiness(&value).unwrap_err(),
+                "cyber_agent_readiness_invalid"
+            );
+        }
+    }
+
+    #[test]
+    fn cyber_agent_readiness_never_contains_the_launch_secret() {
+        let readiness = parse_cyber_agent_readiness(&json!({
+            "endpoint": "http://127.0.0.1:4242",
+            "pid": 42,
+            "runtime_version": "0.1.0",
+            "protocol_version": 1
+        }))
+        .unwrap();
+        assert!(
+            !serde_json::to_string(&readiness)
+                .unwrap()
+                .contains("secret")
+        );
     }
 }

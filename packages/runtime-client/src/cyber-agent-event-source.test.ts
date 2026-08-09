@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 
 import {
   CyberAgentEventSource,
+  FetchCyberAgentTransport,
   type CyberAgentRequest,
   type CyberAgentTransport,
 } from './cyber-agent-event-source';
@@ -149,6 +150,34 @@ describe('CyberAgentEventSource', () => {
     await expect(source.getSnapshot()).resolves.toMatchObject({ cursor: 2, state: { committedCursor: 2 } });
     expect(streams).toBe(2);
     await source.close();
+  });
+});
+
+describe('FetchCyberAgentTransport', () => {
+  test('sends bearer and idempotency metadata and parses multiline SSE events', async () => {
+    const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/events')) {
+        return new Response('event: message\nid: source-1\ndata: {"value":\ndata: 1}\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+      }
+      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer web-token');
+      expect(new Headers(init?.headers).get('idempotency-key')).toBe('mutation-1');
+      return new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    const transport = new FetchCyberAgentTransport('https://agent.example.test', () => 'web-token', { fetch: fetch as typeof globalThis.fetch });
+    await expect(transport.request({ method: 'POST', path: '/v1/sessions', body: { task: true }, idempotencyKey: 'mutation-1' }))
+      .resolves.toEqual({ ok: true });
+    const controller = new AbortController();
+    const events: unknown[] = [];
+    for await (const event of transport.events('session-web', 7, controller.signal)) events.push(event);
+    expect(events).toEqual([{ value: 1 }]);
+    expect(fetch.mock.calls[1]?.[0].toString()).toContain('after_sequence=7');
+  });
+
+  test('requires HTTPS unless a trusted host explicitly enables loopback HTTP', () => {
+    expect(() => new FetchCyberAgentTransport('http://127.0.0.1:8080', () => 'token')).toThrow('cyber_agent_tls_required');
+    expect(() => new FetchCyberAgentTransport('http://127.0.0.1:8080', () => 'token', { allowInsecureLoopback: true })).not.toThrow();
+    expect(() => new FetchCyberAgentTransport('http://example.test', () => 'token', { allowInsecureLoopback: true })).toThrow('cyber_agent_tls_required');
   });
 });
 

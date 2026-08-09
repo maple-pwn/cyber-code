@@ -1,4 +1,5 @@
 import {
+  CyberAgentEventSource,
   FetchRemoteTransport,
   LocalEventSource,
   RemoteEventSource,
@@ -9,12 +10,14 @@ import { ScenarioPlayer } from '@cyber/scenario-player';
 import { createNativeClient } from './native';
 import {
   createDesktopRemoteTokenProvider,
+  createDesktopCyberAgentTransport,
   createDesktopRuntimeTransport,
   type DesktopCredentialBridge,
+  type DesktopCyberAgentBridge,
   type DesktopRuntimeBridge,
 } from './runtime-transport';
 
-export type DesktopSourceBridge = DesktopRuntimeBridge & DesktopCredentialBridge;
+export type DesktopSourceBridge = DesktopRuntimeBridge & DesktopCredentialBridge & DesktopCyberAgentBridge;
 export type DesktopRuntimeConfiguration = {
   realSourcesEnabled?: boolean;
   bridge?: DesktopSourceBridge;
@@ -52,6 +55,8 @@ export function createDesktopSourceFactory(
   const bridge = configuration.bridge ?? createNativeClient();
   const remoteAvailable = isSecureRemoteEndpoint(configuration.remote?.endpoint)
     && Boolean(configuration.remote?.credentialId.trim());
+  const cyberAgentAvailable = typeof bridge.cyberAgentStart === 'function'
+    && typeof bridge.cyberAgentStop === 'function';
   return new RuntimeSourceFactory([
     {
       id: 'demo', mode: 'demo', label: 'Demo', capabilities: ['deterministic', 'demo-only'],
@@ -73,6 +78,18 @@ export function createDesktopSourceFactory(
           configuration.remote.endpoint,
           createDesktopRemoteTokenProvider(configuration.remote.credentialId, bridge),
         ));
+      },
+    },
+    {
+      id: 'cyber-agent', mode: 'local', label: 'Security Runtime - cyber-agent',
+      capabilities: ['security-runtime', 'session.events.v1'],
+      available: cyberAgentAvailable,
+      ...(!cyberAgentAvailable ? { setupStatus: 'The native cyber-agent supervisor is unavailable in this build.' } : {}),
+      create: () => {
+        if (!cyberAgentAvailable) throw new Error('runtime_source_unavailable:cyber-agent');
+        return new CyberAgentEventSource(
+          createDesktopCyberAgentTransport(bridge), 'cyber-agent-local', 'local',
+        );
       },
     },
   ], { realSourcesEnabled: configuration.realSourcesEnabled });

@@ -1,9 +1,12 @@
 import {
   FetchRemoteTransport,
+  FetchCyberAgentTransport,
   LocalEventSource,
   RemoteEventSource,
   RuntimeSourceFactory,
+  cyberAgentSourceDefinition,
   type AccessTokenProvider,
+  type CyberAgentTransport,
 } from '@cyber/runtime-client';
 import { ScenarioPlayer } from '@cyber/scenario-player';
 
@@ -13,6 +16,7 @@ export type WebRuntimeConfiguration = {
   realSourcesEnabled?: boolean;
   loopbackBridge?: WebLoopbackBridge;
   remote?: { endpoint: string; tokenProvider: AccessTokenProvider };
+  cyberAgent?: { endpoint: string; tokenProvider: AccessTokenProvider };
   demoSpeedMs?: number;
 };
 
@@ -30,6 +34,14 @@ export function readWebRuntimeConfiguration(host: unknown = globalThis): WebRunt
     result.remote = {
       endpoint: configured.remote.endpoint,
       tokenProvider: configured.remote.tokenProvider as AccessTokenProvider,
+    };
+  }
+  if (isRecord(configured.cyberAgent)
+    && typeof configured.cyberAgent.endpoint === 'string'
+    && typeof configured.cyberAgent.tokenProvider === 'function') {
+    result.cyberAgent = {
+      endpoint: configured.cyberAgent.endpoint,
+      tokenProvider: configured.cyberAgent.tokenProvider as AccessTokenProvider,
     };
   }
   const bridge = configured.loopbackBridge;
@@ -55,6 +67,11 @@ export function createWebSourceFactory(
 ): RuntimeSourceFactory {
   const localAvailable = configuration.loopbackBridge !== undefined;
   const remoteAvailable = isSecureRemoteEndpoint(configuration.remote?.endpoint);
+  const cyberAgentAvailable = isSecureRemoteEndpoint(configuration.cyberAgent?.endpoint);
+  const unavailableCyberAgent: CyberAgentTransport = {
+    request: async () => { throw new Error('runtime_source_unavailable:cyber-agent'); },
+    events: async function* () { yield await Promise.reject(new Error('runtime_source_unavailable:cyber-agent')); },
+  };
   return new RuntimeSourceFactory([
     {
       id: 'demo', mode: 'demo', label: 'Demo', capabilities: ['deterministic', 'demo-only'],
@@ -79,5 +96,14 @@ export function createWebSourceFactory(
         ));
       },
     },
+    cyberAgentSourceDefinition(
+      configuration.cyberAgent === undefined
+        ? unavailableCyberAgent
+        : new FetchCyberAgentTransport(configuration.cyberAgent.endpoint, configuration.cyberAgent.tokenProvider),
+      {
+        available: cyberAgentAvailable,
+        ...(!cyberAgentAvailable ? { setupStatus: 'Configure the cyber-agent HTTPS endpoint and access token.' } : {}),
+      },
+    ),
   ], { realSourcesEnabled: configuration.realSourcesEnabled });
 }

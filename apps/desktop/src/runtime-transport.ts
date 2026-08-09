@@ -1,4 +1,4 @@
-import type { LocalRequest, LocalTransport } from '@cyber/runtime-client';
+import { FetchCyberAgentTransport, type CyberAgentRequest, type CyberAgentTransport, type LocalRequest, type LocalTransport } from '@cyber/runtime-client';
 
 import { createNativeClient } from './native';
 
@@ -19,6 +19,32 @@ export function createDesktopRuntimeTransport(
 }
 
 export type DesktopCredentialBridge = Pick<ReturnType<typeof createNativeClient>, 'loadSecret'>;
+export type DesktopCyberAgentBridge = Partial<Pick<ReturnType<typeof createNativeClient>, 'cyberAgentStart' | 'cyberAgentStop'>>;
+
+export function createDesktopCyberAgentTransport(
+  bridge: DesktopCyberAgentBridge = createNativeClient(),
+): CyberAgentTransport {
+  let transport: FetchCyberAgentTransport | undefined;
+  let starting: Promise<FetchCyberAgentTransport> | undefined;
+  const ensure = async (): Promise<FetchCyberAgentTransport> => {
+    if (bridge.cyberAgentStart === undefined) throw new Error('cyber_agent_supervisor_unavailable');
+    if (transport) return transport;
+    starting ??= bridge.cyberAgentStart().then((ready) => {
+      transport = new FetchCyberAgentTransport(ready.endpoint, () => ready.token, { allowInsecureLoopback: true });
+      return transport;
+    }).finally(() => { starting = undefined; });
+    return starting;
+  };
+  return {
+    request: async (request: CyberAgentRequest) => (await ensure()).request(request),
+    events: async function* (sessionId, afterSequence, signal) { yield* (await ensure()).events(sessionId, afterSequence, signal); },
+    close: async () => {
+      await transport?.close();
+      transport = undefined;
+      await bridge.cyberAgentStop?.();
+    },
+  };
+}
 
 export function createDesktopRemoteTokenProvider(
   credentialId: string,

@@ -86,6 +86,17 @@ describe('MissionControlPage', () => {
     expect(onDispatch).not.toHaveBeenCalled();
   });
 
+  test('makes the cyber-agent authority visible in the mission header', () => {
+    const cyberView = view('healthy');
+    cyberView.source = {
+      mode: 'local', runtimeId: 'cyber-agent-local', principal: 'cyber-agent',
+      capabilities: ['events', 'snapshot', 'commands'],
+    };
+    render(<MissionControlPage view={cyberView} t={t} onDispatch={vi.fn()} onReconnect={vi.fn()} />);
+    expect(screen.getByText('Security Runtime - cyber-agent')).toBeInTheDocument();
+    expect(screen.getByText('Authority: cyber-agent')).toBeInTheDocument();
+  });
+
   test('makes a displaced controller read-only until explicit takeover', async () => {
     const onDispatch = vi.fn();
     render(<MissionControlPage view={view('healthy', 'desktop-client')} t={t} onDispatch={onDispatch} onReconnect={vi.fn()} clientId="web-client" />);

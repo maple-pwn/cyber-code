@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 
-import { LocalEventSource, RemoteEventSource } from '@cyber/runtime-client';
+import { CyberAgentEventSource, LocalEventSource, RemoteEventSource } from '@cyber/runtime-client';
 
 import { createDesktopSourceFactory, readDesktopRuntimeConfiguration } from './source-factory';
 
@@ -22,6 +22,8 @@ test('desktop source factory exposes native Local and configured Remote honestly
     runtimeStart: vi.fn().mockResolvedValue({}), runtimeRequest: vi.fn().mockResolvedValue({}),
     runtimeRestart: vi.fn().mockResolvedValue({}), runtimeStop: vi.fn().mockResolvedValue({ stopped: true }),
     loadSecret: vi.fn().mockResolvedValue({ id: 'remote-token', secret: 'secret' }),
+	cyberAgentStart: vi.fn().mockResolvedValue({ endpoint: 'http://127.0.0.1:4242', token: 'process-token', version: '0.1.0' }),
+	cyberAgentStop: vi.fn().mockResolvedValue({ stopped: true }),
   };
   const factory = createDesktopSourceFactory({
     realSourcesEnabled: true,
@@ -35,9 +37,11 @@ test('desktop source factory exposes native Local and configured Remote honestly
     expect.objectContaining({ id: 'demo', mode: 'demo', available: true }),
     expect.objectContaining({ id: 'local', mode: 'local', available: true }),
     expect.objectContaining({ id: 'remote', mode: 'remote', available: true }),
+	expect.objectContaining({ id: 'cyber-agent', mode: 'local', available: true }),
   ]);
   expect(factory.create('local')).toBeInstanceOf(LocalEventSource);
   expect(factory.create('remote')).toBeInstanceOf(RemoteEventSource);
+  expect(factory.create('cyber-agent')).toBeInstanceOf(CyberAgentEventSource);
 });
 
 test('desktop keeps Local and Remote capability-gated by default', () => {
@@ -52,6 +56,7 @@ test('desktop keeps Local and Remote capability-gated by default', () => {
   expect(factory.options().filter((option) => option.mode !== 'demo')).toEqual([
     expect.objectContaining({ id: 'local', available: false, setupStatus: expect.stringContaining('capability') }),
     expect.objectContaining({ id: 'remote', available: false, setupStatus: expect.stringContaining('capability') }),
+    expect.objectContaining({ id: 'cyber-agent', available: false, setupStatus: expect.stringContaining('capability') }),
   ]);
 });
 

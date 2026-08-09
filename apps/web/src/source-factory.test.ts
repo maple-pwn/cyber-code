@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 
-import { LocalEventSource, RemoteEventSource } from '@cyber/runtime-client';
+import { CyberAgentEventSource, LocalEventSource, RemoteEventSource } from '@cyber/runtime-client';
 
 import { createWebSourceFactory, readWebRuntimeConfiguration } from './source-factory';
 
@@ -11,6 +11,7 @@ describe('Web runtime source factory', () => {
       __CYBER_RUNTIME_CONFIG__: {
         realSourcesEnabled: true,
         remote: { endpoint: 'https://runtime.example.test/v1/runtime', tokenProvider },
+		cyberAgent: { endpoint: 'https://agent.example.test', tokenProvider },
       },
     });
 
@@ -18,6 +19,7 @@ describe('Web runtime source factory', () => {
       endpoint: 'https://runtime.example.test/v1/runtime', tokenProvider,
     });
     expect(configuration.realSourcesEnabled).toBe(true);
+	expect(configuration.cyberAgent).toEqual({ endpoint: 'https://agent.example.test', tokenProvider });
     expect(createWebSourceFactory(configuration).options().find((option) => option.id === 'remote'))
       .toMatchObject({ available: true });
   });
@@ -29,6 +31,7 @@ describe('Web runtime source factory', () => {
       expect.objectContaining({ id: 'demo', mode: 'demo', available: true }),
       expect.objectContaining({ id: 'local', mode: 'local', available: false, setupStatus: expect.stringContaining('host bridge') }),
       expect.objectContaining({ id: 'remote', mode: 'remote', available: false, setupStatus: expect.stringContaining('HTTPS') }),
+	  expect.objectContaining({ id: 'cyber-agent', mode: 'remote', available: false, setupStatus: expect.stringContaining('cyber-agent') }),
     ]);
   });
 
@@ -56,10 +59,12 @@ describe('Web runtime source factory', () => {
       realSourcesEnabled: true,
       loopbackBridge: bridge,
       remote: { endpoint: 'https://runtime.example.test/v1/runtime', tokenProvider },
+	  cyberAgent: { endpoint: 'https://agent.example.test', tokenProvider },
     });
 
     expect(factory.create('local')).toBeInstanceOf(LocalEventSource);
     expect(factory.create('remote')).toBeInstanceOf(RemoteEventSource);
+	expect(factory.create('cyber-agent')).toBeInstanceOf(CyberAgentEventSource);
     expect(setItem).not.toHaveBeenCalled();
     setItem.mockRestore();
   });
@@ -70,11 +75,13 @@ describe('Web runtime source factory', () => {
         start: vi.fn(), request: vi.fn(), restart: vi.fn(), stop: vi.fn(),
       },
       remote: { endpoint: 'https://runtime.example.test/v1/runtime', tokenProvider: () => 'token' },
+	  cyberAgent: { endpoint: 'https://agent.example.test', tokenProvider: () => 'token' },
     });
 
     expect(factory.options().filter((option) => option.mode !== 'demo')).toEqual([
       expect.objectContaining({ id: 'local', available: false, setupStatus: expect.stringContaining('capability') }),
       expect.objectContaining({ id: 'remote', available: false, setupStatus: expect.stringContaining('capability') }),
+	  expect.objectContaining({ id: 'cyber-agent', available: false, setupStatus: expect.stringContaining('capability') }),
     ]);
   });
 

@@ -76,8 +76,8 @@ export type {
   LocalTransport,
 } from './local-event-source';
 export { FetchRemoteTransport, RemoteEventSource } from './remote-event-source';
-export { CyberAgentEventSource } from './cyber-agent-event-source';
-export type { CyberAgentRequest, CyberAgentTransport } from './cyber-agent-event-source';
+export { CyberAgentEventSource, FetchCyberAgentTransport } from './cyber-agent-event-source';
+export type { CyberAgentRequest, CyberAgentTokenProvider, CyberAgentTransport, FetchCyberAgentTransportOptions } from './cyber-agent-event-source';
 export { RuntimeSourceFactory, cyberAgentSourceDefinition } from './source-factory';
 export type { RuntimeSourceDefinition, RuntimeSourceFactoryOptions, RuntimeSourceOption } from './source-factory';
 export type {

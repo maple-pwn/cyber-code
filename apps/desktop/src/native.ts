@@ -12,6 +12,8 @@ export const nativeOperations = [
   'runtime_request',
   'runtime_restart',
   'runtime_stop',
+  'cyber_agent_start',
+  'cyber_agent_stop',
 ] as const;
 
 export type NativeOperation = (typeof nativeOperations)[number];
@@ -155,6 +157,20 @@ export function createNativeClient(invoke: NativeInvoke = tauriInvoke) {
       if (!isRecord(response) || !hasExactKeys(response, ['stopped'])
         || typeof response.stopped !== 'boolean') {
         throw new Error('invalid runtime_stop response');
+      }
+      return { stopped: response.stopped };
+    },
+    async cyberAgentStart(): Promise<{ endpoint: string; token: string; version: string }> {
+      const response = await call('cyber_agent_start');
+      if (!isRecord(response) || !hasExactKeys(response, ['endpoint', 'token', 'version'])
+        || typeof response.endpoint !== 'string' || typeof response.token !== 'string' || typeof response.version !== 'string'
+        || !response.token || !response.version) throw new Error('invalid cyber_agent_start response');
+      return { endpoint: response.endpoint, token: response.token, version: response.version };
+    },
+    async cyberAgentStop(): Promise<{ stopped: boolean }> {
+      const response = await call('cyber_agent_stop');
+      if (!isRecord(response) || !hasExactKeys(response, ['stopped']) || typeof response.stopped !== 'boolean') {
+        throw new Error('invalid cyber_agent_stop response');
       }
       return { stopped: response.stopped };
     },
