@@ -14,7 +14,7 @@ test('desktop bootstrap defaults to Demo and capability-gates Local', async () =
   expect(screen.getByRole('radio', { name: 'Demo' })).toBeChecked();
   expect(screen.getByText('DEMO · deterministic · demo-only')).toBeInTheDocument();
   expect(screen.getByRole('radio', { name: 'Local' })).toBeDisabled();
-  expect(screen.getAllByText(/real runtime capability/i)).toHaveLength(2);
+  expect(screen.getAllByText(/real runtime capability/i)).toHaveLength(3);
   store.destroy();
 });
 

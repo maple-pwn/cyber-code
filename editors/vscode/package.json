@@ -15,23 +15,45 @@
   "contributes": {
     "commands": [
       { "command": "cyber-code.ask", "title": "cyber-code: Ask" },
-      { "command": "cyber-code.cancel", "title": "cyber-code: Cancel" }
+      { "command": "cyber-code.cancel", "title": "cyber-code: Cancel" },
+      { "command": "cyber-code.approve", "title": "cyber-code: Approve pending action" }
     ],
     "configuration": {
       "title": "cyber-code",
       "properties": {
-        "cyber-code.executable": {
+      "cyber-code.executable": {
           "type": "string",
           "default": "cyber-code",
           "description": "Path to the cyber-code executable. Provider credentials remain managed by cyber-code."
+        },
+        "cyber-code.runtime": {
+          "type": "string",
+          "enum": ["coding", "cyber-agent"],
+          "default": "coding",
+          "description": "Runtime authority used by the extension. A failed cyber-agent runtime never falls back to coding."
+        },
+        "cyber-code.cyberAgentEndpoint": {
+          "type": "string",
+          "default": "",
+          "description": "Optional HTTPS cyber-agent endpoint for a managed runtime."
+        },
+        "cyber-code.cyberAgentExecutable": {
+          "type": "string",
+          "default": "cyber-agent",
+          "description": "Local cyber-agent executable used when the cyber-agent runtime is selected."
         }
       }
+    },
+    "views": {
+      "cyber-code": [
+        { "id": "cyber-code.sessions", "name": "Security Runtime" }
+      ]
     }
   },
   "scripts": {
     "compile": "tsc -p tsconfig.json --noEmit",
     "compile:test": "tsc -p tsconfig.json",
-    "test": "npm run compile:test && node --test dist/client.test.js"
+    "test": "npm run compile:test && node --test dist/client.test.js dist/runtime.test.js"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

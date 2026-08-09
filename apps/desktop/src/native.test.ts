@@ -16,6 +16,8 @@ describe('desktop native capability boundary', () => {
         'runtime_request',
         'runtime_restart',
         'runtime_stop',
+        'cyber_agent_start',
+        'cyber_agent_stop',
       ],
     });
     const client = createNativeClient(invoke);
@@ -31,6 +33,8 @@ describe('desktop native capability boundary', () => {
       'runtime_request',
       'runtime_restart',
       'runtime_stop',
+      'cyber_agent_start',
+      'cyber_agent_stop',
     ]);
     expect(invoke).toHaveBeenCalledWith('capabilities');
   });
