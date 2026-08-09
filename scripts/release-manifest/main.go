@@ -41,18 +41,148 @@ func main() {
 
 func run(args []string, stdout, stderr io.Writer, getenv func(string) string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("a validate, manifest, or public-key subcommand is required")
+		return fmt.Errorf("a validate, manifest, verify, or public-key subcommand is required")
 	}
 	switch args[0] {
 	case "validate":
 		return runValidate(args[1:], stdout, stderr)
 	case "manifest":
 		return runManifest(args[1:], stdout, stderr, getenv)
+	case "verify":
+		return runVerify(args[1:], stdout, stderr)
 	case "public-key":
 		return runPublicKey(args[1:], stdout, stderr, getenv)
 	default:
 		return fmt.Errorf("unknown subcommand %q", args[0])
 	}
+}
+
+func runVerify(args []string, stdout, stderr io.Writer) error {
+	flags := flag.NewFlagSet("verify", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var manifestPath, platform, artifactPath, metadataURL string
+	var encodedPublicKeys stringList
+	flags.StringVar(&manifestPath, "manifest", "", "path to signed latest.json")
+	flags.Var(&encodedPublicKeys, "public-key", "trusted base64 Ed25519 public key (repeatable)")
+	flags.StringVar(&platform, "platform", "", "artifact platform as goos/goarch")
+	flags.StringVar(&artifactPath, "artifact", "", "local artifact path")
+	flags.StringVar(&metadataURL, "metadata-url", "", "expected HTTPS latest.json URL")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("verify does not accept positional arguments")
+	}
+	if manifestPath == "" || len(encodedPublicKeys) == 0 || platform == "" || artifactPath == "" || metadataURL == "" {
+		return fmt.Errorf("--manifest, --public-key, --platform, --artifact, and --metadata-url are required")
+	}
+	goos, goarch, found := strings.Cut(platform, "/")
+	if !found || goos == "" || goarch == "" || strings.Contains(goarch, "/") {
+		return fmt.Errorf("--platform must use goos/goarch")
+	}
+	metadata, err := parseMetadataURL(metadataURL)
+	if err != nil {
+		return err
+	}
+	document, err := readBoundedRegularFile(manifestPath, maxSigningKeyBytes*16)
+	if err != nil {
+		return fmt.Errorf("read release manifest: %w", err)
+	}
+	var payload updatepkg.Payload
+	var artifact updatepkg.Artifact
+	verified := false
+	for _, encoded := range encodedPublicKeys {
+		publicKey, err := decodePublicKey(encoded)
+		if err != nil {
+			return err
+		}
+		candidatePayload, candidateArtifact, verifyErr := updatepkg.VerifyEnvelope(document, publicKey, goos, goarch)
+		if verifyErr == nil {
+			payload, artifact, verified = candidatePayload, candidateArtifact, true
+			break
+		}
+	}
+	if !verified {
+		return fmt.Errorf("release manifest was not signed by a trusted public key")
+	}
+	artifactURL, err := url.Parse(artifact.URL)
+	if err != nil {
+		return fmt.Errorf("verify artifact URL: %w", err)
+	}
+	metadataDirectory := pathpkg.Dir(metadata.Path)
+	if artifactURL.Scheme != metadata.Scheme || artifactURL.Host != metadata.Host || pathpkg.Dir(artifactURL.Path) != metadataDirectory {
+		return fmt.Errorf("artifact URL does not match the expected metadata URL directory")
+	}
+	if err := verifyArtifactFile(artifactPath, artifact); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(stdout, "verified %s %s %s/%s\n", payload.Product, payload.Version, goos, goarch)
+	return err
+}
+
+func parseMetadataURL(value string) (*url.URL, error) {
+	parsed, err := parseArtifactBaseURL(value)
+	if err != nil {
+		return nil, fmt.Errorf("--metadata-url is invalid: %w", err)
+	}
+	if pathpkg.Base(parsed.Path) != "latest.json" {
+		return nil, fmt.Errorf("--metadata-url must end with latest.json")
+	}
+	return parsed, nil
+}
+
+func decodePublicKey(encoded string) (ed25519.PublicKey, error) {
+	raw, err := base64.StdEncoding.Strict().DecodeString(strings.TrimSpace(encoded))
+	if err != nil || len(raw) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("--public-key must be a base64 Ed25519 public key")
+	}
+	return ed25519.PublicKey(append([]byte(nil), raw...)), nil
+}
+
+func readBoundedRegularFile(name string, maximum int64) ([]byte, error) {
+	file, err := os.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maximum {
+		return nil, fmt.Errorf("file must be regular, non-empty, and no larger than %d bytes", maximum)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maximum+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maximum {
+		return nil, fmt.Errorf("file exceeds %d bytes", maximum)
+	}
+	return data, nil
+}
+
+func verifyArtifactFile(name string, artifact updatepkg.Artifact) error {
+	file, err := os.Open(name)
+	if err != nil {
+		return fmt.Errorf("open artifact: %w", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("inspect artifact: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Size() != artifact.Size {
+		return fmt.Errorf("artifact size does not match signed manifest")
+	}
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return fmt.Errorf("hash artifact: %w", err)
+	}
+	if fmt.Sprintf("%x", hash.Sum(nil)) != artifact.SHA256 {
+		return fmt.Errorf("artifact SHA-256 does not match signed manifest")
+	}
+	return nil
 }
 
 func runValidate(args []string, stdout, stderr io.Writer) error {
