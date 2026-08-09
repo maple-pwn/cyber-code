@@ -247,6 +247,9 @@ go test ./...
 go test -race ./...
 go vet ./...
 
+scripts/release-smoke.sh
+scripts/platform-matrix.sh
+
 sh scripts/check-placeholders.sh
 sh scripts/check-todos.sh
 sh scripts/check-brand.sh
@@ -267,6 +270,8 @@ GOOS=windows GOARCH=amd64 go build -o cyber-code-windows-amd64.exe ./cmd/cli
 
 真实云服务验收始终是显式 opt-in；测试和日志不得保存凭据或完整敏感响应。
 
+`platform-matrix.sh` 只把当前主机实际运行过的项目记为 `PASS`；缺少 Linux/Windows 真机、pnpm、bubblewrap 或云账号时会输出带原因的 `SKIP`。交叉编译和本地 Provider contract test 不会冒充真机或真实云验收。
+
 ## 文档导航
 
 | 文档 | 内容 |
@@ -278,6 +283,9 @@ GOOS=windows GOARCH=amd64 go build -o cyber-code-windows-amd64.exe ./cmd/cli
 | [Runtime 威胁模型](docs/security/phase4-runtime-threat-model.md) | Local/Remote Runtime 的认证、重放、Scope、Evidence、cursor 与 capability gate。 |
 | [本机 SDK](docs/sdk.md) | JSONL 协议、IDE context、diff、VS Code 扩展和 Bridge。 |
 | [Tactical Ops](docs/tactical-ops.md) | 默认 Demo、快捷键、恢复语义和经典 TUI 迁移。 |
+| [验收矩阵](docs/operations/acceptance-matrix.md) | 发布签名、原生平台、云证据以及 OIDC/SCIM/策略/插件运维边界。 |
+| [PostgreSQL 运维](docs/operations/postgres.md) | 多实例授权存储、迁移、备份恢复与显式 SKIP 规则。 |
+| [Telemetry 与 SLO](docs/operations/slo.md) | 脱敏指标、告警阈值、队列 drain 和关闭顺序。 |
 
 ---
 

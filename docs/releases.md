@@ -75,6 +75,24 @@ cyber-code version-check --enable
 
 发行构建使用注入的 metadata URL/公钥；开发构建需显式传 `--metadata-url` 和 `--public-key`。输出包括选中平台 artifact 的 URL、SHA-256 和大小，不会创建下载文件。
 
+发布前应使用仓库验证器同时校验 envelope、平台 artifact、metadata URL 目录、大小与 SHA-256。轮换窗口内可以重复传入当前和上一把公钥：
+
+```bash
+go run ./scripts/release-manifest verify \
+  --manifest latest.json \
+  --public-key "$CURRENT_PUBLIC_KEY" \
+  --public-key "$PREVIOUS_PUBLIC_KEY" \
+  --platform linux/amd64 \
+  --artifact cyber-code-linux-amd64 \
+  --metadata-url "$BASE_URL/latest.json"
+```
+
+完整离线安装、升级、健康检查失败回滚和篡改拒绝夹具：
+
+```bash
+scripts/release-smoke.sh
+```
+
 离线审计可以先从 envelope 提取签名字节，再用 OpenSSL 验证 canonical payload：
 
 ```bash
@@ -91,4 +109,4 @@ openssl pkeyutl -verify -pubin -keyform DER -inkey public-key.der \
 
 ## 轮换
 
-公钥固定在产品二进制中。轮换密钥时，应先发布同时信任新公钥的新客户端，或通过独立可信渠道发布使用新公钥构建的客户端；不能只替换静态站点上的 key 和 manifest。旧私钥撤销后应从 GitHub secret 与本地密钥库中删除，并保留不含私钥的审计记录。
+公钥固定在产品二进制中。轮换密钥时，应先通过独立可信渠道发布使用新公钥构建的客户端；不能只替换静态站点上的 key 和 manifest。发布验收工具可以在有界迁移窗口内同时信任当前和上一把公钥，但新二进制只应嵌入目标当前公钥。旧私钥撤销后应从 GitHub secret 与本地密钥库中删除，并保留不含私钥的审计记录。

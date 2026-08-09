@@ -44,3 +44,16 @@ During graceful shutdown, call `Flush` and then `Shutdown` with a bounded contex
 4. Send a health request with `X-Request-ID` and confirm the same ID appears in the exported span.
 5. Simulate an unavailable collector and confirm user requests still succeed while `ExportFailures` increases.
 6. Create dashboards and alerts for all four SLO groups before enabling paging.
+
+## Queue and Runtime drain
+
+Durable task workers must be registered with the Runtime service before it begins serving work. During shutdown:
+
+1. stop accepting new remote mutations;
+2. call Runtime `Drain` with a bounded deployment shutdown context;
+3. allow the active queue item to finish while leaving pending work durable;
+4. flush and shut down telemetry after the worker drain completes;
+5. close terminal managers and reconcile expired queue leases on the next startup;
+6. run terminal-item cleanup only with an explicit retention interval.
+
+If the drain deadline expires, terminate the instance and rely on lease reconciliation rather than marking an unknown task as completed. Queue payloads and handler errors are bounded; do not put credentials, raw authorization headers, or unredacted prompts in queue metadata.

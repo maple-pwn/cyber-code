@@ -33,3 +33,15 @@ The integration suite verifies:
 - migration reruns preserve the active snapshot for application rollback;
 - a revoked final snapshot can be copied to a backup key and restored;
 - revisions remain monotonic.
+
+## Deployment checklist
+
+1. Create a dedicated database role with only the schema privileges required by the authorization store; require TLS outside a private loopback fixture.
+2. Run `Migrate` from one deployment instance before admitting traffic. A second call must remain idempotent.
+3. Take a database-native backup and record the active authorization revision before deploying a new binary.
+4. Start two application instances and verify that a revision written through one is immediately readable through the other.
+5. Exercise one expected-revision conflict and confirm it is reported as a conflict rather than silently overwriting data.
+6. Revoke a fixture membership through one instance and confirm the other instance rejects it before declaring the deployment healthy.
+7. On application rollback, retain the additive schema and restore the recorded snapshot only when its revision policy permits it. Never drop the table as an automated rollback step.
+
+The harness does not claim PostgreSQL acceptance unless it connects to a real service. A `SKIP` caused by an absent DSN or Docker is expected for local-only development and must remain visible in release evidence.

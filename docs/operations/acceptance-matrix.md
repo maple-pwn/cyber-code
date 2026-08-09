@@ -47,6 +47,10 @@ The release fixture is local and performs no network requests. Its artifact URLs
 
 The manual release workflow runs the native matrix on `ubuntu-latest`, `macos-latest`, and `windows-latest`. It has read-only repository permissions and uploads a bundle; it does not publish a release.
 
+The 2026-08-09 local verification also ran `scripts/test-postgres-integration.sh` against a disposable `postgres:17-alpine` container. The multi-instance authorization suite passed and the script removed the container on exit.
+
+The same local verification ran the Web and Desktop Vitest suites directly from the locked workspace dependencies: 8 files and 32 tests passed. This confirms the TypeScript product surfaces and transports, but it is not a Tauri GUI, VS Code Extension Host, or real multi-user end-to-end acceptance result.
+
 ## Cloud Evidence
 
 Local Bedrock, Vertex, Azure, and OpenAI-compatible contract tests are recorded separately from real-account smoke evidence. To attach redacted evidence from a controlled environment, set the matching variable to a non-empty evidence file before running `scripts/platform-matrix.sh`:
@@ -63,3 +67,38 @@ Evidence files must be redacted and should contain the UTC time, region/endpoint
 ## Release Key Rotation
 
 Release binaries embed the current metadata URL and public key. During a signing-key rotation, acceptance tooling may trust both the current and immediately previous public key while verifying an existing bundle. New release binaries must embed only the intended current key. Remove the previous key from operational verification after all supported release channels have moved beyond the rotation window.
+
+## Managed Deployment Runbook
+
+### OIDC browser login and JWK rotation
+
+- Keep browser login disabled unless the deployment explicitly supplies `BrowserLoginOptions` with HTTPS authorization/token endpoints, a client ID, scopes, and a loopback ephemeral callback address.
+- Bind the callback listener to loopback with port `0`; do not expose it on a LAN address or configure a fixed callback port.
+- Keep browser opening explicit. Headless hosts should display the authorization URL through their trusted UI rather than silently launching a browser.
+- Construct `OIDCJWKResolver` with the exact issuer and a bounded cache/stale grace. Discovery and JWK URLs must use HTTPS except controlled loopback tests.
+- During IdP key rotation, publish the new JWK before signing tokens with it. Unknown `kid` causes a bounded refresh; stale keys are not accepted beyond the configured grace.
+- On logout, revoke the token through the configured HTTPS revocation endpoint and clear the deployment-owned credential store.
+
+### SCIM provisioning
+
+- SCIM is opt-in. Mount `scim.NewHandler` under `/scim/v2/` only through `NewObservedTeamHandlerWithSCIM` with `Enabled: true`.
+- Provision a separate bearer for each tenant and bind it to a tenant ID and service principal. Store only a hash or secret-manager reference outside test fixtures.
+- Require TLS at the external listener, cap reverse-proxy request bodies at or below the application's 1 MiB limit, and preserve `If-Match`/ETag headers.
+- Treat DELETE as deactivation, monitor audit events for every mutation, and verify that cross-tenant reads and writes remain denied.
+- Disable the route, rotate the tenant bearer, and review audit records immediately if a provisioning credential is exposed.
+
+### Managed policy keys
+
+- Pin Ed25519 public keys by key ID and bind every verifier to one HTTPS issuer and one tenant.
+- Accept only monotonic revisions with `trust_level: managed`; deny rules may only reduce local authority.
+- Publish a new verification key before signing a higher revision with it. Keep the previous public key only for the bounded transition window.
+- Expired, future-issued, wrong-tenant, unknown-key, or rollback revisions fail closed. Audit only the policy digest and revision, never the payload signature or emergency reason.
+
+### Signed marketplace and plugin rollback
+
+- Managed deployments should construct the marketplace manager with `RequireSignatures: true` and a pinned key map.
+- Catalog signatures cover exact plugin versions, dependency pins, and plugin tree digests. Reject cycles, unpinned dependencies, symlinks, traversal, or a changed installed tree.
+- Installation and upgrade occur in staging before the active pointer changes. A state-write or activation failure restores the previous pointer, skills, and installed record.
+- Before removing a plugin, retain the last active revision until state persistence succeeds. Runtime loading must call `LoadVerified` with the recorded digest.
+
+PostgreSQL migration/restore procedures are in [postgres.md](postgres.md), telemetry and drain procedures are in [slo.md](slo.md), and release construction is in [../releases.md](../releases.md).
