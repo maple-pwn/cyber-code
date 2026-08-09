@@ -72,6 +72,9 @@ func (s *PostgresSnapshotStore) save(ctx context.Context, policy *Policy, expect
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
+		if isPostgresSerializationFailure(err) {
+			return 0, ErrSnapshotConflict
+		}
 		return 0, fmt.Errorf("begin authorization snapshot transaction: %w", err)
 	}
 	defer func() {
@@ -82,6 +85,9 @@ func (s *PostgresSnapshotStore) save(ctx context.Context, policy *Policy, expect
 	current := int64(0)
 	err = tx.QueryRowContext(ctx, `SELECT revision FROM cyber_authorization_snapshots WHERE store_key = $1 FOR UPDATE`, s.key).Scan(&current)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if isPostgresSerializationFailure(err) {
+			return 0, ErrSnapshotConflict
+		}
 		return 0, fmt.Errorf("lock authorization snapshot: %w", err)
 	}
 	if expected != nil && current != *expected {
@@ -94,9 +100,15 @@ VALUES ($1, $2, $3)
 ON CONFLICT (store_key) DO UPDATE
 SET revision = EXCLUDED.revision, snapshot_json = EXCLUDED.snapshot_json, updated_at = NOW()`, s.key, revision, payload)
 	if err != nil {
+		if isPostgresSerializationFailure(err) {
+			return 0, ErrSnapshotConflict
+		}
 		return 0, fmt.Errorf("write authorization snapshot: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
+		if isPostgresSerializationFailure(err) {
+			return 0, ErrSnapshotConflict
+		}
 		return 0, fmt.Errorf("commit authorization snapshot: %w", err)
 	}
 	return revision, nil
@@ -128,6 +140,11 @@ func (s *PostgresSnapshotStore) LoadRevision(ctx context.Context) (*Policy, int6
 		return nil, 0, err
 	}
 	return policy, revision, nil
+}
+
+func isPostgresSerializationFailure(err error) bool {
+	var state interface{ SQLState() string }
+	return errors.As(err, &state) && state.SQLState() == "40001"
 }
 
 var _ SnapshotStore = (*PostgresSnapshotStore)(nil)
