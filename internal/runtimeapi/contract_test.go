@@ -48,6 +48,18 @@ func TestNegotiateHandshake(t *testing.T) {
 	}
 }
 
+func TestNegotiateHandshakeRejectsCapabilitiesNotOfferedByClient(t *testing.T) {
+	request := runtimeapi.HandshakeRequest{SupportedProtocolVersions: []int{runtimeapi.ProtocolVersion}, SupportedCapabilities: []string{"events"}}
+	metadata := runtimeapi.SourceMetadata{Mode: runtimeapi.SourceModeLocal, RuntimeID: "runtime-1", Principal: "operator", Capabilities: []string{"events", "commands"}}
+	response := runtimeapi.HandshakeResponse{
+		ProtocolVersion: runtimeapi.ProtocolVersion, RuntimeID: metadata.RuntimeID, Principal: metadata.Principal,
+		Role: "operator", Capabilities: append([]string(nil), metadata.Capabilities...), Source: metadata,
+	}
+	if _, err := runtimeapi.NegotiateHandshake(request, response); err != runtimeapi.ErrIncompatible {
+		t.Fatalf("unoffered capability error = %v", err)
+	}
+}
+
 func TestValidateCommandReceipts(t *testing.T) {
 	var value struct {
 		Accepted struct {

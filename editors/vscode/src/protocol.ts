@@ -1,4 +1,6 @@
 export const protocolVersion = 1;
+export const protocolSemanticVersion = "1.1";
+export const protocolCapabilities = ["base", "permissions", "ide-context", "diff"] as const;
 
 export interface Position {
   line: number;
@@ -36,12 +38,14 @@ export interface IDEDiff {
 export interface Request {
   version: 1;
   id: string;
-  type: "start" | "input" | "cancel" | "status" | "permission";
+  type: "handshake" | "start" | "input" | "cancel" | "status" | "permission";
   prompt?: string;
   reason?: string;
   permission_id?: string;
   decision?: "allow" | "deny";
   ide_context?: IDEContext;
+  protocol?: string;
+  capabilities?: string[];
 }
 
 export interface RuntimeEvent {
@@ -67,11 +71,13 @@ export interface PermissionPrompt {
 export interface Response {
   version: number;
   id?: string;
-  type: "accepted" | "event" | "turn_finished" | "status" | "permission" | "diff" | "error";
+  type: "handshake" | "accepted" | "event" | "turn_finished" | "status" | "permission" | "diff" | "error";
   event?: RuntimeEvent;
   status?: { session_id?: string; running: boolean; history_messages: number };
   permission?: PermissionPrompt;
   diff?: IDEDiff;
   error?: string;
   canceled?: boolean;
+  protocol?: string;
+  capabilities?: string[];
 }

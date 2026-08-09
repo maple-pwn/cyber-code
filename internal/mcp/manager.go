@@ -308,8 +308,8 @@ func (manager *Manager) discover(conn *connection) error {
 	}, &initialized); err != nil {
 		return err
 	}
-	if initialized.ProtocolVersion == "" {
-		return fmt.Errorf("%w: initialize response omitted protocolVersion", ErrProtocol)
+	if initialized.ProtocolVersion != ProtocolVersion {
+		return fmt.Errorf("%w: initialize protocolVersion %q is incompatible with %q", ErrProtocol, initialized.ProtocolVersion, ProtocolVersion)
 	}
 	_, toolsDeclared := initialized.Capabilities["tools"]
 	_, resourcesDeclared := initialized.Capabilities["resources"]

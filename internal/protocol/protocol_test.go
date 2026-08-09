@@ -181,6 +181,28 @@ func TestCodecRejectsOversizedAndWrongVersion(t *testing.T) {
 	}
 }
 
+func TestServerRequiresNegotiatedCapabilitiesWhenConfigured(t *testing.T) {
+	runtime := &fakeRuntime{}
+	server, err := NewServerWithOptions(runtime, ServerOptions{RequireHandshake: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := bytes.NewBufferString(
+		`{"version":1,"id":"h","type":"handshake","protocol":"1.0","capabilities":["base"]}` + "\n" +
+			`{"version":1,"id":"s","type":"start","prompt":"fix","ide_context":{"workspace":"/workspace"}}` + "\n",
+	)
+	var output bytes.Buffer
+	if err := server.Serve(context.Background(), input, &output); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), `"type":"handshake"`) || !strings.Contains(output.String(), "ide-context capability was not negotiated") {
+		t.Fatalf("output = %s", output.String())
+	}
+	if runtime.prompt != "" {
+		t.Fatalf("runtime received unnegotiated prompt %q", runtime.prompt)
+	}
+}
+
 func TestServerStartsTurnAndReportsStatus(t *testing.T) {
 	runtime := &fakeRuntime{}
 	server, err := NewServer(runtime, 0)

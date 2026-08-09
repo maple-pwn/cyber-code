@@ -316,7 +316,7 @@ func newServeCommand(environment *commandEnvironment) *cobra.Command {
 			return err
 		}
 		defer built.Shutdown(context.Background())
-		server, err := protocol.NewServerWithOptions(built, protocol.ServerOptions{Permissions: permissionBroker})
+		server, err := protocol.NewServerWithOptions(built, protocol.ServerOptions{Permissions: permissionBroker, RequireHandshake: true})
 		if err != nil {
 			return err
 		}

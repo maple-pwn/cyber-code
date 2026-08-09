@@ -85,6 +85,7 @@ type View struct {
 type ClientOptions struct {
 	ClientID     string
 	ExpectedMode runtimeapi.SourceMode
+	Capabilities []string
 }
 
 type Client struct {
@@ -92,6 +93,7 @@ type Client struct {
 	source        Source
 	clientID      string
 	expectedMode  runtimeapi.SourceMode
+	capabilities  []string
 	sourceInfo    *runtimeapi.SourceMetadata
 	role          string
 	state         productstate.State
@@ -103,8 +105,11 @@ type Client struct {
 }
 
 func NewClient(source Source, options ClientOptions) *Client {
+	if len(options.Capabilities) == 0 {
+		options.Capabilities = []string{"events", "snapshot", "commands", "terminal.observe", "terminal.input", "editor.read", "editor.write"}
+	}
 	return &Client{
-		source: source, clientID: options.ClientID, expectedMode: options.ExpectedMode, state: productstate.Initial(),
+		source: source, clientID: options.ClientID, expectedMode: options.ExpectedMode, capabilities: append([]string(nil), options.Capabilities...), state: productstate.Initial(),
 		connection: Connection{Status: ConnectionOffline},
 	}
 }
@@ -154,7 +159,7 @@ func (client *Client) handshake(ctx context.Context) error {
 	after := client.connection.LastTrustedCursor
 	client.mu.Unlock()
 	request := runtimeapi.HandshakeRequest{
-		SupportedProtocolVersions: []int{runtimeapi.ProtocolVersion}, AfterCursor: after,
+		SupportedProtocolVersions: []int{runtimeapi.ProtocolVersion}, SupportedCapabilities: append([]string(nil), client.capabilities...), AfterCursor: after,
 	}
 	response, err := client.source.Handshake(ctx, request)
 	if err != nil {
@@ -356,6 +361,7 @@ func (source *ScenarioSource) Handshake(_ context.Context, request runtimeapi.Ha
 		Mode: runtimeapi.SourceModeDemo, RuntimeID: source.options.RuntimeID, Principal: "authorized-operator",
 		Capabilities: []string{"events", "snapshot", "commands", "deterministic"},
 	}
+	metadata.Capabilities = runtimeapi.SelectCapabilities(request.SupportedCapabilities, metadata.Capabilities)
 	response := runtimeapi.HandshakeResponse{
 		ProtocolVersion: runtimeapi.ProtocolVersion, RuntimeID: metadata.RuntimeID, Principal: metadata.Principal,
 		Role: "operator", Capabilities: append([]string(nil), metadata.Capabilities...), Source: metadata,

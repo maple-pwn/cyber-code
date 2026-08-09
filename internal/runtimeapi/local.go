@@ -247,9 +247,12 @@ func (s *LocalServer) handleAuthorizedForClient(ctx context.Context, request Loc
 		if request.Handshake == nil {
 			return localError(request.ID, "invalid_handshake")
 		}
+		capabilities := SelectCapabilities(request.Handshake.SupportedCapabilities, s.source.Capabilities)
+		source := s.source
+		source.Capabilities = append([]string(nil), capabilities...)
 		handshake := HandshakeResponse{
 			ProtocolVersion: ProtocolVersion, RuntimeID: s.source.RuntimeID, Principal: s.source.Principal,
-			Role: s.role, Capabilities: append([]string(nil), s.source.Capabilities...), Source: s.source,
+			Role: s.role, Capabilities: capabilities, Source: source,
 		}
 		if _, err := NegotiateHandshake(*request.Handshake, handshake); err != nil {
 			return localError(request.ID, err.Error())

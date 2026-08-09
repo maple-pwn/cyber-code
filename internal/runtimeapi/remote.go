@@ -208,12 +208,13 @@ func (s *RemoteServer) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			s.writeError(writer, http.StatusBadRequest, remoteRequest.ID, "invalid_handshake")
 			return
 		}
+		capabilities := SelectCapabilities(remoteRequest.Handshake.SupportedCapabilities, claims.Capabilities)
 		handshake := HandshakeResponse{
 			ProtocolVersion: ProtocolVersion, RuntimeID: s.service.runtimeID,
-			Principal: claims.Principal, Role: claims.Role, Capabilities: append([]string(nil), claims.Capabilities...),
+			Principal: claims.Principal, Role: claims.Role, Capabilities: capabilities,
 			Source: SourceMetadata{
 				Mode: SourceModeRemote, RuntimeID: s.service.runtimeID, Principal: claims.Principal,
-				Capabilities: append([]string(nil), claims.Capabilities...),
+				Capabilities: append([]string(nil), capabilities...),
 			},
 		}
 		if _, err := NegotiateHandshake(*remoteRequest.Handshake, handshake); err != nil {

@@ -10,6 +10,7 @@ class FakeProcess extends EventEmitter implements ManagedProcess {
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
   killed = false;
+  handshaken = false;
 
   kill(): boolean {
     this.killed = true;
@@ -22,8 +23,19 @@ class FakeProcess extends EventEmitter implements ManagedProcess {
   }
 }
 
-function readRequest(process: FakeProcess): Promise<Record<string, unknown>> {
+function readRawRequest(process: FakeProcess): Promise<Record<string, unknown>> {
   return new Promise((resolve) => process.stdin.once("data", (data) => resolve(JSON.parse(data.toString()))));
+}
+
+async function readRequest(process: FakeProcess, capabilities = ["base", "permissions", "ide-context", "diff"]): Promise<Record<string, unknown>> {
+  if (!process.handshaken) {
+    const handshake = await readRawRequest(process);
+    assert.equal(handshake.type, "handshake");
+    assert.equal(handshake.protocol, "1.1");
+    process.handshaken = true;
+    process.send({ version: 1, id: handshake.id, type: "handshake", protocol: "1.1", capabilities });
+  }
+  return readRawRequest(process);
 }
 
 test("streams events with IDE context and finishes the correlated turn", async () => {
@@ -53,6 +65,30 @@ test("streams events with IDE context and finishes the correlated turn", async (
 
   assert.deepEqual(await finished, { canceled: false });
   assert.deepEqual(events, ["done"]);
+  client.dispose();
+});
+
+test("negotiates capabilities before commands and downgrades optional IDE context", async () => {
+  const process = new FakeProcess();
+  const client = new ProtocolClient(() => process);
+  const requestPromise = readRequest(process, ["base", "permissions"]);
+  const finished = client.start("fix", { workspace: "/workspace" });
+  const request = await requestPromise;
+  assert.equal(request.type, "start");
+  assert.equal(request.ide_context, undefined);
+  process.send({ version: 1, id: request.id, type: "turn_finished" });
+  assert.deepEqual(await finished, { canceled: false });
+  client.dispose();
+});
+
+test("rejects queued turns when the protocol handshake is incompatible", async () => {
+  const process = new FakeProcess();
+  const client = new ProtocolClient(() => process);
+  const handshakePromise = readRawRequest(process);
+  const finished = client.start("fix");
+  const handshake = await handshakePromise;
+  process.send({ version: 1, id: handshake.id, type: "error", error: "incompatible protocol major versions 1.1 and 2.0" });
+  await assert.rejects(finished, /incompatible protocol major versions/);
   client.dispose();
 });
 
@@ -105,6 +141,10 @@ test("registers a turn before a synchronous child response", async () => {
   const process = new FakeProcess();
   process.stdin.on("data", (data) => {
     const request = JSON.parse(data.toString());
+    if (request.type === "handshake") {
+      process.send({ version: 1, id: request.id, type: "handshake", protocol: "1.1", capabilities: ["base", "permissions", "ide-context", "diff"] });
+      return;
+    }
     process.send({ version: 1, id: request.id, type: "accepted" });
     process.send({ version: 1, id: request.id, type: "turn_finished" });
   });

@@ -39,8 +39,9 @@ type SourceMetadata struct {
 }
 
 type HandshakeRequest struct {
-	SupportedProtocolVersions []int `json:"supportedProtocolVersions"`
-	AfterCursor               int   `json:"afterCursor"`
+	SupportedProtocolVersions []int    `json:"supportedProtocolVersions"`
+	SupportedCapabilities     []string `json:"supportedCapabilities,omitempty"`
+	AfterCursor               int      `json:"afterCursor"`
 }
 
 type HandshakeResponse struct {
@@ -75,6 +76,13 @@ func NegotiateHandshake(request HandshakeRequest, response HandshakeResponse) (S
 	if !slices.Contains(request.SupportedProtocolVersions, response.ProtocolVersion) {
 		return SourceMetadata{}, ErrIncompatible
 	}
+	if len(request.SupportedCapabilities) > 0 {
+		for _, capability := range response.Capabilities {
+			if !slices.Contains(request.SupportedCapabilities, capability) {
+				return SourceMetadata{}, ErrIncompatible
+			}
+		}
+	}
 	if !validIdentityText(response.RuntimeID) || !validIdentityText(response.Principal) || !validIdentityText(response.Role) ||
 		!validStrings(response.Capabilities) || !validMetadata(response.Source) {
 		return SourceMetadata{}, ErrInvalidHandshake
@@ -84,6 +92,19 @@ func NegotiateHandshake(request HandshakeRequest, response HandshakeResponse) (S
 		return SourceMetadata{}, ErrRuntimeIdentityMismatch
 	}
 	return response.Source, nil
+}
+
+func SelectCapabilities(supported, offered []string) []string {
+	if len(supported) == 0 {
+		return append([]string(nil), offered...)
+	}
+	result := make([]string, 0, len(offered))
+	for _, capability := range offered {
+		if slices.Contains(supported, capability) && !slices.Contains(result, capability) {
+			result = append(result, capability)
+		}
+	}
+	return result
 }
 
 func ValidateCommandEnvelope(envelope CommandEnvelope) error {
