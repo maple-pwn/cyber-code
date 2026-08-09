@@ -105,3 +105,29 @@ type EventEnvelope struct {
 	EmittedAt   time.Time       `json:"emitted_at"`
 	CausationID *string         `json:"causation_id"`
 }
+
+type SkillRecord struct {
+	SkillRef      string          `json:"skill_ref"`
+	Version       string          `json:"version"`
+	Publisher     string          `json:"publisher,omitempty"`
+	Summary       string          `json:"summary,omitempty"`
+	Source        string          `json:"source,omitempty"`
+	ArchiveURL    string          `json:"archive_url,omitempty"`
+	ArchiveSHA256 string          `json:"archive_sha256"`
+	ContentDigest string          `json:"content_digest"`
+	Signature     json.RawMessage `json:"signature,omitempty"`
+	Revoked       bool            `json:"revoked,omitempty"`
+	Trust         string          `json:"trust,omitempty"`
+	RequiredTools []string        `json:"required_tools,omitempty"`
+	MissingTools  []string        `json:"missing_tools,omitempty"`
+	Active        bool            `json:"active,omitempty"`
+}
+
+type SkillList struct {
+	Skills []SkillRecord `json:"skills"`
+}
+
+type SkillRemoveReceipt struct {
+	SkillRef string `json:"skill_ref"`
+	Removed  bool   `json:"removed"`
+}

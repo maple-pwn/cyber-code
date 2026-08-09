@@ -82,7 +82,7 @@ export function createDesktopSourceFactory(
     },
     {
       id: 'cyber-agent', mode: 'local', label: 'Security Runtime - cyber-agent',
-      capabilities: ['security-runtime', 'session.events.v1'],
+      capabilities: ['security-runtime', 'session.events.v1', 'skills.lifecycle.v1'],
       available: cyberAgentAvailable,
       ...(!cyberAgentAvailable ? { setupStatus: 'The native cyber-agent supervisor is unavailable in this build.' } : {}),
       create: () => {

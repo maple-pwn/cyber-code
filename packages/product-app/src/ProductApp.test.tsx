@@ -48,6 +48,20 @@ describe('App shell', () => {
     store.destroy();
   });
 
+  test('surfaces the cyber-agent Skill lifecycle capability in runtime selection', async () => {
+    const player = new ScenarioPlayer({ runtimeId: 'scenario-local', speedMs: 0 });
+    const store = createAppStore(new RuntimeClient(player), 'new-task');
+    await store.connect();
+    render(<ProductApp store={store} runtimes={[
+      { id: 'demo', mode: 'demo', label: 'Demo', capabilities: ['deterministic'], available: true },
+      { id: 'cyber-agent', mode: 'local', label: 'Security Runtime - cyber-agent', capabilities: ['security-runtime', 'skills.lifecycle.v1'], available: true },
+    ]} />);
+
+    expect(screen.getByRole('radio', { name: 'Security Runtime - cyber-agent' })).toBeEnabled();
+    expect(screen.getByText('LOCAL · security-runtime · skills.lifecycle.v1')).toBeInTheDocument();
+    store.destroy();
+  });
+
   test('supports command palette and timeout-safe g navigation chords', async () => {
     const user = userEvent.setup();
     await renderApp();

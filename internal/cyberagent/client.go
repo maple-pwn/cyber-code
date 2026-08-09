@@ -129,6 +129,39 @@ func (client *Client) CompactSession(ctx context.Context, sessionID, key string)
 	return client.emptyMutation(ctx, sessionID, "compact", key)
 }
 
+func (client *Client) ListSkills(ctx context.Context, query string) ([]SkillRecord, error) {
+	path := "/v1/skills"
+	if strings.TrimSpace(query) != "" {
+		path += "?" + url.Values{"query": []string{strings.TrimSpace(query)}}.Encode()
+	}
+	var result SkillList
+	err := client.doJSON(ctx, http.MethodGet, path, nil, "", &result)
+	return result.Skills, err
+}
+
+func (client *Client) InstallSkill(ctx context.Context, skillRef, version, key string) (SkillRecord, error) {
+	body := map[string]string{"skill_ref": skillRef}
+	if strings.TrimSpace(version) != "" {
+		body["version"] = strings.TrimSpace(version)
+	}
+	var result SkillRecord
+	err := client.doJSON(ctx, http.MethodPost, "/v1/skills", body, key, &result)
+	return result, err
+}
+
+func (client *Client) TrustSkill(ctx context.Context, skillRef, trust, key string) (SkillRecord, error) {
+	var result SkillRecord
+	path := "/v1/skills/" + url.PathEscape(skillRef) + "/trust"
+	err := client.doJSON(ctx, http.MethodPost, path, map[string]string{"trust": trust}, key, &result)
+	return result, err
+}
+
+func (client *Client) RemoveSkill(ctx context.Context, skillRef string) (SkillRemoveReceipt, error) {
+	var result SkillRemoveReceipt
+	err := client.doJSON(ctx, http.MethodDelete, "/v1/skills/"+url.PathEscape(skillRef), nil, "remove-skill", &result)
+	return result, err
+}
+
 func (client *Client) emptyMutation(ctx context.Context, sessionID, operation, key string) (SessionSnapshot, error) {
 	var result SessionSnapshot
 	err := client.doJSON(ctx, http.MethodPost, sessionPath(sessionID)+"/"+operation, nil, key, &result)

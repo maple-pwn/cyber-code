@@ -27,7 +27,7 @@ export function cyberAgentSourceDefinition(
     id: 'cyber-agent',
 	mode: options.mode ?? 'remote',
     label: options.label ?? 'Security Runtime - cyber-agent',
-    capabilities: ['security-runtime', 'session.events.v1'],
+    capabilities: ['security-runtime', 'session.events.v1', 'skills.lifecycle.v1'],
     available: options.available ?? true,
     ...(options.setupStatus === undefined ? {} : { setupStatus: options.setupStatus }),
 	create: () => new CyberAgentEventSource(transport, `cyber-agent-${options.mode ?? 'remote'}`, options.mode ?? 'remote'),

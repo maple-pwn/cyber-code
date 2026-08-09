@@ -146,6 +146,43 @@ func TestClientBoundsAndStrictlyDecodesResponses(t *testing.T) {
 	}
 }
 
+func TestClientManagesSkillLifecycle(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/skills":
+			_, _ = response.Write([]byte(`{"skills":[{"skill_ref":"skill://community/recon-notes","version":"1.0.0","content_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","archive_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","trust":"user-approved","required_tools":["mcp://recon/nmap_scan"],"missing_tools":["mcp://recon/nmap_scan"],"active":false}]}`))
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/skills":
+			if request.Header.Get("Idempotency-Key") != "skill-install-1" {
+				t.Fatalf("missing idempotency key")
+			}
+			_, _ = response.Write([]byte(`{"skill_ref":"skill://community/recon-notes","version":"1.0.0","content_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","archive_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","trust":"user-approved"}`))
+		case request.Method == http.MethodDelete:
+			_, _ = response.Write([]byte(`{"skill_ref":"skill://community/recon-notes","removed":true}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	client, err := NewClient(ClientOptions{BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := client.ListSkills(context.Background(), "")
+	if err != nil || len(statuses) != 1 || statuses[0].Active || len(statuses[0].MissingTools) != 1 {
+		t.Fatalf("ListSkills = %#v, %v", statuses, err)
+	}
+	installed, err := client.InstallSkill(context.Background(), "skill://community/recon-notes", "1.0.0", "skill-install-1")
+	if err != nil || installed.Version != "1.0.0" {
+		t.Fatalf("InstallSkill = %#v, %v", installed, err)
+	}
+	removed, err := client.RemoveSkill(context.Background(), "skill://community/recon-notes")
+	if err != nil || !removed.Removed {
+		t.Fatalf("RemoveSkill = %#v, %v", removed, err)
+	}
+}
+
 func TestClientPropagatesContextCancellationAndBoundedAPIError(t *testing.T) {
 	t.Parallel()
 

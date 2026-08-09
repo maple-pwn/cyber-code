@@ -11,6 +11,7 @@ import (
 	configpkg "cyber-code/internal/config"
 	"cyber-code/internal/controlplane"
 	"cyber-code/internal/core"
+	"cyber-code/internal/cyberagent"
 	"cyber-code/internal/mcp"
 	"cyber-code/internal/permissions"
 	"cyber-code/internal/tasks"
@@ -41,6 +42,58 @@ func TestControlPlaneTasksReportsNone(t *testing.T) {
 	if err != nil || controlEventText(events) != "tasks: none" {
 		t.Fatalf("events=%#v error=%v", events, err)
 	}
+}
+
+func TestControlPlaneSkillsManageCyberAgentLifecycle(t *testing.T) {
+	client := &fakeCyberAgentSkills{items: []cyberagent.SkillRecord{{
+		SkillRef: "skill://community/recon-notes", Version: "1.0.0", Trust: "user-approved",
+		ContentDigest: strings.Repeat("b", 64), MissingTools: []string{"mcp://recon/nmap_scan"},
+	}}}
+	registry := testControlPlane(t, ControlActions{CyberAgentSkills: client})
+	events, err := registry.Dispatch(context.Background(), "/skills")
+	text := controlEventText(events)
+	for _, want := range []string{"skill://community/recon-notes@1.0.0", "user-approved", "inactive", "mcp://recon/nmap_scan"} {
+		if err != nil || !strings.Contains(text, want) {
+			t.Fatalf("skills missing %q: %q, %v", want, text, err)
+		}
+	}
+	for command := range map[string]string{
+		"/skills search recon": "search", "/skills install skill://community/recon-notes 1.0.0": "install",
+		"/skills trust skill://community/recon-notes user-approved": "trust", "/skills remove skill://community/recon-notes": "remove",
+	} {
+		if _, err := registry.Dispatch(context.Background(), command); err != nil {
+			t.Fatalf("%s: %v", command, err)
+		}
+	}
+	if strings.Join(client.calls, ",") != "list,search,install,trust,remove" {
+		t.Fatalf("calls = %v", client.calls)
+	}
+}
+
+type fakeCyberAgentSkills struct {
+	items []cyberagent.SkillRecord
+	calls []string
+}
+
+func (fake *fakeCyberAgentSkills) ListSkills(_ context.Context, query string) ([]cyberagent.SkillRecord, error) {
+	if query == "" {
+		fake.calls = append(fake.calls, "list")
+	} else {
+		fake.calls = append(fake.calls, "search")
+	}
+	return fake.items, nil
+}
+func (fake *fakeCyberAgentSkills) InstallSkill(context.Context, string, string, string) (cyberagent.SkillRecord, error) {
+	fake.calls = append(fake.calls, "install")
+	return fake.items[0], nil
+}
+func (fake *fakeCyberAgentSkills) TrustSkill(context.Context, string, string, string) (cyberagent.SkillRecord, error) {
+	fake.calls = append(fake.calls, "trust")
+	return fake.items[0], nil
+}
+func (fake *fakeCyberAgentSkills) RemoveSkill(context.Context, string) (cyberagent.SkillRemoveReceipt, error) {
+	fake.calls = append(fake.calls, "remove")
+	return cyberagent.SkillRemoveReceipt{SkillRef: fake.items[0].SkillRef, Removed: true}, nil
 }
 
 func TestRegisterGitCommandsDispatchesBoundedWorkflows(t *testing.T) {
