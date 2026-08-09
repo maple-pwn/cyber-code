@@ -175,6 +175,12 @@ func TestSupervisorUsesBoundedRestartBudget(t *testing.T) {
 	if supervisor.Err() == nil || !strings.Contains(supervisor.Err().Error(), "restart budget") {
 		t.Fatalf("supervisor error = %v", supervisor.Err())
 	}
+	if err := supervisor.Stop(context.Background()); err == nil || !strings.Contains(err.Error(), "restart budget") {
+		t.Fatalf("Stop after terminal failure = %v", err)
+	}
+	if supervisor.Err() == nil || !strings.Contains(supervisor.Err().Error(), "restart budget") {
+		t.Fatalf("Stop replaced terminal error with %v", supervisor.Err())
+	}
 }
 
 func TestCyberAgentSupervisorHelper(t *testing.T) {

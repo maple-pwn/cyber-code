@@ -172,6 +172,13 @@ func (supervisor *Supervisor) Stop(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	supervisor.mu.Lock()
+	select {
+	case <-supervisor.done:
+		err := supervisor.terminalErr
+		supervisor.mu.Unlock()
+		return err
+	default:
+	}
 	if supervisor.stopping {
 		done := supervisor.done
 		supervisor.mu.Unlock()
@@ -379,7 +386,9 @@ func (supervisor *Supervisor) finish(err error) {
 	supervisor.client = nil
 	supervisor.child = nil
 	supervisor.readiness = ReadinessRecord{}
-	supervisor.terminalErr = err
+	if err != nil || supervisor.terminalErr == nil {
+		supervisor.terminalErr = err
+	}
 	supervisor.mu.Unlock()
 	supervisor.doneOnce.Do(func() { close(supervisor.done) })
 }
