@@ -1,9 +1,11 @@
 package cyberagent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -180,6 +182,77 @@ func TestClientManagesSkillLifecycle(t *testing.T) {
 	removed, err := client.RemoveSkill(context.Background(), "skill://community/recon-notes")
 	if err != nil || !removed.Removed {
 		t.Fatalf("RemoveSkill = %#v, %v", removed, err)
+	}
+}
+
+func TestClientUploadsAndGetsReferencedInput(t *testing.T) {
+	t.Parallel()
+	payload := []byte("openapi: 3.0.0\nservers:\n  - url: http://127.0.0.1:8080\n")
+	manifestJSON := `{"schema_version":1,"upload_id":"input_0123456789abcdef0123456789abcdef","filename":"api.yaml","media_type":"application/yaml","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size":62,"source_location":"inputs/aa/api.yaml","parser_status":"parsed","parent_upload_id":"input_fedcba9876543210fedcba9876543210","parser_error":null}`
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/inputs":
+			if request.URL.Query().Get("filename") != "api.yaml" || request.URL.Query().Get("parent_upload_id") != "input_fedcba9876543210fedcba9876543210" {
+				t.Fatalf("upload query = %s", request.URL.RawQuery)
+			}
+			if request.Header.Get("Content-Type") != "application/yaml" {
+				t.Fatalf("content type = %q", request.Header.Get("Content-Type"))
+			}
+			body, _ := io.ReadAll(request.Body)
+			if !bytes.Equal(body, payload) {
+				t.Fatalf("upload body = %q", body)
+			}
+			_, _ = response.Write([]byte(manifestJSON))
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/inputs/input_0123456789abcdef0123456789abcdef":
+			_, _ = response.Write([]byte(manifestJSON))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ClientOptions{BaseURL: server.URL, InputLimit: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentID := "input_fedcba9876543210fedcba9876543210"
+	manifest, err := client.UploadInput(context.Background(), "api.yaml", "application/yaml", payload, parentID)
+	if err != nil || manifest.UploadID != "input_0123456789abcdef0123456789abcdef" || manifest.ParserStatus != "parsed" {
+		t.Fatalf("UploadInput = %#v, %v", manifest, err)
+	}
+	fetched, err := client.GetInput(context.Background(), manifest.UploadID)
+	if err != nil || fetched.ParentUploadID == nil || *fetched.ParentUploadID != parentID {
+		t.Fatalf("GetInput = %#v, %v", fetched, err)
+	}
+	if _, err := client.UploadInput(context.Background(), "large.bin", "application/octet-stream", make([]byte, 1025), ""); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized UploadInput error = %v", err)
+	}
+}
+
+func TestClientCreatesInputManifestSession(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		var submission TaskSubmission
+		if err := json.NewDecoder(request.Body).Decode(&submission); err != nil {
+			t.Fatal(err)
+		}
+		if submission.Kind != "input_manifest" || len(submission.InputIDs) != 1 || submission.InputIDs[0] != "input_0123456789abcdef0123456789abcdef" {
+			t.Fatalf("submission = %#v", submission)
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write(testSnapshotJSON("active", 1))
+	}))
+	defer server.Close()
+	client, err := NewClient(ClientOptions{BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.CreateSession(context.Background(), TaskSubmission{
+		Kind: "input_manifest", TaskID: "task-input", InputIDs: []string{"input_0123456789abcdef0123456789abcdef"}, Content: "Assess the attached API",
+	}, CreateSessionOptions{}, "create-input-1")
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -13,6 +13,10 @@ export type ScopeReviewPageProps = {
 export function ScopeReviewPage({ scope, runtime, t = createTranslator(), onConfirm, onEdit }: ScopeReviewPageProps) {
   return <div className="page page-scope-review">
     <p className="scope-runtime-context">{t.t('runtime.label')}: <strong>{runtime.label}</strong> <code className="cyber-mono">{runtime.id}</code></p>
+    <section className="derived-scope-targets" aria-label={t.t('scope.derivedTargets')}>
+      <strong>{t.t('scope.derivedTargets')}</strong>
+      <span className="cyber-mono">{scope.targets.join(', ')}</span>
+    </section>
     <ScopeReviewSheet
       scope={scope}
       scopeId={scope.id}

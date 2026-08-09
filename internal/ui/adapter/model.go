@@ -15,6 +15,7 @@ type ModelOptions struct {
 	ClientID         string
 	RuntimeID        string
 	InitialObjective string
+	InputPaths       []string
 	Width            int
 	Height           int
 	Demo             bool
@@ -27,6 +28,7 @@ type Model struct {
 	client           *Client
 	runtimeID        string
 	initialObjective string
+	inputPaths       []string
 	mission          *mission.Model
 }
 
@@ -41,7 +43,7 @@ func NewModel(source Source, options ModelOptions) *Model {
 		ClientID: options.ClientID, ExpectedMode: runtimeapi.SourceMode(strings.ToLower(strings.TrimSpace(options.SourceMode))),
 	})
 	return &Model{
-		ctx: ctx, client: client, runtimeID: options.RuntimeID, initialObjective: strings.TrimSpace(options.InitialObjective),
+		ctx: ctx, client: client, runtimeID: options.RuntimeID, initialObjective: strings.TrimSpace(options.InitialObjective), inputPaths: append([]string(nil), options.InputPaths...),
 		mission: mission.NewModel(client.View().State, mission.Options{
 			Width: options.Width, Height: options.Height, Demo: options.Demo, SourceMode: options.SourceMode,
 			Runtime: options.RuntimeID, Connection: string(ConnectionOffline), NoColor: options.NoColor,
@@ -59,7 +61,7 @@ func (model *Model) Init() tea.Cmd {
 				model.runtimeID = source.RuntimeID
 			}
 			err := model.client.Dispatch(model.ctx, Command{
-				Type: CommandTaskCreate, Objective: model.initialObjective, RuntimeID: model.runtimeID,
+				Type: CommandTaskCreate, Objective: model.initialObjective, RuntimeID: model.runtimeID, InputPaths: append([]string(nil), model.inputPaths...),
 			})
 			return operationResultMsg{err: err}
 		}

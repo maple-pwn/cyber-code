@@ -28,7 +28,7 @@ export type ConnectionState = {
 };
 
 export type RuntimeCommand =
-  | { type: 'task.create'; objective: string; runtimeId: string; workspace?: string }
+  | { type: 'task.create'; objective: string; runtimeId: string; workspace?: string; inputs?: RuntimeInput[] }
   | { type: 'scope.confirm'; scopeId: string }
   | { type: 'task.pause' }
   | { type: 'task.resume' }
@@ -44,6 +44,8 @@ export type RuntimeCommand =
   | { type: 'editor.save'; draftId: string; revision: number; baseSha256: string; data: string; byteLength: number; expectedLeaseRevision: number }
   | { type: 'editor.apply'; draftId: string; revision: number; proposedSha256: string; expectedLeaseRevision: number }
   | { type: 'editor.discard'; draftId: string; expectedLeaseRevision: number };
+
+export type RuntimeInput = { filename: string; mediaType: string; bytes: Uint8Array };
 
 export type RuntimeSnapshot = { cursor: number; state: ProductState };
 export type EditorReadResult = { draftId: string; revision: number; baseSha256: string; data: string; byteLength: number; encoding: 'utf-8' };

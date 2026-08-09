@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 	"sync"
 
 	"cyber-code/internal/cyberagent"
+	"cyber-code/internal/permissions"
 	"cyber-code/internal/productstate"
 	"cyber-code/internal/runtimeapi"
 )
@@ -158,7 +161,7 @@ func (source *cyberAgentSource) Snapshot(ctx context.Context) (Snapshot, error) 
 func (source *cyberAgentSource) Send(ctx context.Context, command Command) error {
 	switch command.Type {
 	case CommandTaskCreate:
-		return source.createSession(ctx, command.Objective)
+		return source.createSession(ctx, command.Objective, command.InputPaths)
 	case CommandScopeConfirm, CommandApprovalRespond:
 		return source.respondInteraction(ctx, command)
 	case CommandInstructionSend:
@@ -217,12 +220,27 @@ func (source *cyberAgentSource) Close(ctx context.Context) error {
 	return nil
 }
 
-func (source *cyberAgentSource) createSession(ctx context.Context, objective string) error {
+func (source *cyberAgentSource) createSession(ctx context.Context, objective string, inputPaths []string) error {
 	if strings.TrimSpace(objective) == "" {
 		return fmt.Errorf("security objective is required")
 	}
 	taskID := newSecurityTaskID()
-	snapshot, err := source.client.CreateSession(ctx, cyberagent.TaskSubmission{Kind: "natural_language", TaskID: taskID, Content: objective}, cyberagent.CreateSessionOptions{}, mutationKey("create"))
+	submission := cyberagent.TaskSubmission{Kind: "natural_language", TaskID: taskID, Content: objective}
+	if len(inputPaths) > 0 {
+		submission.Kind = "input_manifest"
+		for index, path := range inputPaths {
+			filename, mediaType, content, err := source.loadInput(path)
+			if err != nil {
+				return fmt.Errorf("load cyber-agent input %d: %w", index+1, err)
+			}
+			manifest, err := source.client.UploadInput(ctx, filename, mediaType, content, "")
+			if err != nil {
+				return fmt.Errorf("upload cyber-agent input %d: %w", index+1, err)
+			}
+			submission.InputIDs = append(submission.InputIDs, manifest.UploadID)
+		}
+	}
+	snapshot, err := source.client.CreateSession(ctx, submission, cyberagent.CreateSessionOptions{}, mutationKey("create"))
 	if err != nil {
 		return err
 	}
@@ -244,6 +262,68 @@ func (source *cyberAgentSource) createSession(ctx context.Context, objective str
 		source.startRun(ctx)
 	}
 	return err
+}
+
+func (source *cyberAgentSource) loadInput(requestedPath string) (string, string, []byte, error) {
+	resolved, err := permissions.ResolvePath(source.options.Workspace, requestedPath)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("input is outside workspace: %w", err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("inspect input: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", "", nil, fmt.Errorf("input is not a regular file")
+	}
+	if info.Size() > 64<<20 {
+		return "", "", nil, fmt.Errorf("input exceeds %d bytes", 64<<20)
+	}
+	file, err := os.Open(filepath.Clean(resolved))
+	if err != nil {
+		return "", "", nil, fmt.Errorf("open input: %w", err)
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, (64<<20)+1))
+	if err != nil {
+		return "", "", nil, fmt.Errorf("read input: %w", err)
+	}
+	if len(content) > 64<<20 {
+		return "", "", nil, fmt.Errorf("input exceeds %d bytes", 64<<20)
+	}
+	mediaType := inputMediaType(filepath.Ext(resolved))
+	if mediaType == "" {
+		mediaType = "application/octet-stream"
+	}
+	return filepath.Base(resolved), strings.Split(mediaType, ";")[0], content, nil
+}
+
+func inputMediaType(extension string) string {
+	extension = strings.ToLower(extension)
+	switch extension {
+	case ".yaml", ".yml":
+		return "application/yaml"
+	case ".json":
+		return "application/json"
+	case ".xml":
+		return "application/xml"
+	case ".md", ".markdown":
+		return "text/markdown"
+	case ".txt", ".log":
+		return "text/plain"
+	case ".pdf":
+		return "application/pdf"
+	case ".docx":
+		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	case ".zip":
+		return "application/zip"
+	case ".tar":
+		return "application/x-tar"
+	case ".tgz", ".gz":
+		return "application/gzip"
+	default:
+		return mime.TypeByExtension(extension)
+	}
 }
 
 type activeSecuritySession struct {

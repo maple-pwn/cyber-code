@@ -45,6 +45,7 @@ pub fn run() {
             commands::load_secret,
             commands::delete_secret,
             commands::export_report,
+            commands::pick_inputs,
             runtime_process::runtime_start,
             runtime_process::runtime_request,
             runtime_process::runtime_restart,

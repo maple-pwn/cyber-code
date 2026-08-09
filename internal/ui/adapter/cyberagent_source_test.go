@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"cyber-code/internal/cyberagent"
 	"cyber-code/internal/runtimeapi"
 )
 
@@ -91,6 +93,68 @@ func TestCyberAgentSourceCreatesStreamsAndReattachesSession(t *testing.T) {
 	}
 	if creates.Load() != 1 {
 		t.Fatalf("session create requests = %d, want 1", creates.Load())
+	}
+}
+
+func TestCyberAgentSourceUploadsWorkspaceInputsBeforeCreatingSession(t *testing.T) {
+	t.Parallel()
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "api.yaml"), []byte("openapi: 3.0.0"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var uploaded bool
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/capabilities":
+			writeJSON(response, `{"product":"cyber-agent","runtime_version":"0.1.0","protocol_version":1,"capabilities":["session.events.v1"]}`)
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/inputs":
+			uploaded = true
+			if request.URL.Query().Get("filename") != "api.yaml" || request.Header.Get("Content-Type") != "application/yaml" {
+				t.Fatalf("input request = %s %q", request.URL.RawQuery, request.Header.Get("Content-Type"))
+			}
+			writeJSON(response, `{"schema_version":1,"upload_id":"input_0123456789abcdef0123456789abcdef","filename":"api.yaml","media_type":"application/yaml","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size":14,"source_location":"inputs/aa/api.yaml","parser_status":"parsed","parent_upload_id":null,"parser_error":null}`)
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/sessions":
+			if !uploaded {
+				t.Fatal("session created before input upload")
+			}
+			var submission cyberagent.TaskSubmission
+			if err := json.NewDecoder(request.Body).Decode(&submission); err != nil {
+				t.Fatal(err)
+			}
+			if submission.Kind != "input_manifest" || len(submission.InputIDs) != 1 || submission.Content != "Assess the attached API" {
+				t.Fatalf("submission = %#v", submission)
+			}
+			writeJSON(response, securitySessionSnapshot("security-task-input", "session-input", 0, ""))
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/sessions/session-input":
+			writeJSON(response, securitySessionSnapshot("security-task-input", "session-input", 0, ""))
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/sessions/session-input/events":
+			response.Header().Set("Content-Type", "text/event-stream")
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	source, _, err := NewCyberAgentSource(CyberAgentSourceOptions{StateDir: t.TempDir(), Workspace: workspace, Location: "remote", Endpoint: server.URL, HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close(context.Background())
+	if err := source.Send(context.Background(), Command{Type: CommandTaskCreate, Objective: "Assess the attached API", InputPaths: []string{"api.yaml"}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCyberAgentSourceRejectsInputOutsideWorkspace(t *testing.T) {
+	t.Parallel()
+	workspace := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source := &cyberAgentSource{options: CyberAgentSourceOptions{Workspace: workspace}}
+	if _, _, _, err := source.loadInput(outside); err == nil || !strings.Contains(err.Error(), "outside workspace") {
+		t.Fatalf("loadInput error = %v", err)
 	}
 }
 

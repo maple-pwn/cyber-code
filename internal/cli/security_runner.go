@@ -14,10 +14,11 @@ import (
 type securityRunner struct {
 	source    adapter.Source
 	runtimeID string
+	inputs    []string
 }
 
-func newSecurityRunner(source adapter.Source, runtimeID string) *securityRunner {
-	return &securityRunner{source: source, runtimeID: runtimeID}
+func newSecurityRunner(source adapter.Source, runtimeID string, inputs ...string) *securityRunner {
+	return &securityRunner{source: source, runtimeID: runtimeID, inputs: append([]string(nil), inputs...)}
 }
 
 func (runner *securityRunner) Run(ctx context.Context, prompt string) <-chan core.Event {
@@ -49,7 +50,7 @@ func (runner *securityRunner) Run(ctx context.Context, prompt string) <-chan cor
 			return
 		}
 		defer unsubscribe()
-		command := adapter.Command{Type: adapter.CommandTaskCreate, Objective: prompt, RuntimeID: runner.runtimeID}
+		command := adapter.Command{Type: adapter.CommandTaskCreate, Objective: prompt, RuntimeID: runner.runtimeID, InputPaths: append([]string(nil), runner.inputs...)}
 		if identity, ok := runner.source.(adapter.IdentitySource); ok && identity.RuntimeIdentity().SessionID != "" {
 			command = adapter.Command{Type: adapter.CommandInstructionSend, Content: prompt, RuntimeID: runner.runtimeID}
 		}

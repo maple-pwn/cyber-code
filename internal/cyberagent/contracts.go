@@ -13,10 +13,24 @@ type RuntimeCapabilities struct {
 }
 
 type TaskSubmission struct {
-	Kind    string `json:"kind"`
-	TaskID  string `json:"task_id"`
-	Format  string `json:"format,omitempty"`
-	Content string `json:"content"`
+	Kind     string   `json:"kind"`
+	TaskID   string   `json:"task_id"`
+	Format   string   `json:"format,omitempty"`
+	InputIDs []string `json:"input_ids,omitempty"`
+	Content  string   `json:"content"`
+}
+
+type InputManifest struct {
+	SchemaVersion  int     `json:"schema_version"`
+	UploadID       string  `json:"upload_id"`
+	Filename       string  `json:"filename"`
+	MediaType      string  `json:"media_type"`
+	SHA256         string  `json:"sha256"`
+	Size           int64   `json:"size"`
+	SourceLocation string  `json:"source_location"`
+	ParserStatus   string  `json:"parser_status"`
+	ParentUploadID *string `json:"parent_upload_id"`
+	ParserError    *string `json:"parser_error"`
 }
 
 type CreateSessionOptions struct {

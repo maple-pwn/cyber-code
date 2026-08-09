@@ -1,14 +1,15 @@
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri_plugin_notification::NotificationExt;
 
-const OPERATIONS: [&str; 12] = [
+const OPERATIONS: [&str; 13] = [
     "capabilities",
     "notify",
     "store_secret",
     "load_secret",
     "delete_secret",
     "export_report",
+    "pick_inputs",
     "runtime_start",
     "runtime_request",
     "runtime_restart",
@@ -18,12 +19,13 @@ const OPERATIONS: [&str; 12] = [
 ];
 const NOTIFICATION_KINDS: [&str; 3] = ["approval_required", "task_succeeded", "task_failed"];
 const MAX_REPORT_BYTES: usize = 16 * 1024 * 1024;
+const MAX_INPUT_BYTES: u64 = 64 * 1024 * 1024;
 const KEYRING_SERVICE: &str = "com.cyber.code.desktop";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CapabilitiesResponse {
-    pub operations: [&'static str; 12],
+    pub operations: [&'static str; 13],
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,6 +110,14 @@ pub enum ExportStatus {
 #[derive(Debug, Serialize)]
 pub struct ExportReportReceipt {
     pub status: ExportStatus,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectedInput {
+    pub filename: String,
+    pub media_type: String,
+    pub bytes: Vec<u8>,
 }
 
 #[tauri::command]
@@ -258,6 +268,72 @@ pub async fn export_report(request: ExportReportRequest) -> Result<ExportReportR
     })
 }
 
+fn input_media_type(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "yaml" | "yml" => "application/yaml",
+        "json" => "application/json",
+        "xml" => "application/xml",
+        "md" | "markdown" => "text/markdown",
+        "txt" | "log" => "text/plain",
+        "pdf" => "application/pdf",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "zip" => "application/zip",
+        "tar" => "application/x-tar",
+        "tgz" | "gz" => "application/gzip",
+        _ => "application/octet-stream",
+    }
+}
+
+fn read_selected_input(path: &Path) -> Result<SelectedInput, String> {
+    let metadata = path
+        .symlink_metadata()
+        .map_err(|_| "task input is unavailable".to_string())?;
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || metadata.len() == 0
+        || metadata.len() > MAX_INPUT_BYTES
+    {
+        return Err("task input must be a non-empty bounded regular file".into());
+    }
+    let filename = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "task input filename is invalid".to_string())?
+        .to_string();
+    let bytes = std::fs::read(path).map_err(|_| "task input could not be read".to_string())?;
+    if bytes.is_empty() || bytes.len() as u64 > MAX_INPUT_BYTES {
+        return Err("task input must be a non-empty bounded regular file".into());
+    }
+    Ok(SelectedInput {
+        filename,
+        media_type: input_media_type(path).to_string(),
+        bytes,
+    })
+}
+
+#[tauri::command]
+pub async fn pick_inputs() -> Result<Vec<SelectedInput>, String> {
+    let selected: Vec<PathBuf> =
+        tauri::async_runtime::spawn_blocking(|| rfd::FileDialog::new().pick_files())
+            .await
+            .map_err(|_| "task input selection failed".to_string())?
+            .unwrap_or_default();
+    if selected.len() > 64 {
+        return Err("too many task inputs selected".into());
+    }
+    selected
+        .iter()
+        .map(|path| read_selected_input(path))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,6 +359,7 @@ mod tests {
                 "load_secret",
                 "delete_secret",
                 "export_report",
+                "pick_inputs",
                 "runtime_start",
                 "runtime_request",
                 "runtime_restart",
@@ -350,6 +427,19 @@ mod tests {
             })
             .is_ok()
         );
+    }
+
+    #[test]
+    fn selected_task_input_is_read_with_bounded_metadata() {
+        let root = std::env::temp_dir().join(format!("cyber-input-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("api.yaml");
+        std::fs::write(&path, b"openapi: 3.0.0").unwrap();
+        let input = read_selected_input(&path).unwrap();
+        assert_eq!(input.filename, "api.yaml");
+        assert_eq!(input.media_type, "application/yaml");
+        assert_eq!(input.bytes, b"openapi: 3.0.0");
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

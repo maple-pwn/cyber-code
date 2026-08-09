@@ -7,12 +7,14 @@ import '@cyber/ui/tokens.css';
 import '@cyber/ui/components.css';
 
 import { createDesktopBootstrap } from './bootstrap';
+import { createNativeClient } from './native';
 
 const MonacoEditorSurface = lazy(() => import('./MonacoEditorSurface').then(({ MonacoEditorSurface: surface }) => ({ default: surface })));
 
 const { store, runtimes } = createDesktopBootstrap();
+const native = createNativeClient();
 void store.connect();
 
 createRoot(document.getElementById('root') as HTMLElement).render(
-  <StrictMode><ProductApp store={store} runtimes={runtimes} renderEditor={(props) => <Suspense fallback={<div className="editor-monaco-loading" role="status" aria-busy="true">Loading editor</div>}><MonacoEditorSurface {...props} /></Suspense>} /></StrictMode>,
+  <StrictMode><ProductApp store={store} runtimes={runtimes} pickInputs={() => native.pickInputs()} renderEditor={(props) => <Suspense fallback={<div className="editor-monaco-loading" role="status" aria-busy="true">Loading editor</div>}><MonacoEditorSurface {...props} /></Suspense>} /></StrictMode>,
 );

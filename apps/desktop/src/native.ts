@@ -1,5 +1,5 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
-import type { LocalRequest } from '@cyber/runtime-client';
+import type { LocalRequest, RuntimeInput } from '@cyber/runtime-client';
 
 export const nativeOperations = [
   'capabilities',
@@ -8,6 +8,7 @@ export const nativeOperations = [
   'load_secret',
   'delete_secret',
   'export_report',
+  'pick_inputs',
   'runtime_start',
   'runtime_request',
   'runtime_restart',
@@ -141,6 +142,20 @@ export function createNativeClient(invoke: NativeInvoke = tauriInvoke) {
         throw new Error('invalid export_report response');
       }
       return { status: response.status };
+    },
+    async pickInputs(): Promise<RuntimeInput[]> {
+      const response = await call('pick_inputs');
+      if (!Array.isArray(response) || response.length > 64) throw new Error('invalid pick_inputs response');
+      return response.map((input) => {
+        if (!isRecord(input) || !hasExactKeys(input, ['filename', 'mediaType', 'bytes'])
+          || typeof input.filename !== 'string' || !input.filename.trim()
+          || typeof input.mediaType !== 'string' || !input.mediaType.trim()
+          || !Array.isArray(input.bytes) || input.bytes.length === 0 || input.bytes.length > 64 * 1024 * 1024
+          || input.bytes.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 255)) {
+          throw new Error('invalid pick_inputs response');
+        }
+        return { filename: input.filename, mediaType: input.mediaType, bytes: new Uint8Array(input.bytes as number[]) };
+      });
     },
     async runtimeStart(): Promise<unknown> {
       return call('runtime_start');

@@ -12,6 +12,7 @@ describe('desktop native capability boundary', () => {
         'load_secret',
         'delete_secret',
         'export_report',
+        'pick_inputs',
         'runtime_start',
         'runtime_request',
         'runtime_restart',
@@ -29,6 +30,7 @@ describe('desktop native capability boundary', () => {
       'load_secret',
       'delete_secret',
       'export_report',
+      'pick_inputs',
       'runtime_start',
       'runtime_request',
       'runtime_restart',
@@ -112,6 +114,13 @@ describe('desktop native capability boundary', () => {
     expect(invoke).toHaveBeenCalledWith('export_report', {
       request: { suggestedName: 'report.md', bytes: [67, 89, 66, 69, 82] },
     });
+  });
+
+  test('returns bounded task inputs selected by the native host', async () => {
+    const invoke = vi.fn().mockResolvedValue([{ filename: 'api.yaml', mediaType: 'application/yaml', bytes: [1, 2, 3] }]);
+    const client = createNativeClient(invoke);
+    await expect(client.pickInputs()).resolves.toEqual([{ filename: 'api.yaml', mediaType: 'application/yaml', bytes: new Uint8Array([1, 2, 3]) }]);
+    expect(invoke).toHaveBeenCalledWith('pick_inputs');
   });
 
   test('validates delete receipts', async () => {

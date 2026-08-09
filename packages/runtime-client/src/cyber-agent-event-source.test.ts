@@ -26,6 +26,11 @@ class FixtureTransport implements CyberAgentTransport {
       return { product: 'cyber-agent', runtime_version: '0.1.0', protocol_version: 1, capabilities: ['session.events.v1'] };
     }
     if (request.method === 'POST' && request.path === '/v1/sessions') return snapshot;
+    if (request.method === 'POST' && request.path.startsWith('/v1/inputs?')) return {
+      schema_version: 1, upload_id: 'input_0123456789abcdef0123456789abcdef', filename: 'api.yaml',
+      media_type: 'application/yaml', sha256: 'a'.repeat(64), size: 14, source_location: 'inputs/aa/api.yaml',
+      parser_status: 'parsed', parent_upload_id: null, parser_error: null,
+    };
     if (request.method === 'GET' && request.path === '/v1/sessions/session-web') return snapshot;
     throw new Error(`unexpected_request:${request.method}:${request.path}`);
   }
@@ -44,6 +49,21 @@ class FixtureTransport implements CyberAgentTransport {
 }
 
 describe('CyberAgentEventSource', () => {
+  test('uploads task inputs before creating an input-manifest session', async () => {
+    const transport = new FixtureTransport();
+    const source = new CyberAgentEventSource(transport);
+    await source.handshake({ supportedProtocolVersions: [1], afterCursor: 0 });
+    await source.send({ idempotencyKey: 'create-input', command: {
+      type: 'task.create', objective: 'Assess API', runtimeId: 'cyber-agent-remote',
+      inputs: [{ filename: 'api.yaml', mediaType: 'application/yaml', bytes: new TextEncoder().encode('openapi: 3.0.0') }],
+    } });
+    expect(transport.requests[1]).toMatchObject({ method: 'POST', contentType: 'application/yaml' });
+    expect(ArrayBuffer.isView(transport.requests[1]?.body)).toBe(true);
+    expect(transport.requests[2]?.body).toEqual(expect.objectContaining({
+      kind: 'input_manifest', input_ids: ['input_0123456789abcdef0123456789abcdef'], content: 'Assess API',
+    }));
+  });
+
   test('negotiates, binds a session, projects SSE replay, and preserves unknown events', async () => {
     const transport = new FixtureTransport();
     const source = new CyberAgentEventSource(transport);

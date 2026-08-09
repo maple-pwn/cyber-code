@@ -5,6 +5,7 @@ import { createTranslator, setLocale, type Locale } from '@cyber/i18n';
 import { CommandPalette } from '@cyber/ui';
 
 import type { AppRoute, AppStore } from './app-store';
+import type { RuntimeInput } from '@cyber/runtime-client';
 import { FindingsPage } from './pages/FindingsPage';
 import { MissionControlPage } from './pages/MissionControlPage';
 import { NewTaskPage } from './pages/NewTaskPage';
@@ -32,9 +33,9 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error?: Erro
   render() { return this.state.error ? <main><h1>CYBER</h1><p role="alert">{this.state.error.message}</p></main> : this.props.children; }
 }
 
-export type ProductAppProps = { store: AppStore; runtimes?: readonly RuntimeOption[]; renderEditor?: (props: CodeEditorSurfaceProps) => ReactNode };
+export type ProductAppProps = { store: AppStore; runtimes?: readonly RuntimeOption[]; renderEditor?: (props: CodeEditorSurfaceProps) => ReactNode; pickInputs?: () => Promise<RuntimeInput[]> };
 
-export function ProductApp({ store, runtimes, renderEditor }: ProductAppProps) {
+export function ProductApp({ store, runtimes, renderEditor, pickInputs }: ProductAppProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [locale, updateLocale] = useState<Locale>('zh-CN');
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -95,7 +96,7 @@ export function ProductApp({ store, runtimes, renderEditor }: ProductAppProps) {
   const navigate = (route: AppRoute) => { store.navigate(route); setPaletteOpen(false); };
   const renderPage = () => {
     switch (snapshot.route) {
-      case 'new-task': return <NewTaskPage t={t} runtimes={availableRuntimes} onCreate={async (command) => { await store.dispatch(command); navigate('scope-review'); }} />;
+      case 'new-task': return <NewTaskPage t={t} runtimes={availableRuntimes} pickInputs={pickInputs} onCreate={async (command) => { await store.dispatch(command); navigate('scope-review'); }} />;
       case 'scope-review': return snapshot.view.product.scope
         ? <ScopeReviewPage scope={snapshot.view.product.scope} runtime={{
             id: trustedSource?.runtimeId ?? 'unavailable',

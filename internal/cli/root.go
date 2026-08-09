@@ -109,7 +109,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	var printMode, jsonMode, verbose, enableRealSources bool
 	var profile, permissionMode, model, cwd, resumeSession, uiMode, sourceName string
 	var runtimeName, runtimeLocation, cyberAgentPath, cyberAgentURL string
-	var imagePaths []string
+	var imagePaths, inputPaths []string
 	var maxTurns int
 	command := &cobra.Command{
 		Use:           product.Command + " [prompt]",
@@ -124,6 +124,9 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 			if err := validateUISelection(uiMode, sourceName, printMode, command.Flags().Changed("ui"), enableRealSources); err != nil {
 				return err
 			}
+			if err := validateInputSelection(runtimeName, inputPaths); err != nil {
+				return err
+			}
 			prompt := strings.Join(args, " ")
 			if printMode && runtimeName == "cyber-agent" {
 				selection, err := createCyberAgentSelection(environment, cwd, runtimeLocation, cyberAgentPath, cyberAgentURL)
@@ -131,7 +134,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 					return err
 				}
 				defer selection.Source.Close(context.Background())
-				code := frontend.Run(environment.ctx, newSecurityRunner(selection.Source, selection.RuntimeID), prompt, frontend.PrintOptions{
+				code := frontend.Run(environment.ctx, newSecurityRunner(selection.Source, selection.RuntimeID, inputPaths...), prompt, frontend.PrintOptions{
 					JSON: jsonMode, Verbose: verbose, Stdout: environment.stdout, Stderr: environment.stderr,
 				})
 				if code != frontend.ExitOK {
@@ -176,7 +179,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 					return err
 				}
 				defer selection.Source.Close(context.Background())
-				return runTactical(environment, selection, prompt)
+				return runTactical(environment, selection, prompt, inputPaths...)
 			}
 			runner := environment.options.Runner
 			var shutdown func(context.Context) error
@@ -232,7 +235,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 				defer selection.Source.Close(context.Background())
 				appConfig.SecurityUI = adapter.NewModel(selection.Source, adapter.ModelOptions{
 					Context: environment.ctx, ClientID: "classic-security-client", RuntimeID: selection.RuntimeID,
-					InitialObjective: prompt, SourceMode: selection.Mode,
+					InitialObjective: prompt, InputPaths: inputPaths, SourceMode: selection.Mode,
 				})
 				appConfig.InitialRuntime = ui.RuntimeSecurity
 				prompt = ""
@@ -250,6 +253,7 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	command.Flags().StringVarP(&model, "model", "m", "", "model override")
 	command.Flags().StringVar(&cwd, "cwd", "", "workspace directory")
 	command.Flags().StringArrayVar(&imagePaths, "image", nil, "attach an image from the workspace to the first turn")
+	command.Flags().StringArrayVar(&inputPaths, "input", nil, "attach a file from the workspace to a cyber-agent task (repeatable)")
 	command.Flags().StringVar(&resumeSession, "resume", "", "resume a persisted session")
 	command.Flags().StringVar(&uiMode, "ui", "tactical", "interactive UI: tactical or classic (legacy)")
 	command.Flags().StringVar(&sourceName, "source", "", "Tactical Ops event source: demo or local")
@@ -308,6 +312,13 @@ func validateRuntimeSelection(runtimeName, location, endpoint string) error {
 	}
 	if runtimeName == "cyber-agent" && location == "remote" && strings.TrimSpace(endpoint) == "" {
 		return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.runtime", Message: "remote cyber-agent runtime requires --cyber-agent-url"}
+	}
+	return nil
+}
+
+func validateInputSelection(runtimeName string, inputPaths []string) error {
+	if len(inputPaths) > 0 && runtimeName != "cyber-agent" {
+		return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.input", Message: "--input requires --runtime cyber-agent"}
 	}
 	return nil
 }

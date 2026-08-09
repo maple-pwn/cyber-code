@@ -38,6 +38,7 @@ type Command struct {
 	Decision         string
 	ExpectedRevision int
 	Content          string
+	InputPaths       []string
 }
 
 var ErrUnsupportedAction = errors.New("unsupported tactical action")

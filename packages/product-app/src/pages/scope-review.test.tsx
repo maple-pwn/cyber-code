@@ -27,7 +27,8 @@ describe('authorized scope review flow', () => {
     expect(await screen.findByTestId('scope-review-surface')).toHaveClass('cyber-glass');
     expect(await screen.findByText('authorized-operator')).toBeInTheDocument();
     expect(screen.getByText('scope-1')).toHaveClass('cyber-mono');
-    expect(screen.getByText('juice-shop.lab')).toBeInTheDocument();
+    expect(screen.getAllByText('juice-shop.lab')).toHaveLength(2);
+    expect(screen.getByText('解析得出的目标')).toBeInTheDocument();
     expect(screen.getByText('/labs/juice-shop')).toBeInTheDocument();
     expect(screen.getByText(/passive-recon/)).toBeInTheDocument();
     expect(screen.getByText(/destructive, persistence/)).toBeInTheDocument();

@@ -23,6 +23,7 @@ export type CyberAgentRequest = {
   method: 'GET' | 'POST';
   path: string;
   body?: unknown;
+	contentType?: string;
   idempotencyKey?: string;
   signal?: AbortSignal;
 };
@@ -60,7 +61,7 @@ export class FetchCyberAgentTransport implements CyberAgentTransport {
   }
 
   async request(request: CyberAgentRequest): Promise<unknown> {
-    const { response, cleanup } = await this.perform(request.path, request.method, request.body, request.idempotencyKey, request.signal, 'application/json');
+    const { response, cleanup } = await this.perform(request.path, request.method, request.body, request.idempotencyKey, request.signal, 'application/json', request.contentType);
     try {
       const bytes = await readBounded(response, this.maxResponseBytes);
       try {
@@ -131,7 +132,7 @@ export class FetchCyberAgentTransport implements CyberAgentTransport {
     this.active.clear();
   }
 
-  private async perform(path: string, method: 'GET' | 'POST', body: unknown, idempotencyKey: string | undefined, parentSignal: AbortSignal | undefined, accept: string): Promise<{ response: Response; cleanup: () => void }> {
+  private async perform(path: string, method: 'GET' | 'POST', body: unknown, idempotencyKey: string | undefined, parentSignal: AbortSignal | undefined, accept: string, contentType?: string): Promise<{ response: Response; cleanup: () => void }> {
     const token = (await this.tokenProvider()).trim();
     if (!token) throw new Error('unauthorized');
     const controller = new AbortController();
@@ -140,11 +141,11 @@ export class FetchCyberAgentTransport implements CyberAgentTransport {
     this.active.add(controller);
     try {
       const headers = new Headers({ Accept: accept, Authorization: `Bearer ${token}` });
-      if (body !== undefined) headers.set('Content-Type', 'application/json');
+      if (body !== undefined) headers.set('Content-Type', contentType ?? 'application/json');
       if (idempotencyKey !== undefined) headers.set('Idempotency-Key', idempotencyKey);
       const response = await this.fetch(new URL(path, this.endpoint), {
         method, headers, redirect: 'error', credentials: 'omit', signal: controller.signal,
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        ...(body === undefined ? {} : { body: body instanceof Uint8Array ? body as BodyInit : JSON.stringify(body) }),
       });
       if (!response.ok) {
         await response.body?.cancel().catch(() => undefined);
@@ -279,9 +280,21 @@ export class CyberAgentEventSource implements EventSource {
       let raw: unknown;
       switch (command.type) {
         case 'task.create': {
+          const inputIds: string[] = [];
+          for (const input of command.inputs ?? []) {
+            const manifest = parseInputManifest(await this.transport.request({
+              method: 'POST',
+              path: `/v1/inputs?filename=${encodeURIComponent(input.filename)}`,
+              body: input.bytes,
+              contentType: input.mediaType,
+            }));
+            inputIds.push(manifest.upload_id);
+          }
           raw = await this.transport.request({
             method: 'POST', path: '/v1/sessions', idempotencyKey: envelope.idempotencyKey,
-            body: { kind: 'natural_language', task_id: `security-task-${globalThis.crypto.randomUUID()}`, content: command.objective },
+            body: inputIds.length > 0
+              ? { kind: 'input_manifest', task_id: `security-task-${globalThis.crypto.randomUUID()}`, input_ids: inputIds, content: command.objective }
+              : { kind: 'natural_language', task_id: `security-task-${globalThis.crypto.randomUUID()}`, content: command.objective },
           });
           const created = parseSnapshot(raw);
           this.state = initialProductState();
@@ -379,6 +392,13 @@ export class CyberAgentEventSource implements EventSource {
     this.sessionId = snapshot.session_id;
     this.taskId = snapshot.task_id;
   }
+}
+
+function parseInputManifest(value: unknown): { upload_id: string } {
+  if (!object(value) || !text(value.upload_id) || !/^input_[0-9a-f]{32}$/.test(value.upload_id)) {
+    throw new Error('invalid_cyber_agent_input_manifest');
+  }
+  return { upload_id: value.upload_id };
 }
 
 function rejected(envelope: RuntimeCommandEnvelope, errorCode: string): RuntimeCommandReceipt {

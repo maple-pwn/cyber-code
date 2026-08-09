@@ -15,6 +15,7 @@ import (
 )
 
 const defaultResponseLimit int64 = 4 << 20
+const defaultInputLimit int64 = 64 << 20
 
 var idempotencyKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 
@@ -25,6 +26,7 @@ type ClientOptions struct {
 	HTTPClient    *http.Client
 	TokenProvider TokenProvider
 	ResponseLimit int64
+	InputLimit    int64
 }
 
 type Client struct {
@@ -32,6 +34,7 @@ type Client struct {
 	httpClient    *http.Client
 	tokenProvider TokenProvider
 	responseLimit int64
+	inputLimit    int64
 }
 
 type APIError struct {
@@ -64,13 +67,70 @@ func NewClient(options ClientOptions) (*Client, error) {
 	if limit < 1 {
 		return nil, fmt.Errorf("cyber-agent response limit must be positive")
 	}
+	inputLimit := options.InputLimit
+	if inputLimit == 0 {
+		inputLimit = defaultInputLimit
+	}
+	if inputLimit < 1 {
+		return nil, fmt.Errorf("cyber-agent input limit must be positive")
+	}
 	httpClient := options.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
 	return &Client{
-		baseURL: parsed, httpClient: httpClient, tokenProvider: options.TokenProvider, responseLimit: limit,
+		baseURL: parsed, httpClient: httpClient, tokenProvider: options.TokenProvider, responseLimit: limit, inputLimit: inputLimit,
 	}, nil
+}
+
+func (client *Client) UploadInput(ctx context.Context, filename, mediaType string, content []byte, parentUploadID string) (InputManifest, error) {
+	var result InputManifest
+	filename = strings.TrimSpace(filename)
+	mediaType = strings.TrimSpace(mediaType)
+	if filename == "" || strings.ContainsRune(filename, '\x00') {
+		return result, fmt.Errorf("cyber-agent input filename is required")
+	}
+	if mediaType == "" || strings.ContainsAny(mediaType, "\r\n") {
+		return result, fmt.Errorf("cyber-agent input media type is invalid")
+	}
+	if len(content) == 0 {
+		return result, fmt.Errorf("cyber-agent input must not be empty")
+	}
+	if int64(len(content)) > client.inputLimit {
+		return result, fmt.Errorf("cyber-agent input exceeds %d bytes", client.inputLimit)
+	}
+	query := url.Values{"filename": []string{filename}}
+	if strings.TrimSpace(parentUploadID) != "" {
+		query.Set("parent_upload_id", strings.TrimSpace(parentUploadID))
+	}
+	request, err := client.newRequest(ctx, http.MethodPost, "/v1/inputs?"+query.Encode(), bytes.NewReader(content))
+	if err != nil {
+		return result, err
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Content-Type", mediaType)
+	response, err := client.httpClient.Do(request)
+	if err != nil {
+		return result, fmt.Errorf("cyber-agent request: %w", err)
+	}
+	defer response.Body.Close()
+	payload, err := readBounded(response.Body, client.responseLimit)
+	if err != nil {
+		return result, err
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return result, decodeAPIError(response.StatusCode, payload)
+	}
+	if err := decodeStrict(payload, &result); err != nil {
+		return result, fmt.Errorf("decode cyber-agent response: %w", err)
+	}
+	return result, nil
+}
+
+func (client *Client) GetInput(ctx context.Context, uploadID string) (InputManifest, error) {
+	var result InputManifest
+	err := client.doJSON(ctx, http.MethodGet, "/v1/inputs/"+url.PathEscape(strings.TrimSpace(uploadID)), nil, "", &result)
+	return result, err
 }
 
 func (client *Client) Capabilities(ctx context.Context) (RuntimeCapabilities, error) {

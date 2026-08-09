@@ -67,6 +67,8 @@ const decodedBase64Length = (value: string): number | null => {
   return (value.length / 4) * 3 - (value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0);
 };
 const editorByteLength = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= 64 * 1024 * 1024;
+const inputBytes = (value: unknown): value is Uint8Array => ArrayBuffer.isView(value)
+  && Object.prototype.toString.call(value) === '[object Uint8Array]';
 const editorDigest = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const editorReference = (value: unknown): value is Record<string, unknown> => {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -88,10 +90,18 @@ const validCommand = (value: unknown): value is RuntimeCommand => {
   const command = value as Record<string, unknown>;
   switch (command.type) {
     case 'task.create':
-      return exactKeys(command, ['type', 'objective', 'runtimeId'], ['workspace'])
+      return exactKeys(command, ['type', 'objective', 'runtimeId'], ['workspace', 'inputs'])
         && nonEmpty(command.objective)
         && nonEmpty(command.runtimeId)
-        && (command.workspace === undefined || nonEmpty(command.workspace));
+        && (command.workspace === undefined || nonEmpty(command.workspace))
+        && (command.inputs === undefined || (Array.isArray(command.inputs) && command.inputs.length > 0 && command.inputs.length <= 64
+          && command.inputs.every((input) => input !== null && typeof input === 'object' && !Array.isArray(input)
+            && exactKeys(input as Record<string, unknown>, ['filename', 'mediaType', 'bytes'])
+            && auditableText((input as Record<string, unknown>).filename)
+            && auditableText((input as Record<string, unknown>).mediaType)
+            && inputBytes((input as Record<string, unknown>).bytes)
+            && ((input as Record<string, unknown>).bytes as Uint8Array).byteLength > 0
+            && ((input as Record<string, unknown>).bytes as Uint8Array).byteLength <= 64 * 1024 * 1024)));
     case 'scope.confirm':
       return exactKeys(command, ['type', 'scopeId']) && nonEmpty(command.scopeId);
     case 'task.pause':

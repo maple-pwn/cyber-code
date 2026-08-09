@@ -96,8 +96,19 @@ func TestRootCommandExposesExplicitSecurityRuntimeFlags(t *testing.T) {
 	locationFlag := command.Flags().Lookup("runtime-location")
 	pathFlag := command.Flags().Lookup("cyber-agent-path")
 	endpointFlag := command.Flags().Lookup("cyber-agent-url")
-	if runtimeFlag == nil || runtimeFlag.DefValue != "coding" || locationFlag == nil || locationFlag.DefValue != "local" || pathFlag == nil || endpointFlag == nil {
-		t.Fatalf("runtime flags: runtime=%#v location=%#v path=%#v endpoint=%#v", runtimeFlag, locationFlag, pathFlag, endpointFlag)
+	inputFlag := command.Flags().Lookup("input")
+	if runtimeFlag == nil || runtimeFlag.DefValue != "coding" || locationFlag == nil || locationFlag.DefValue != "local" || pathFlag == nil || endpointFlag == nil || inputFlag == nil || inputFlag.Value.Type() != "stringArray" {
+		t.Fatalf("runtime flags: runtime=%#v location=%#v path=%#v endpoint=%#v input=%#v", runtimeFlag, locationFlag, pathFlag, endpointFlag, inputFlag)
+	}
+}
+
+func TestInputFlagsRequireCyberAgentRuntime(t *testing.T) {
+	t.Parallel()
+	if err := validateInputSelection("coding", []string{"api.yaml"}); err == nil || !strings.Contains(err.Error(), "--runtime cyber-agent") {
+		t.Fatalf("coding input validation error = %v", err)
+	}
+	if err := validateInputSelection("cyber-agent", []string{"api.yaml", "logs.zip"}); err != nil {
+		t.Fatalf("cyber-agent input validation error = %v", err)
 	}
 }
 
