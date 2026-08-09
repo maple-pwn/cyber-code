@@ -194,5 +194,12 @@ func newTerminalAuthorityServer(t *testing.T, capabilities []string) (*LocalServ
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		if server.terminalManager != nil {
+			if err := server.terminalManager.Close(context.Background()); err != nil {
+				t.Errorf("close terminal manager: %v", err)
+			}
+		}
+	})
 	return server, taskID, workspace
 }
