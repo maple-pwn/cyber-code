@@ -7,10 +7,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"sync"
 
+	"cyber-code/internal/cyberagent"
 	"cyber-code/internal/runtimeapi"
 )
 
@@ -19,6 +21,12 @@ type SourceFactoryOptions struct {
 	Workspace         string
 	ClientID          string
 	EnableRealSources bool
+	SecurityRuntime   string
+	RuntimeLocation   string
+	CyberAgentPath    string
+	CyberAgentURL     string
+	CyberAgentToken   cyberagent.TokenProvider
+	HTTPClient        *http.Client
 }
 
 type SourceOption struct {
@@ -78,6 +86,20 @@ func (factory *SourceFactory) Create(name string) (SourceSelection, error) {
 		return factory.createLocal()
 	case "remote":
 		return SourceSelection{}, fmt.Errorf("runtime source remote is unavailable; configure a remote runtime endpoint first")
+	case "cyber-agent":
+		if !factory.options.EnableRealSources {
+			return SourceSelection{}, fmt.Errorf("cyber-agent runtime is unavailable; enable real runtime sources first")
+		}
+		location := factory.options.RuntimeLocation
+		if location == "" {
+			location = "local"
+		}
+		source, runtimeID, err := NewCyberAgentSource(CyberAgentSourceOptions{
+			StateDir: factory.options.StateDir, Workspace: factory.options.Workspace, Location: location,
+			Executable: factory.options.CyberAgentPath, Endpoint: factory.options.CyberAgentURL,
+			TokenProvider: factory.options.CyberAgentToken, HTTPClient: factory.options.HTTPClient,
+		})
+		return SourceSelection{Source: source, RuntimeID: runtimeID, Mode: location}, err
 	default:
 		return SourceSelection{}, fmt.Errorf("unknown runtime source %q; choose demo or local", name)
 	}

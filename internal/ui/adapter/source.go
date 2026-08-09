@@ -52,6 +52,18 @@ type Source interface {
 	Close(context.Context) error
 }
 
+type RuntimeIdentity struct {
+	Name      string
+	Version   string
+	Location  string
+	SessionID string
+	Authority string
+}
+
+type IdentitySource interface {
+	RuntimeIdentity() RuntimeIdentity
+}
+
 type Snapshot struct {
 	Cursor int
 	State  productstate.State

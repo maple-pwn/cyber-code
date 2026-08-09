@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -84,6 +87,43 @@ func TestRootCommandExposesExplicitTacticalScenarioFlags(t *testing.T) {
 	}
 }
 
+func TestRootCommandExposesExplicitSecurityRuntimeFlags(t *testing.T) {
+	command := newRootCommand(&commandEnvironment{
+		ctx: context.Background(), stdin: strings.NewReader(""), stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{},
+		configFile: filepath.Join(t.TempDir(), "config.yaml"), stateDir: t.TempDir(),
+	})
+	runtimeFlag := command.Flags().Lookup("runtime")
+	locationFlag := command.Flags().Lookup("runtime-location")
+	pathFlag := command.Flags().Lookup("cyber-agent-path")
+	endpointFlag := command.Flags().Lookup("cyber-agent-url")
+	if runtimeFlag == nil || runtimeFlag.DefValue != "coding" || locationFlag == nil || locationFlag.DefValue != "local" || pathFlag == nil || endpointFlag == nil {
+		t.Fatalf("runtime flags: runtime=%#v location=%#v path=%#v endpoint=%#v", runtimeFlag, locationFlag, pathFlag, endpointFlag)
+	}
+}
+
+func TestValidateSecurityRuntimeSelectionIsExplicit(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name, runtimeName, location, endpoint string
+		wantError                             bool
+	}{
+		{name: "coding local", runtimeName: "coding", location: "local"},
+		{name: "local cyber agent", runtimeName: "cyber-agent", location: "local"},
+		{name: "remote cyber agent", runtimeName: "cyber-agent", location: "remote", endpoint: "https://agent.example.test"},
+		{name: "unknown runtime", runtimeName: "automatic", location: "local", wantError: true},
+		{name: "unknown location", runtimeName: "cyber-agent", location: "cluster", wantError: true},
+		{name: "remote missing endpoint", runtimeName: "cyber-agent", location: "remote", wantError: true},
+		{name: "coding remote", runtimeName: "coding", location: "remote", wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateRuntimeSelection(test.runtimeName, test.location, test.endpoint)
+			if (err != nil) != test.wantError {
+				t.Fatalf("validateRuntimeSelection() error=%v wantError=%t", err, test.wantError)
+			}
+		})
+	}
+}
+
 func TestValidateUISelectionUsesHonestTacticalSourceCatalog(t *testing.T) {
 	t.Parallel()
 
@@ -131,6 +171,47 @@ func TestRootPrintVerboseReportsProgressWithoutPollutingStdout(t *testing.T) {
 	if !strings.Contains(stderr.String(), "read_file started") || !strings.Contains(stderr.String(), "read_file succeeded") {
 		t.Fatalf("verbose progress = %q", stderr.String())
 	}
+}
+
+func TestRootPrintUsesCyberAgentRuntimeWithoutCodingFallback(t *testing.T) {
+	t.Setenv("CYBER_AGENT_TOKEN", "print-token")
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer print-token" {
+			http.Error(response, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		switch {
+		case request.URL.Path == "/v1/capabilities":
+			_, _ = fmt.Fprint(response, `{"product":"cyber-agent","runtime_version":"0.1.0","protocol_version":1,"capabilities":["session.events.v1"]}`)
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/sessions":
+			_, _ = fmt.Fprint(response, printSecuritySnapshot(0, ""))
+		case request.URL.Path == "/v1/sessions/session-print":
+			_, _ = fmt.Fprint(response, printSecuritySnapshot(2, "source-event-2"))
+		case request.URL.Path == "/v1/sessions/session-print/events":
+			response.Header().Set("Content-Type", "text/event-stream")
+			_, _ = fmt.Fprint(response, "data: "+printSecuritySourceEvent(1, "session.created", `{"schema_version":1,"session_id":"session-print","task_id":"task-print","revision":1,"status":"active"}`)+"\n\n")
+			_, _ = fmt.Fprint(response, "data: "+printSecuritySourceEvent(2, "session.terminal", `{"schema_version":1,"revision":2,"status":"completed"}`)+"\n\n")
+		default:
+			http.Error(response, "not found", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &stdout, &stderr,
+		[]string{"--print", "--runtime", "cyber-agent", "--runtime-location", "remote", "--cyber-agent-url", server.URL, "Assess lab"},
+		ExecuteOptions{StateDir: t.TempDir()})
+	if code != frontend.ExitOK || !strings.Contains(stdout.String(), "[task.created]") || !strings.Contains(stdout.String(), "[task.completed]") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func printSecuritySnapshot(sequence int, eventID string) string {
+	return fmt.Sprintf(`{"schema_version":1,"session_id":"session-print","task_id":"task-print","revision":1,"status":"active","harness_ref":"harness://network-assessment","harness_version":"1.0.0","skill_refs":[],"skill_versions":[],"skill_digests":[],"capability_lease":null,"working_plan":[],"child_run_refs":[],"graph_ref":null,"artifact_refs":[],"event_cursor":{"session_id":"session-print","sequence":%d,"event_id":%q},"unified_state_ref":null,"unified_state_version":null,"pending_interaction":null,"pending_action":null,"pending_action_state":null,"in_flight_action_ref":null,"pending_subagent":null,"boundary_approvals":[],"resume_turn":null,"finish_confirmation_pending":false,"interaction_outcomes":[],"memory_summary":null,"conversation_history":[],"raw_tool_outputs":[],"last_response":null,"actions_used":0,"llm_calls_used":0,"tool_calls_used":0,"updated_at":"2026-08-09T12:00:00Z"}`, sequence, eventID)
+}
+
+func printSecuritySourceEvent(sequence int, topic, payload string) string {
+	return fmt.Sprintf(`{"event_id":"source-event-%d","task_id":"task-print","session_id":"session-print","sequence":%d,"topic":%q,"payload":%s,"emitted_by":"system","emitted_at":"2026-08-09T12:00:00Z","causation_id":null}`, sequence, sequence, topic, payload)
 }
 
 func TestCyberCodeConfigurationNamespaceHardCut(t *testing.T) {

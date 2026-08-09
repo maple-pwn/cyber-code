@@ -281,10 +281,39 @@ func (model *Model) renderConnection() string {
 		source = strings.ToUpper(clean(model.sourceMode)) + " · " + source
 	}
 	line := style.Render(status) + "  " + source + " runtime"
+	if model.authority != "" || model.runtimeVersion != "" || model.sessionID != "" {
+		identity := "Security Runtime - " + clean(model.runtime)
+		if model.runtimeVersion != "" {
+			identity += " " + clean(model.runtimeVersion)
+		}
+		location := model.runtimeLocation
+		if location == "" {
+			location = model.sourceMode
+		}
+		if location != "" {
+			location = strings.ToUpper(location[:1]) + location[1:]
+			identity += "  " + clean(location) + " - " + titleStatus(status)
+		}
+		if model.sessionID != "" {
+			identity += "  Session: " + clean(model.sessionID)
+		}
+		if model.authority != "" {
+			identity += "  Authority: " + clean(model.authority)
+		}
+		line = identity
+	}
 	if detail := clean(model.connectionDetail); detail != "" {
 		line += "  " + detail
 	}
 	return line + "  Ctrl+T Agents  PgUp/PgDn Scroll"
+}
+
+func titleStatus(status string) string {
+	status = strings.ToLower(status)
+	if status == "" {
+		return "Unknown"
+	}
+	return strings.ToUpper(status[:1]) + status[1:]
 }
 
 func (model *Model) renderAgentTasks() string {

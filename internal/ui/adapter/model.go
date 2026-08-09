@@ -99,6 +99,10 @@ func (model *Model) syncMission(operationErr error) {
 		model.runtimeID = view.Source.RuntimeID
 		model.mission.SetSource(string(view.Source.Mode), view.Source.RuntimeID)
 	}
+	if source, ok := model.client.source.(IdentitySource); ok {
+		identity := source.RuntimeIdentity()
+		model.mission.SetRuntimeIdentity(identity.Version, identity.Location, identity.SessionID, identity.Authority)
+	}
 	model.mission.SetState(view.State)
 	detail := view.Connection.ErrorCode
 	if operationErr != nil {

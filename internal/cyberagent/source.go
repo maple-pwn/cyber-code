@@ -165,6 +165,13 @@ type RemoteSource struct {
 	mu        sync.Mutex
 }
 
+func (source *RemoteSource) Client() (*Client, error) {
+	if source == nil || source.client == nil {
+		return nil, fmt.Errorf("cyber-agent source client is unavailable")
+	}
+	return source.client, nil
+}
+
 func NewRemoteSource(options RemoteSourceOptions) (*RemoteSource, error) {
 	if options.Client == nil || options.Store == nil || options.Bindings == nil {
 		return nil, fmt.Errorf("cyber-agent client, runtime store, and binding store are required")

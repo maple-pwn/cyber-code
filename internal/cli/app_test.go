@@ -7,8 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"cyber-code/internal/core"
 	"cyber-code/internal/frontend"
+	"cyber-code/internal/ui"
 )
 
 func TestPrintModeUsesInjectedRunner(t *testing.T) {
@@ -71,6 +74,26 @@ func TestAppInheritsConfiguredContextCancellation(t *testing.T) {
 		t.Fatal("app context was not canceled")
 	}
 }
+
+func TestAppBuildsSwitchableRuntimeUI(t *testing.T) {
+	security := cliTeaModel("security")
+	app := NewApp(&Config{Runtime: &cliTestRunner{}, SecurityUI: security, InitialRuntime: ui.RuntimeSecurity}, "test")
+	model := app.buildInteractiveModel()
+	switcher, ok := model.(*ui.RuntimeSwitchModel)
+	if !ok || switcher.ActiveRuntime() != ui.RuntimeSecurity {
+		t.Fatalf("interactive model = %#v", model)
+	}
+	updated, _ := switcher.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	if updated.(*ui.RuntimeSwitchModel).ActiveRuntime() != ui.RuntimeCoding {
+		t.Fatal("Ctrl+R did not restore the coding runtime")
+	}
+}
+
+type cliTeaModel string
+
+func (model cliTeaModel) Init() tea.Cmd                       { return nil }
+func (model cliTeaModel) Update(tea.Msg) (tea.Model, tea.Cmd) { return model, nil }
+func (model cliTeaModel) View() string                        { return string(model) }
 
 type cliTestRunner struct {
 	prompt string

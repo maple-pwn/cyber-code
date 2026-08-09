@@ -49,13 +49,17 @@ type ConnectionMsg struct {
 }
 
 type Options struct {
-	Width      int
-	Height     int
-	Demo       bool
-	SourceMode string
-	Runtime    string
-	Connection string
-	NoColor    bool
+	Width           int
+	Height          int
+	Demo            bool
+	SourceMode      string
+	Runtime         string
+	RuntimeVersion  string
+	RuntimeLocation string
+	SessionID       string
+	Authority       string
+	Connection      string
+	NoColor         bool
 }
 
 type Model struct {
@@ -65,6 +69,10 @@ type Model struct {
 	demo             bool
 	sourceMode       string
 	runtime          string
+	runtimeVersion   string
+	runtimeLocation  string
+	sessionID        string
+	authority        string
 	connection       string
 	connectionDetail string
 	noColor          bool
@@ -93,8 +101,17 @@ func NewModel(state productstate.State, options Options) *Model {
 	input := components.NewInput("Instruction >", "Send guidance to the active task...", options.Width)
 	return &Model{
 		state: state, width: options.Width, height: options.Height, demo: options.Demo, sourceMode: strings.ToLower(strings.TrimSpace(options.SourceMode)),
-		runtime: options.Runtime, connection: options.Connection, noColor: options.NoColor, panel: panelStream, input: input,
+		runtime: options.Runtime, runtimeVersion: options.RuntimeVersion, runtimeLocation: options.RuntimeLocation,
+		sessionID: options.SessionID, authority: options.Authority,
+		connection: options.Connection, noColor: options.NoColor, panel: panelStream, input: input,
 	}
+}
+
+func (model *Model) SetRuntimeIdentity(version, location, sessionID, authority string) {
+	model.runtimeVersion = strings.TrimSpace(version)
+	model.runtimeLocation = strings.ToLower(strings.TrimSpace(location))
+	model.sessionID = strings.TrimSpace(sessionID)
+	model.authority = strings.TrimSpace(authority)
 }
 
 func (model *Model) SetSource(mode, runtimeID string) {

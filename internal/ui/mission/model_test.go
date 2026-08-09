@@ -43,6 +43,20 @@ func TestViewDisplaysRealSourceModeIndependentlyFromRuntimeID(t *testing.T) {
 	}
 }
 
+func TestViewDisplaysCyberAgentRuntimeAuthority(t *testing.T) {
+	t.Parallel()
+	model := NewModel(productstate.Initial(), Options{
+		Width: 120, Height: 32, SourceMode: "local", Runtime: "cyber-agent", RuntimeVersion: "0.1.0",
+		RuntimeLocation: "local", SessionID: "session-security-1", Authority: "cyber-agent", Connection: "healthy",
+	})
+	view := modelView(model)
+	for _, want := range []string{"Security Runtime - cyber-agent 0.1.0", "Local - Healthy", "Session: session-security-1", "Authority: cyber-agent"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("runtime identity missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestViewSanitizesControlANSIAndBidiText(t *testing.T) {
 	t.Parallel()
 
