@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"cyber-code/internal/runtimeapi"
@@ -130,7 +131,7 @@ func TestBindingStoreUsesPrivateAtomicFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm()&0o077 != 0 {
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
 		t.Fatalf("binding permissions = %o", info.Mode().Perm())
 	}
 }

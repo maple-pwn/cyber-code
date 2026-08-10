@@ -29,7 +29,25 @@ func TestPortableTerminalBackendRunsAllowlistedProgramInPTY(t *testing.T) {
 	if err := process.Resize(100, 30); err != nil {
 		t.Fatal(err)
 	}
-	output, readErr := io.ReadAll(process)
+	type readResult struct {
+		output []byte
+		err    error
+	}
+	readDone := make(chan readResult, 1)
+	go func() {
+		output, readErr := io.ReadAll(process)
+		readDone <- readResult{output: output, err: readErr}
+	}()
+	var output []byte
+	var readErr error
+	select {
+	case result := <-readDone:
+		output, readErr = result.output, result.err
+	case <-time.After(5 * time.Second):
+		_ = process.Kill()
+		_ = process.Close()
+		t.Fatal("PTY output did not reach EOF after process exit")
+	}
 	exitCode, waitErr := process.Wait()
 	if readErr != nil || waitErr != nil || exitCode != 0 {
 		t.Fatalf("PTY result output=%q read=%v wait=%v exit=%d", output, readErr, waitErr, exitCode)

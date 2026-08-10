@@ -12,7 +12,7 @@ const slugify = (title: string, index: number): string => {
   return slug || `section-${index + 1}`;
 };
 
-export function extractReportSections(narrative: string): ReportSection[] {
+function extractReportSections(narrative: string): ReportSection[] {
   const seen = new Map<string, number>();
   const sections: ReportSection[] = [];
   const headingPattern = /^(#{1,3})\s+(.+?)\s*#*\s*$/gmu;

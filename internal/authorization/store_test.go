@@ -3,6 +3,7 @@ package authorization
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 )
@@ -28,7 +29,7 @@ func TestFileStorePersistsAndValidatesAuthorizationSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm()&0o077 != 0 {
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
 		t.Fatalf("permissions = %o", info.Mode().Perm())
 	}
 	if err := os.WriteFile(path, []byte(`{"members":[],"invitations":[],"sessions":[],"decisions":[{"hash":"forged"}]}`), 0o600); err != nil {

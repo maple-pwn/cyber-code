@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"strconv"
+	"sync"
 
 	pty "github.com/aymanbagabas/go-pty"
 )
@@ -37,12 +37,20 @@ func (*PortableTerminalBackend) Start(ctx context.Context, launch TerminalLaunch
 		_ = terminal.Close()
 		return nil, fmt.Errorf("start PTY process: %w", err)
 	}
+	if err := closeTerminalChildEndpoint(terminal); err != nil {
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		_ = terminal.Close()
+		return nil, fmt.Errorf("release PTY child endpoint: %w", err)
+	}
 	return &portableTerminalProcess{terminal: terminal, command: command}, nil
 }
 
 type portableTerminalProcess struct {
-	terminal pty.Pty
-	command  *pty.Cmd
+	terminal  pty.Pty
+	command   *pty.Cmd
+	closeOnce sync.Once
+	closeErr  error
 }
 
 func (process *portableTerminalProcess) PID() string {
@@ -53,7 +61,7 @@ func (process *portableTerminalProcess) PID() string {
 }
 
 func (process *portableTerminalProcess) Read(data []byte) (int, error) {
-	return process.terminal.Read(data)
+	return readTerminal(process.terminal, data)
 }
 func (process *portableTerminalProcess) Write(data []byte) (int, error) {
 	return process.terminal.Write(data)
@@ -61,17 +69,16 @@ func (process *portableTerminalProcess) Write(data []byte) (int, error) {
 func (process *portableTerminalProcess) Resize(columns, rows int) error {
 	return process.terminal.Resize(columns, rows)
 }
-func (process *portableTerminalProcess) Close() error { return process.terminal.Close() }
+func (process *portableTerminalProcess) Close() error {
+	process.closeOnce.Do(func() { process.closeErr = closeTerminalParentEndpoint(process.terminal) })
+	return process.closeErr
+}
 
 func (process *portableTerminalProcess) Kill() error {
 	if process.command.Process == nil {
 		return nil
 	}
-	err := process.command.Process.Kill()
-	if errors.Is(err, os.ErrProcessDone) {
-		return nil
-	}
-	return err
+	return killTerminalProcess(process.command)
 }
 
 func (process *portableTerminalProcess) Wait() (int, error) {

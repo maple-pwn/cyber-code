@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -109,7 +110,7 @@ func TestEditorManagerAppliesAtomicallyWithoutLeakingContentIntoEvents(t *testin
 		t.Fatalf("applied file = %q, %v", got, err)
 	}
 	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0o640 {
+	if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o640) {
 		t.Fatalf("applied mode = %v, %v", info.Mode().Perm(), err)
 	}
 	events, state, err := server.service.Store().Load(context.Background(), taskID)
