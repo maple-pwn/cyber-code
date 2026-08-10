@@ -401,7 +401,7 @@ export class CyberAgentEventSource implements EventSource {
   private async pump(sessionId: string, after: number, signal: AbortSignal, onEvent: (event: RawProductEvent) => void): Promise<void> {
     for await (const raw of this.transport.events(sessionId, after, signal)) {
       if (signal.aborted) return;
-      const event = mapSourceEvent(parseSourceEvent(raw), this.runtimeId);
+      const event = mapSourceEvent(parseSourceEvent(raw), this.runtimeId, this.state);
       const result = project(this.state, validateEvent(event));
       if (result.kind !== 'resync-required') this.state = result.state;
       onEvent(event);
@@ -414,7 +414,7 @@ export class CyberAgentEventSource implements EventSource {
     let state = initialProductState();
     try {
       for await (const raw of this.transport.events(this.sessionId, 0, controller.signal)) {
-        const event = mapSourceEvent(parseSourceEvent(raw), this.runtimeId);
+        const event = mapSourceEvent(parseSourceEvent(raw), this.runtimeId, state);
         const result = project(state, validateEvent(event));
         if (result.kind === 'resync-required') throw new Error('cyber_agent_replay_gap');
         state = result.state;
@@ -509,7 +509,7 @@ function parseSourceEvent(value: unknown): SourceEvent {
   return value as SourceEvent;
 }
 
-function mapSourceEvent(source: SourceEvent, runtimeId: string): RawProductEvent {
+function mapSourceEvent(source: SourceEvent, runtimeId: string, state: ProductState): RawProductEvent {
   let type = `cyber-agent.${source.topic}`;
   let payload: Record<string, unknown> = { ...source.payload };
   switch (source.topic) {
@@ -547,11 +547,43 @@ function mapSourceEvent(source: SourceEvent, runtimeId: string): RawProductEvent
         id: source.payload.evidence_id, taskId: source.task_id, kind: source.payload.kind,
         summary: source.payload.summary, data: source.payload.data,
       } }; break;
+    case 'asset.node.committed':
+      type = 'asset.node.committed'; payload = { node: {
+        id: source.payload.node_id,
+        kind: source.payload.kind,
+        label: source.payload.label,
+        status: source.payload.status,
+        attributes: source.payload.attributes,
+        provenance: { kind: 'evidence', evidenceIds: source.payload.evidence_refs },
+      } }; break;
+    case 'asset.edge.committed':
+      type = 'asset.edge.committed'; payload = { edge: {
+        id: source.payload.edge_id,
+        kind: source.payload.kind,
+        sourceId: source.payload.source_id,
+        targetId: source.payload.target_id,
+        directed: source.payload.directed,
+        provenance: { kind: 'evidence', evidenceIds: source.payload.evidence_refs },
+      } }; break;
     case 'report.drafted':
+      {
+      const findingIds = Array.isArray(source.payload.finding_ids)
+        ? source.payload.finding_ids.filter((value): value is string => typeof value === 'string')
+        : [];
+      const reportFindings = findingIds.flatMap((findingId) => {
+        const finding = state.findings[findingId];
+        if (!finding) return [];
+        const evidence = finding.evidenceIds.flatMap((evidenceId) => {
+          const item = state.evidence[evidenceId];
+          return item ? [item] : [];
+        });
+        return [{ finding, evidence, included: true }];
+      });
       type = 'report.drafted'; payload = { report: {
         id: source.payload.report_id, taskId: source.task_id, version: 1, status: 'draft',
-        narrative: source.payload.narrative ?? '', recommendations: '', humanNotes: '', findings: [],
+        narrative: source.payload.narrative ?? '', recommendations: '', humanNotes: '', findings: reportFindings,
       } }; break;
+      }
     case 'report.frozen':
       type = 'report.frozen'; payload = { reportId: source.payload.report_id, version: 2 }; break;
   }

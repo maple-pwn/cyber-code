@@ -106,7 +106,7 @@ describe('CyberAgentEventSource', () => {
     const fixtureRequest = productTransport.request.bind(productTransport);
     productTransport.request = async (request) => {
       if (request.method === 'GET' && request.path === '/v1/sessions/session-web') {
-        return { ...snapshot, event_cursor: { session_id: 'session-web', sequence: 7, event_id: 'source-7' } };
+        return { ...snapshot, event_cursor: { session_id: 'session-web', sequence: 10, event_id: 'source-10' } };
       }
       return fixtureRequest(request);
     };
@@ -116,28 +116,50 @@ describe('CyberAgentEventSource', () => {
       yield sourceEvent(2, 'evidence.available', {
         evidence_id: 'evidence-1', kind: 'http', summary: 'HTTP response', data: { status_code: 200 },
       });
-      yield sourceEvent(3, 'finding.created', {
+      yield sourceEvent(3, 'asset.node.committed', {
+        node_id: 'asset-target-1', kind: 'target', label: '127.0.0.1', status: 'active',
+        attributes: { host: '127.0.0.1' }, evidence_refs: ['evidence-1'],
+      });
+      yield sourceEvent(4, 'asset.node.committed', {
+        node_id: 'asset-service-1', kind: 'service', label: 'HTTP 127.0.0.1:18080', status: 'active',
+        attributes: { host: '127.0.0.1', port: 18080, scheme: 'http' }, evidence_refs: ['evidence-1'],
+      });
+      yield sourceEvent(5, 'asset.edge.committed', {
+        edge_id: 'asset-edge-1', kind: 'exposes', source_id: 'asset-target-1', target_id: 'asset-service-1',
+        directed: true, evidence_refs: ['evidence-1'],
+      });
+      yield sourceEvent(6, 'finding.created', {
         finding_id: 'finding-1', title: 'Exposed endpoint', severity: 'medium', evidence_refs: ['evidence-1'],
       });
-      yield sourceEvent(4, 'finding.verifying', { finding_id: 'finding-1' });
-      yield sourceEvent(5, 'finding.confirmed', { finding_id: 'finding-1' });
-      yield sourceEvent(6, 'report.drafted', {
+      yield sourceEvent(7, 'finding.verifying', { finding_id: 'finding-1' });
+      yield sourceEvent(8, 'finding.confirmed', { finding_id: 'finding-1' });
+      yield sourceEvent(9, 'report.drafted', {
         report_id: 'report-1', narrative: 'Verified assessment report', finding_ids: ['finding-1'], evidence_refs: ['evidence-1'],
       });
-      yield sourceEvent(7, 'report.frozen', { report_id: 'report-1' });
+      yield sourceEvent(10, 'report.frozen', { report_id: 'report-1' });
     };
     const source = new CyberAgentEventSource(productTransport);
     await source.handshake({ supportedProtocolVersions: [1], afterCursor: 0 });
     await source.send({ idempotencyKey: 'create-products', command: { type: 'task.create', objective: 'Assess', runtimeId: 'cyber-agent-remote' } });
 
     await new Promise<void>((resolve) => {
-      void source.subscribe(0, (event) => { if (event.cursor === 7) resolve(); });
+      void source.subscribe(0, (event) => { if (event.cursor === 10) resolve(); });
     });
     const projected = await source.getSnapshot();
 
     expect(projected.state.evidence['evidence-1']).toMatchObject({ summary: 'HTTP response', data: { status_code: 200 } });
+    expect(projected.state.assetNodes).toMatchObject({
+      'asset-target-1': { kind: 'target', label: '127.0.0.1', provenance: { kind: 'evidence', evidenceIds: ['evidence-1'] } },
+      'asset-service-1': { kind: 'service', label: 'HTTP 127.0.0.1:18080' },
+    });
+    expect(projected.state.assetEdges['asset-edge-1']).toMatchObject({
+      kind: 'exposes', sourceId: 'asset-target-1', targetId: 'asset-service-1', directed: true,
+    });
     expect(projected.state.findings['finding-1']).toMatchObject({ status: 'confirmed', evidenceIds: ['evidence-1'] });
-    expect(projected.state.report).toMatchObject({ id: 'report-1', status: 'frozen', narrative: 'Verified assessment report' });
+    expect(projected.state.report).toMatchObject({
+      id: 'report-1', status: 'frozen', narrative: 'Verified assessment report',
+      findings: [{ finding: { id: 'finding-1', status: 'confirmed' }, evidence: [{ id: 'evidence-1' }], included: true }],
+    });
   });
 
   test('rejects unauthorized and incompatible handshakes without becoming connected', async () => {
