@@ -18,11 +18,12 @@ const (
 // Rule is one explicit policy decision. Empty Tool or Action fields match all
 // requests. Project rules may only reduce permissions.
 type Rule struct {
-	ID       string
-	Source   PermissionRuleSource
-	Behavior PermissionBehavior
-	Tool     string
-	Action   string
+	ID           string
+	Source       PermissionRuleSource
+	Behavior     PermissionBehavior
+	Tool         string
+	Action       string
+	AllowedTools []string
 }
 
 func validatePolicy(mode PermissionMode, modeSource PermissionRuleSource, rules []Rule) error {
@@ -54,6 +55,9 @@ func validatePolicy(mode PermissionMode, modeSource PermissionRuleSource, rules 
 }
 
 func ruleMatches(rule Rule, request Request) bool {
+	if len(rule.AllowedTools) > 0 && containsTool(rule.AllowedTools, request.Tool) {
+		return false
+	}
 	return (rule.Tool == "" || rule.Tool == request.Tool) &&
 		(rule.Action == "" || rule.Action == request.Action)
 }

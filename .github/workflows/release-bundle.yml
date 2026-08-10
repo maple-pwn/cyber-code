@@ -17,6 +17,7 @@ permissions:
 
 jobs:
   bundle:
+    environment: protected-release
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -85,6 +86,9 @@ jobs:
             > bundle/latest.json
           printf '%s\n' "$UPDATE_PUBLIC_KEY" > bundle/update-public-key.txt
 
+      - name: Verify release smoke
+        run: scripts/release-smoke.sh
+
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v4
         with:
@@ -92,3 +96,40 @@ jobs:
           path: bundle/
           if-no-files-found: error
           retention-days: 14
+
+  platform-acceptance:
+    name: Native acceptance (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run native platform matrix
+        shell: bash
+        env:
+          GOCACHE: ${{ runner.temp }}/cyber-code-go-build
+        run: scripts/platform-matrix.sh

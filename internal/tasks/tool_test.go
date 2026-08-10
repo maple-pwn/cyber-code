@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -93,6 +95,205 @@ func TestTaskRunPublishesBackgroundAndFailedStatuses(t *testing.T) {
 	if last.Type != core.EventSubagentStatus || last.Subagent.Status != string(TaskStatusFailed) {
 		t.Fatalf("terminal observation = %#v", last)
 	}
+}
+
+func TestTaskServiceDurableQueueDrainsAndRecoversPendingWork(t *testing.T) {
+	directory := t.TempDir()
+	queuePath := filepath.Join(directory, "tasks.json")
+	boardPath := filepath.Join(directory, "board")
+	board, err := collaboration.NewBoard(boardPath, collaboration.BoardOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue, err := OpenQueue(queuePath, QueueOptions{Capacity: 4, LeaseDuration: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	service, err := NewToolService(ToolServiceOptions{
+		Queue: queue, Board: board, ParentMode: permissions.PermissionModeDefault, ParentMaxTurns: 2,
+		Execute: func(_ context.Context, request AgentRequest) (any, error) {
+			if request.Prompt == "first" {
+				close(firstStarted)
+				<-releaseFirst
+			}
+			return request.Prompt + " done", nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.run(context.Background(), json.RawMessage(`{"prompt":"first","background":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-firstStarted
+	second, err := service.run(context.Background(), json.RawMessage(`{"prompt":"second","background":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	drained := make(chan error, 1)
+	go func() { drained <- service.Drain(context.Background()) }()
+	close(releaseFirst)
+	if err := <-drained; err != nil {
+		t.Fatal(err)
+	}
+	if result, err := service.result(first.ID); err != nil || result.Status != TaskStatusCompleted {
+		t.Fatalf("first result=%#v err=%v", result, err)
+	}
+	if result, err := service.result(second.ID); err != nil || result.Status != TaskStatusPending {
+		t.Fatalf("second before restart=%#v err=%v", result, err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	restartedQueue, err := OpenQueue(queuePath, QueueOptions{Capacity: 4, LeaseDuration: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restartedBoard, err := collaboration.NewBoard(boardPath, collaboration.BoardOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restartedCalls atomic.Int32
+	restarted, err := NewToolService(ToolServiceOptions{
+		Queue: restartedQueue, Board: restartedBoard, ParentMode: permissions.PermissionModeDefault, ParentMaxTurns: 2,
+		Execute: func(_ context.Context, request AgentRequest) (any, error) {
+			restartedCalls.Add(1)
+			return request.Prompt + " recovered", nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Close()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		result, resultErr := restarted.result(second.ID)
+		if resultErr == nil && result.Status == TaskStatusCompleted {
+			if result.Result != "second recovered" || restartedCalls.Load() != 1 {
+				t.Fatalf("recovered result=%#v calls=%d", result, restartedCalls.Load())
+			}
+			snapshots := restarted.Snapshots()
+			if len(snapshots) != 1 || snapshots[0].QueueStatus != QueueCompleted || snapshots[0].Attempts != 1 {
+				t.Fatalf("recovered snapshots=%#v", snapshots)
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("pending task %s was not recovered: queue=%#v", second.ID, restartedQueue.Snapshot())
+}
+
+func TestTaskServiceCancelsPendingDurableWork(t *testing.T) {
+	queue := openTestQueue(t, QueueOptions{Capacity: 4})
+	started := make(chan struct{})
+	release := make(chan struct{})
+	service, err := NewToolService(ToolServiceOptions{
+		Queue: queue, ParentMode: permissions.PermissionModeDefault, ParentMaxTurns: 2,
+		Execute: func(_ context.Context, request AgentRequest) (any, error) {
+			if request.Prompt == "active" {
+				close(started)
+				<-release
+			}
+			return "done", nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	if _, err := service.run(context.Background(), json.RawMessage(`{"prompt":"active","background":true}`)); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	pending, err := service.run(context.Background(), json.RawMessage(`{"prompt":"pending","background":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.cancelTask(context.Background(), pending.ID); err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.result(pending.ID)
+	if err != nil || result.Status != TaskStatusCancelled {
+		t.Fatalf("cancelled result=%#v err=%v", result, err)
+	}
+	items := queue.Snapshot()
+	if len(items) != 2 || items[1].Status != QueueCancelled {
+		t.Fatalf("queue after cancellation=%#v", items)
+	}
+	close(release)
+}
+
+func TestTaskServiceRecoversAbandonedLeaseAndInterruptedBoardTask(t *testing.T) {
+	directory := t.TempDir()
+	now := time.Date(2026, 8, 9, 6, 0, 0, 0, time.UTC)
+	queuePath := filepath.Join(directory, "tasks.json")
+	queue, err := OpenQueue(queuePath, QueueOptions{Capacity: 2, MaxAttempts: 3, LeaseDuration: time.Second, Clock: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := taskRunInput{Prompt: "recover interrupted", Description: "recover interrupted", MaxTurns: 2, PermissionMode: permissions.PermissionModeDefault, Background: true}
+	payload, err := json.Marshal(queuedAgentTask{TaskID: "task-interrupted", Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := queue.Enqueue(context.Background(), "task-interrupted", payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := queue.Claim(context.Background(), "crashed-worker"); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Close(); err != nil {
+		t.Fatal(err)
+	}
+	boardPath := filepath.Join(directory, "board")
+	board, err := collaboration.NewBoard(boardPath, collaboration.BoardOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := board.Create(context.Background(), collaboration.Task{ID: "task-interrupted", Description: input.Description}); err != nil {
+		t.Fatal(err)
+	}
+	if err := board.Transition(context.Background(), "task-interrupted", collaboration.TaskRunning, ""); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Second)
+	restartedQueue, err := OpenQueue(queuePath, QueueOptions{Capacity: 2, MaxAttempts: 3, LeaseDuration: time.Second, Clock: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restartedBoard, err := collaboration.NewBoard(boardPath, collaboration.BoardOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewToolService(ToolServiceOptions{
+		Queue: restartedQueue, Board: restartedBoard, ParentMode: permissions.PermissionModeDefault, ParentMaxTurns: 2,
+		Execute: func(context.Context, AgentRequest) (any, error) { return "recovered", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		result, resultErr := service.result("task-interrupted")
+		if resultErr == nil && result.Status == TaskStatusCompleted {
+			stored, ok, boardErr := restartedBoard.Get(context.Background(), "task-interrupted")
+			if boardErr != nil || !ok || stored.Status != collaboration.TaskCompleted {
+				t.Fatalf("board task=%#v ok=%t err=%v", stored, ok, boardErr)
+			}
+			items := restartedQueue.Snapshot()
+			if len(items) != 1 || items[0].Status != QueueCompleted || items[0].Attempts != 2 {
+				t.Fatalf("recovered queue=%#v", items)
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("interrupted task was not recovered: queue=%#v", restartedQueue.Snapshot())
 }
 
 func TestTaskEmitterRejectsRecursiveSubagentObservation(t *testing.T) {

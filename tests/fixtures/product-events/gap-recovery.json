@@ -1,0 +1,86 @@
+{
+  "name": "gap-recovery",
+  "events": [
+    {
+      "schemaVersion": 1,
+      "eventId": "fixture-1-task.started",
+      "taskId": "task-1",
+      "cursor": 1,
+      "occurredAt": "2026-08-03T12:00:01.000Z",
+      "type": "task.started",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "title": "Authorized lab assessment"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "fixture-3-agent.started",
+      "taskId": "task-1",
+      "cursor": 3,
+      "occurredAt": "2026-08-03T12:00:03.000Z",
+      "type": "agent.started",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "agent": {
+          "id": "agent-recon",
+          "name": "Recon Agent",
+          "status": "running",
+          "progress": 0
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "fixture-2-scope.confirmed",
+      "taskId": "task-1",
+      "cursor": 2,
+      "occurredAt": "2026-08-03T12:00:02.000Z",
+      "type": "scope.confirmed",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "scope": {
+          "id": "scope-1",
+          "principal": "authorized-operator",
+          "workspace": "/labs/juice-shop",
+          "validity": "single-task",
+          "targets": [
+            "juice-shop.lab"
+          ],
+          "allowedActions": [
+            "passive-recon"
+          ],
+          "deniedActions": [
+            "destructive"
+          ],
+          "riskCeiling": "medium"
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "fixture-3-agent.started",
+      "taskId": "task-1",
+      "cursor": 3,
+      "occurredAt": "2026-08-03T12:00:03.000Z",
+      "type": "agent.started",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "agent": {
+          "id": "agent-recon",
+          "name": "Recon Agent",
+          "status": "running",
+          "progress": 0
+        }
+      }
+    }
+  ]
+}

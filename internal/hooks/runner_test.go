@@ -100,6 +100,24 @@ func TestCommandHookRejectsTrailingJSONValue(t *testing.T) {
 	}
 }
 
+func TestCommandHookPreservesProcessFailureDetails(t *testing.T) {
+	executor := &staticHookExecutor{
+		result: platform.ExecResult{Stderr: "invalid hook configuration", ExitCode: 7},
+		err:    errors.New("process exited"),
+	}
+	runner, err := NewRunner(RunnerOptions{Registry: NewRegistry(), Executor: executor, Workspace: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.RegisterCommand(HookEventUserPromptSubmit, "hook-command"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = runner.Run(context.Background(), HookInput{EventName: HookEventUserPromptSubmit})
+	if err == nil || !strings.Contains(err.Error(), "exit 7") || !strings.Contains(err.Error(), "invalid hook configuration") {
+		t.Fatalf("Run error = %v", err)
+	}
+}
+
 func TestHookRunnerLimitsAggregateAdditionalContext(t *testing.T) {
 	registry := NewRegistry()
 	for range 2 {
@@ -155,8 +173,11 @@ func (executor *blockingHookExecutor) canceled() bool {
 	return executor.wasCanceled
 }
 
-type staticHookExecutor struct{ result platform.ExecResult }
+type staticHookExecutor struct {
+	result platform.ExecResult
+	err    error
+}
 
 func (executor *staticHookExecutor) Run(context.Context, platform.ExecRequest) (platform.ExecResult, error) {
-	return executor.result, nil
+	return executor.result, executor.err
 }

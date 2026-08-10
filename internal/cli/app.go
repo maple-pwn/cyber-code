@@ -39,6 +39,8 @@ type Config struct {
 	APIKey         string
 	BaseURL        string
 	Runtime        frontend.Runner
+	SecurityUI     tea.Model
+	InitialRuntime ui.RuntimeKind
 	PrintJSON      bool
 	Stdout         io.Writer
 	Stderr         io.Writer
@@ -122,10 +124,10 @@ func (a *App) runPrintMode() error {
 
 // runInteractiveMode runs the interactive UI.
 func (a *App) runInteractiveMode() error {
-	a.uiModel = ui.NewModel(a.runner(), ui.ModelOptions{InitialPrompt: a.initialPrompt})
+	interactiveModel := a.buildInteractiveModel()
 
 	// Create and run the tea program
-	p := tea.NewProgram(a.uiModel, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(interactiveModel, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if a.config.PermissionUI != nil {
 		a.config.PermissionUI.Attach(p.Send)
 		defer a.config.PermissionUI.Detach()
@@ -164,6 +166,14 @@ func (a *App) runInteractiveMode() error {
 	}
 
 	return nil
+}
+
+func (a *App) buildInteractiveModel() tea.Model {
+	a.uiModel = ui.NewModel(a.runner(), ui.ModelOptions{InitialPrompt: a.initialPrompt})
+	if a.config.SecurityUI == nil {
+		return a.uiModel
+	}
+	return ui.NewRuntimeSwitchModel(a.uiModel, a.config.SecurityUI, a.config.InitialRuntime)
 }
 
 // Shutdown cleans up resources.

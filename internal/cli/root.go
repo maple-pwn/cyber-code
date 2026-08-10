@@ -22,6 +22,7 @@ import (
 	"cyber-code/internal/protocol"
 	"cyber-code/internal/tool/builtin"
 	"cyber-code/internal/ui"
+	"cyber-code/internal/ui/adapter"
 )
 
 type ExecuteOptions struct {
@@ -105,9 +106,10 @@ func errorExitCode(err error) int {
 }
 
 func newRootCommand(environment *commandEnvironment) *cobra.Command {
-	var printMode, jsonMode, verbose bool
-	var profile, permissionMode, model, cwd, resumeSession string
-	var imagePaths []string
+	var printMode, jsonMode, verbose, enableRealSources bool
+	var profile, permissionMode, model, cwd, resumeSession, uiMode, sourceName string
+	var runtimeName, runtimeLocation, cyberAgentPath, cyberAgentURL string
+	var imagePaths, inputPaths []string
 	var maxTurns int
 	command := &cobra.Command{
 		Use:           product.Command + " [prompt]",
@@ -115,7 +117,70 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 		SilenceErrors: true,
 		Args:          cobra.ArbitraryArgs,
 		Version:       environment.options.Version,
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := validateRuntimeSelection(runtimeName, runtimeLocation, cyberAgentURL); err != nil {
+				return err
+			}
+			if err := validateUISelection(uiMode, sourceName, printMode, command.Flags().Changed("ui"), enableRealSources); err != nil {
+				return err
+			}
+			if err := validateInputSelection(runtimeName, inputPaths); err != nil {
+				return err
+			}
+			prompt := strings.Join(args, " ")
+			if printMode && runtimeName == "cyber-agent" {
+				selection, err := createCyberAgentSelection(environment, cwd, runtimeLocation, cyberAgentPath, cyberAgentURL)
+				if err != nil {
+					return err
+				}
+				defer selection.Source.Close(context.Background())
+				code := frontend.Run(environment.ctx, newSecurityRunner(selection.Source, selection.RuntimeID, inputPaths...), prompt, frontend.PrintOptions{
+					JSON: jsonMode, Verbose: verbose, Stdout: environment.stdout, Stderr: environment.stderr,
+				})
+				if code != frontend.ExitOK {
+					return exitStatus{code: code}
+				}
+				return nil
+			}
+			if !printMode && uiMode == "tactical" {
+				workspace := cwd
+				if strings.TrimSpace(workspace) == "" {
+					var err error
+					workspace, err = os.Getwd()
+					if err != nil {
+						return fmt.Errorf("resolve tactical workspace: %w", err)
+					}
+				}
+				factory, err := adapter.NewSourceFactory(adapter.SourceFactoryOptions{
+					StateDir: environment.stateDir, Workspace: workspace, ClientID: "tui-client",
+					EnableRealSources: enableRealSources || runtimeName == "cyber-agent",
+					SecurityRuntime:   runtimeName, RuntimeLocation: runtimeLocation,
+					CyberAgentPath: cyberAgentPath, CyberAgentURL: cyberAgentURL,
+					CyberAgentToken: func(context.Context) (string, error) {
+						token := strings.TrimSpace(os.Getenv("CYBER_AGENT_TOKEN"))
+						if token == "" {
+							return "", fmt.Errorf("CYBER_AGENT_TOKEN is not set")
+						}
+						return token, nil
+					},
+				})
+				if err != nil {
+					return err
+				}
+				selectionName := sourceName
+				if runtimeName == "cyber-agent" {
+					if sourceName != "" {
+						return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "--source cannot be combined with --runtime cyber-agent"}
+					}
+					selectionName = "cyber-agent"
+				}
+				selection, err := factory.Create(selectionName)
+				if err != nil {
+					return err
+				}
+				defer selection.Source.Close(context.Background())
+				return runTactical(environment, selection, prompt, inputPaths...)
+			}
 			runner := environment.options.Runner
 			var shutdown func(context.Context) error
 			var permissionUI *ui.PermissionBridge
@@ -152,7 +217,6 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 				}
 				runner = &initialImageRunner{delegate: runner, images: images}
 			}
-			prompt := strings.Join(args, " ")
 			if printMode {
 				code := frontend.Run(environment.ctx, runner, prompt, frontend.PrintOptions{
 					JSON: jsonMode, Verbose: verbose, Stdout: environment.stdout, Stderr: environment.stderr,
@@ -162,7 +226,21 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 				}
 				return nil
 			}
-			app := NewApp(&Config{Runtime: runner, Cwd: cwd, PermissionUI: permissionUI, QuestionUI: questionUI, ControlUI: controlUI, Context: environment.ctx}, environment.options.Version)
+			appConfig := &Config{Runtime: runner, Cwd: cwd, PermissionUI: permissionUI, QuestionUI: questionUI, ControlUI: controlUI, Context: environment.ctx}
+			if runtimeName == "cyber-agent" {
+				selection, err := createCyberAgentSelection(environment, cwd, runtimeLocation, cyberAgentPath, cyberAgentURL)
+				if err != nil {
+					return err
+				}
+				defer selection.Source.Close(context.Background())
+				appConfig.SecurityUI = adapter.NewModel(selection.Source, adapter.ModelOptions{
+					Context: environment.ctx, ClientID: "classic-security-client", RuntimeID: selection.RuntimeID,
+					InitialObjective: prompt, InputPaths: inputPaths, SourceMode: selection.Mode,
+				})
+				appConfig.InitialRuntime = ui.RuntimeSecurity
+				prompt = ""
+			}
+			app := NewApp(appConfig, environment.options.Version)
 			defer app.Shutdown()
 			return app.Run(prompt)
 		},
@@ -175,7 +253,15 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	command.Flags().StringVarP(&model, "model", "m", "", "model override")
 	command.Flags().StringVar(&cwd, "cwd", "", "workspace directory")
 	command.Flags().StringArrayVar(&imagePaths, "image", nil, "attach an image from the workspace to the first turn")
+	command.Flags().StringArrayVar(&inputPaths, "input", nil, "attach a file from the workspace to a cyber-agent task (repeatable)")
 	command.Flags().StringVar(&resumeSession, "resume", "", "resume a persisted session")
+	command.Flags().StringVar(&uiMode, "ui", "tactical", "interactive UI: tactical or classic (legacy)")
+	command.Flags().StringVar(&sourceName, "source", "", "Tactical Ops event source: demo or local")
+	command.Flags().StringVar(&runtimeName, "runtime", "coding", "runtime: coding or cyber-agent")
+	command.Flags().StringVar(&runtimeLocation, "runtime-location", "local", "runtime location: local or remote")
+	command.Flags().StringVar(&cyberAgentPath, "cyber-agent-path", "", "explicit local cyber-agent executable")
+	command.Flags().StringVar(&cyberAgentURL, "cyber-agent-url", "", "remote cyber-agent HTTPS endpoint")
+	command.Flags().BoolVar(&enableRealSources, "enable-real-sources", false, "enable capability-gated Local and Remote runtime sources")
 	command.Flags().IntVar(&maxTurns, "max-turns", 100, "maximum agent turns")
 	command.AddCommand(newConfigCommand(environment))
 	command.AddCommand(newDoctorCommand(environment))
@@ -183,9 +269,92 @@ func newRootCommand(environment *commandEnvironment) *cobra.Command {
 	command.AddCommand(newPluginsCommand(environment))
 	command.AddCommand(newSessionsCommand(environment))
 	command.AddCommand(newServeCommand(environment))
+	command.AddCommand(newRuntimeCommand(environment))
 	command.AddCommand(newVersionCheckCommand(environment))
 	command.AddCommand(newTerminalSetupCommand(environment))
 	return command
+}
+
+func createCyberAgentSelection(environment *commandEnvironment, workspace, location, executable, endpoint string) (adapter.SourceSelection, error) {
+	if strings.TrimSpace(workspace) == "" {
+		var err error
+		workspace, err = os.Getwd()
+		if err != nil {
+			return adapter.SourceSelection{}, fmt.Errorf("resolve cyber-agent workspace: %w", err)
+		}
+	}
+	factory, err := adapter.NewSourceFactory(adapter.SourceFactoryOptions{
+		StateDir: environment.stateDir, Workspace: workspace, ClientID: "security-runtime-client", EnableRealSources: true,
+		SecurityRuntime: "cyber-agent", RuntimeLocation: location, CyberAgentPath: executable, CyberAgentURL: endpoint,
+		CyberAgentToken: func(context.Context) (string, error) {
+			token := strings.TrimSpace(os.Getenv("CYBER_AGENT_TOKEN"))
+			if token == "" {
+				return "", fmt.Errorf("CYBER_AGENT_TOKEN is not set")
+			}
+			return token, nil
+		},
+	})
+	if err != nil {
+		return adapter.SourceSelection{}, err
+	}
+	return factory.Create("cyber-agent")
+}
+
+func validateRuntimeSelection(runtimeName, location, endpoint string) error {
+	if runtimeName != "coding" && runtimeName != "cyber-agent" {
+		return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.runtime", Message: "--runtime must be coding or cyber-agent"}
+	}
+	if location != "local" && location != "remote" {
+		return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.runtime", Message: "--runtime-location must be local or remote"}
+	}
+	if runtimeName == "coding" && location != "local" {
+		return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.runtime", Message: "coding runtime is local; --runtime-location remote requires --runtime cyber-agent"}
+	}
+	if runtimeName == "cyber-agent" && location == "remote" && strings.TrimSpace(endpoint) == "" {
+		return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.runtime", Message: "remote cyber-agent runtime requires --cyber-agent-url"}
+	}
+	return nil
+}
+
+func validateInputSelection(runtimeName string, inputPaths []string) error {
+	if len(inputPaths) > 0 && runtimeName != "cyber-agent" {
+		return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.input", Message: "--input requires --runtime cyber-agent"}
+	}
+	return nil
+}
+
+func validateUISelection(uiMode, sourceName string, printMode, uiExplicit, enableRealSources bool) error {
+	if uiMode != "classic" && uiMode != "tactical" {
+		return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.ui", Message: "--ui must be classic or tactical"}
+	}
+	if printMode {
+		if uiMode == "tactical" && uiExplicit {
+			return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.ui", Message: "tactical UI is interactive and cannot be used with --print"}
+		}
+		if sourceName != "" {
+			return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "--source is unavailable in print mode"}
+		}
+		if enableRealSources {
+			return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "--enable-real-sources is unavailable in print mode"}
+		}
+		return nil
+	}
+	if uiMode == "tactical" {
+		if sourceName != "" && sourceName != "demo" && sourceName != "local" {
+			return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "--source must be demo or local"}
+		}
+		if sourceName == "local" && !enableRealSources {
+			return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "--source local requires --enable-real-sources"}
+		}
+		return nil
+	}
+	if sourceName != "" {
+		return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "--source is only valid with --ui=tactical"}
+	}
+	if enableRealSources {
+		return &core.Error{Kind: core.ErrorKindConfiguration, Op: "cli.source", Message: "--enable-real-sources is only valid with --ui=tactical"}
+	}
+	return nil
 }
 
 type contentRunner interface {
@@ -251,7 +420,7 @@ func newServeCommand(environment *commandEnvironment) *cobra.Command {
 			return err
 		}
 		defer built.Shutdown(context.Background())
-		server, err := protocol.NewServerWithOptions(built, protocol.ServerOptions{Permissions: permissionBroker})
+		server, err := protocol.NewServerWithOptions(built, protocol.ServerOptions{Permissions: permissionBroker, RequireHandshake: true})
 		if err != nil {
 			return err
 		}

@@ -77,3 +77,189 @@ jobs:
 
       - name: Compile
         run: npm run compile --prefix editors/vscode
+
+  phase4-runtime-gate:
+    name: Phase 4 runtime security and load gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify runtime authority and load isolation
+        run: go test -race ./internal/runtimeapi -run 'TestRuntimeLoad|TestLocalServerBindsIdempotencyToControllerAndAuthority' -count=1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.1 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify reconnect and slow-consumer bounds
+        run: pnpm exec vitest run packages/runtime-client/src/runtime-load.test.ts
+
+  web:
+    runs-on: ubuntu-latest
+    container: mcr.microsoft.com/playwright:v1.61.0-noble
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go for runtime integration
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.1 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test with coverage
+        run: pnpm test:coverage
+
+      - name: Build
+        run: pnpm build
+
+      - name: Browser tests
+        run: pnpm test:e2e
+
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failure-${{ github.run_id }}
+          path: test-results
+          if-no-files-found: ignore
+
+  desktop-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libayatana-appindicator3-dev librsvg2-dev libsecret-1-dev libwebkit2gtk-4.1-dev libxdo-dev pkg-config
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pinned pnpm
+        run: corepack enable
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Check Rust formatting
+        run: cargo fmt --check --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Lint Rust
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: apps/desktop/src-tauri
+
+      - name: Audit Rust dependencies
+        run: cargo audit --file apps/desktop/src-tauri/Cargo.lock
+
+      - name: Test Rust
+        run: cargo test
+        working-directory: apps/desktop/src-tauri
+
+      - name: Check desktop frontend
+        run: |
+          pnpm lint
+          pnpm --filter @cyber/desktop typecheck
+          pnpm --filter @cyber/desktop test
+
+  desktop-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: cyber-desktop-linux-debug
+            bundle: deb
+          - os: windows-latest
+            artifact: cyber-desktop-windows-debug
+            bundle: nsis
+          - os: macos-latest
+            artifact: cyber-desktop-macos-debug
+            bundle: app
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libayatana-appindicator3-dev librsvg2-dev libsecret-1-dev libwebkit2gtk-4.1-dev libxdo-dev pkg-config
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pinned pnpm
+        run: corepack enable
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build unsigned debug application
+        run: pnpm --filter @cyber/desktop exec tauri build --debug --bundles ${{ matrix.bundle }}
+
+      - name: Upload unsigned debug artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            apps/desktop/src-tauri/target/debug/bundle/**
+            apps/desktop/src-tauri/target/debug/cyber-desktop
+            apps/desktop/src-tauri/target/debug/cyber-desktop.exe
+          if-no-files-found: error
+          retention-days: 7

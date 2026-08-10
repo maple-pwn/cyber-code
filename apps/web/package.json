@@ -1,0 +1,20 @@
+{
+  "name": "@cyber/web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b && vite build",
+    "dev": "vite",
+    "test": "vitest --root ../.. run apps/web/src",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@cyber/product-app": "workspace:*",
+    "@cyber/runtime-client": "workspace:*",
+    "@cyber/scenario-player": "workspace:*",
+    "@cyber/ui": "workspace:*",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  }
+}

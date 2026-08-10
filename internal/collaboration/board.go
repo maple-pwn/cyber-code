@@ -146,6 +146,38 @@ func (board *Board) Transition(ctx context.Context, id string, status TaskStatus
 	return fmt.Errorf("task %q was not found", id)
 }
 
+// RetryInterrupted requeues only work that the board itself marked failed
+// during restart recovery. Ordinary task failures remain terminal.
+func (board *Board) RetryInterrupted(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	board.mu.Lock()
+	defer board.mu.Unlock()
+	release, err := filelock.Acquire(board.lockPath)
+	if err != nil {
+		return err
+	}
+	defer release()
+	tasks, err := board.read()
+	if err != nil {
+		return err
+	}
+	for index := range tasks {
+		if tasks[index].ID != id {
+			continue
+		}
+		if tasks[index].Status != TaskFailed || tasks[index].Error != "interrupted by process restart" {
+			return fmt.Errorf("task %q is not an interrupted task", id)
+		}
+		tasks[index].Status = TaskPending
+		tasks[index].Error = ""
+		tasks[index].UpdatedAt = time.Now().UTC()
+		return board.write(tasks)
+	}
+	return fmt.Errorf("task %q was not found", id)
+}
+
 func (board *Board) Get(ctx context.Context, id string) (Task, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return Task{}, false, err

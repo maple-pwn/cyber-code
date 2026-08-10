@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
 
-import { protocolVersion, type IDEContext, type PermissionPrompt, type Request, type Response } from "./protocol.js";
+import { protocolCapabilities, protocolSemanticVersion, protocolVersion, type IDEContext, type PermissionPrompt, type Request, type Response } from "./protocol.js";
 
 export interface ManagedProcess extends EventEmitter {
   stdin: Writable;
@@ -22,6 +22,8 @@ export class ProtocolClient extends EventEmitter {
   private buffer = "";
   private nextID = 1;
   private readonly pending = new Map<string, PendingTurn>();
+  private outbound: Request[] = [];
+  private negotiated?: Set<string>;
   private disposed = false;
 
   constructor(private readonly createProcess: ProcessFactory) {
@@ -35,7 +37,7 @@ export class ProtocolClient extends EventEmitter {
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       try {
-        this.ensureProcess().stdin.write(`${JSON.stringify(request)}\n`);
+        this.writeOrQueue(request);
       } catch (error) {
         this.pending.delete(id);
         reject(error instanceof Error ? error : new Error(String(error)));
@@ -72,7 +74,7 @@ export class ProtocolClient extends EventEmitter {
     if (this.disposed) throw new Error("cyber-code client is disposed");
     const id = String(this.nextID++);
     const request = { version: protocolVersion, id, ...body } as Request;
-    this.ensureProcess().stdin.write(`${JSON.stringify(request)}\n`);
+    this.writeOrQueue(request);
     return id;
   }
 
@@ -81,6 +83,8 @@ export class ProtocolClient extends EventEmitter {
     const process = this.createProcess();
     this.process = process;
     this.buffer = "";
+    this.negotiated = undefined;
+    this.outbound = [];
     process.stdout.on("data", (chunk: Buffer | string) => this.handleData(chunk.toString()));
     process.stderr.on("data", (chunk: Buffer | string) => this.emit("stderr", chunk.toString()));
     process.stdin.on("error", (error: Error) => {
@@ -91,7 +95,32 @@ export class ProtocolClient extends EventEmitter {
     process.once("exit", (code: number | null, signal: NodeJS.Signals | null) => {
       this.handleDisconnect(process, new Error(`cyber-code serve exited (code=${String(code)}, signal=${String(signal)})`));
     });
+    const handshake = {
+      version: protocolVersion,
+      id: "handshake",
+      type: "handshake",
+      protocol: protocolSemanticVersion,
+      capabilities: [...protocolCapabilities]
+    } satisfies Request;
+    process.stdin.write(`${JSON.stringify(handshake)}\n`);
     return process;
+  }
+
+  private writeOrQueue(request: Request): void {
+    const process = this.ensureProcess();
+    if (!this.negotiated) {
+      this.outbound.push(request);
+      return;
+    }
+    this.writeNegotiated(process, request);
+  }
+
+  private writeNegotiated(process: ManagedProcess, request: Request): void {
+    if (request.ide_context && !this.negotiated?.has("ide-context")) {
+      const { ide_context: _ignored, ...downgraded } = request;
+      request = downgraded as Request;
+    }
+    process.stdin.write(`${JSON.stringify(request)}\n`);
   }
 
   private handleData(chunk: string): void {
@@ -118,18 +147,41 @@ export class ProtocolClient extends EventEmitter {
   }
 
   private route(response: Response): void {
-    if (response.type === "turn_finished" && response.id) {
+    if (response.type === "handshake") {
+      const [major] = (response.protocol ?? "").split(".");
+      const capabilities = new Set(response.capabilities ?? []);
+      if (major !== String(protocolVersion) || !capabilities.has("base")) {
+        this.emit("protocolError", new Error("incompatible cyber-code protocol handshake"));
+        this.rejectPending(new Error("incompatible cyber-code protocol handshake"));
+        return;
+      }
+      this.negotiated = capabilities;
+      const process = this.process;
+      const queued = this.outbound;
+      this.outbound = [];
+      if (process) for (const request of queued) this.writeNegotiated(process, request);
+    } else if (response.type === "turn_finished" && response.id) {
       const turn = this.pending.get(response.id);
       if (turn) {
         this.pending.delete(response.id);
         turn.resolve({ canceled: response.canceled === true });
       }
-    } else if (response.type === "error" && response.id) {
-      const turn = this.pending.get(response.id);
-      if (turn) {
-        this.pending.delete(response.id);
-        turn.reject(new Error(response.error ?? "cyber-code protocol error"));
+    } else if (response.type === "error") {
+      const error = new Error(response.error ?? "cyber-code protocol error");
+      if (response.id === "handshake") {
+        this.outbound = [];
+        this.rejectPending(error);
+        this.emit("protocolError", error);
+        return;
       }
+      const turn = response.id ? this.pending.get(response.id) : undefined;
+      if (turn) {
+        this.pending.delete(response.id!);
+        turn.reject(error);
+      } else {
+        this.emit("protocolError", error);
+      }
+      return;
     }
     this.emit(response.type, response);
   }
@@ -138,6 +190,8 @@ export class ProtocolClient extends EventEmitter {
     if (this.process !== process) return;
     this.process = undefined;
     this.buffer = "";
+    this.negotiated = undefined;
+    this.outbound = [];
     this.rejectPending(error);
     this.emit("disconnect", error);
   }

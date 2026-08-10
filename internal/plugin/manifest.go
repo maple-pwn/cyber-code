@@ -3,6 +3,8 @@ package plugin
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +12,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+)
+
+const (
+	maxPluginFileBytes  int64 = 16 << 20
+	maxPluginTotalBytes int64 = 64 << 20
 )
 
 var (
@@ -89,6 +97,56 @@ func LoadManifest(root string) (Manifest, error) {
 		return Manifest{}, err
 	}
 	return cloneManifest(manifest), nil
+}
+
+func TreeDigest(root string) (string, error) {
+	resolvedRoot, err := resolveDirectory(root)
+	if err != nil {
+		return "", err
+	}
+	var files []string
+	err = filepath.WalkDir(resolvedRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(resolvedRoot, path)
+		if err != nil {
+			return err
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("plugin symlink is not allowed: %s", relative)
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			return fmt.Errorf("unsupported plugin file: %s", relative)
+		}
+		files = append(files, relative)
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	sort.Strings(files)
+	hash := sha256.New()
+	var total int64
+	for _, relative := range files {
+		data, err := os.ReadFile(filepath.Join(resolvedRoot, relative))
+		if err != nil {
+			return "", err
+		}
+		if int64(len(data)) > maxPluginFileBytes || total+int64(len(data)) > maxPluginTotalBytes {
+			return "", fmt.Errorf("plugin content exceeds size limits")
+		}
+		total += int64(len(data))
+		_, _ = io.WriteString(hash, filepath.ToSlash(relative))
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write(data)
+		_, _ = hash.Write([]byte{0})
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func validateManifest(manifest Manifest) error {

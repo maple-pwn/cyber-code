@@ -1,0 +1,15 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./apps/desktop" },
+    { "path": "./apps/web" },
+    { "path": "./packages/product-app" },
+    { "path": "./packages/protocol" },
+    { "path": "./packages/editor-model" },
+    { "path": "./packages/asset-graph" },
+    { "path": "./packages/runtime-client" },
+    { "path": "./packages/scenario-player" },
+    { "path": "./packages/ui" },
+    { "path": "./packages/i18n" }
+  ]
+}

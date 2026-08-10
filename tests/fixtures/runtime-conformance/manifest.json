@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "supportedProtocolVersions": [1],
+  "cases": [
+    "handshake-negotiation",
+    "replay-after-cursor",
+    "exact-duplicate",
+    "gap-recovery",
+    "snapshot-mismatch",
+    "unknown-event",
+    "command-rejection",
+    "expired-approval",
+    "stale-lease",
+    "cancellation",
+    "reconnect-during-active-execution"
+  ]
+}

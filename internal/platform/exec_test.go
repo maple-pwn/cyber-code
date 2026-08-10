@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -26,18 +27,30 @@ func TestProcessEnvironmentFiltersSecrets(t *testing.T) {
 	}
 }
 
-func TestProcessUsesFixedWorkspaceAndReportsPolicyOnlySandbox(t *testing.T) {
+func TestWindowsShellCommandLinePreservesQuotedExecutable(t *testing.T) {
+	command := `"C:\Program Files\Cyber Code\hook.exe" -test.run=TestHook -- hook-helper`
+	want := `/d /s /c ""C:\Program Files\Cyber Code\hook.exe" -test.run=TestHook -- hook-helper"`
+	if got := windowsShellCommandLine(command); got != want {
+		t.Fatalf("command line = %q, want %q", got, want)
+	}
+}
+
+func TestProcessUsesFixedWorkspaceAndReportsPlatformSandbox(t *testing.T) {
 	workspace := t.TempDir()
 	runner := NewRunner(Options{LookPath: func(string) (string, error) { return "", exec.ErrNotFound }})
-	result, err := runner.Run(context.Background(), ExecRequest{Command: "pwd", Workspace: workspace, Sandbox: true})
+	command := "pwd"
+	if runtime.GOOS == "windows" {
+		command = "cd"
+	}
+	result, err := runner.Run(context.Background(), ExecRequest{Command: command, Workspace: workspace, Sandbox: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	resolved, _ := filepath.EvalSymlinks(workspace)
-	if strings.TrimSpace(result.Stdout) != resolved {
+	if !strings.EqualFold(filepath.Clean(strings.TrimSpace(result.Stdout)), filepath.Clean(resolved)) {
 		t.Fatalf("stdout = %q, want workspace %q", result.Stdout, resolved)
 	}
-	if result.Isolation != IsolationPolicyOnly {
+	if result.Isolation != expectedBestEffortIsolation() {
 		t.Fatalf("isolation = %q", result.Isolation)
 	}
 }

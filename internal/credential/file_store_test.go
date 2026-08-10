@@ -2,7 +2,6 @@ package credential
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -24,13 +23,7 @@ func TestFileStoreWritesPrivateAtomicValues(t *testing.T) {
 	if string(got) != `{"access_token":"secret"}` {
 		t.Fatalf("value = %q", got)
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm()&0o077 != 0 {
-		t.Fatalf("credential file permissions are too broad: %o", info.Mode().Perm())
-	}
+	assertPrivateStorePermissions(t, filepath.Dir(path), path)
 }
 
 func TestFileStoreReplacesExistingValue(t *testing.T) {

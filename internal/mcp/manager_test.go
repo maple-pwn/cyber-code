@@ -82,6 +82,23 @@ func TestManagerConnectsDiscoversAndBridgesToolsAndResources(t *testing.T) {
 	}
 }
 
+func TestManagerRejectsIncompatibleInitializeProtocolVersion(t *testing.T) {
+	transport := newScriptedTransport()
+	transport.callOverride = func(_ context.Context, method string, _ any, result any) error {
+		if method == "initialize" {
+			return assignJSON(result, InitializeResult{ProtocolVersion: "1999-01-01", ServerInfo: Implementation{Name: "old", Version: "1"}})
+		}
+		return nil
+	}
+	manager := newTestManager(t, toolpkg.NewRegistry(), &recordingAuthorizer{decision: permissions.Decision{Behavior: permissions.PermissionBehaviorAllow}}, func(context.Context, ServerConfig) (Transport, error) {
+		return transport, nil
+	})
+	t.Cleanup(func() { _ = manager.Close() })
+	if err := manager.Connect(context.Background(), ServerConfig{Name: "old", Transport: TransportHTTP, URL: "https://example.test"}); err == nil || !errors.Is(err, ErrProtocol) {
+		t.Fatalf("incompatible protocol error = %v", err)
+	}
+}
+
 func TestRegisterResourceToolReadsOnlyDiscoveredResource(t *testing.T) {
 	transport := newScriptedTransport()
 	registry := toolpkg.NewRegistry()

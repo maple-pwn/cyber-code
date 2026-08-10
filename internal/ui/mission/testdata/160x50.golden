@@ -1,0 +1,50 @@
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│CYBER  DEMO  LOCAL  Assessment  RUNNING  cursor 9  Agents 1/1 active                                                                                          │
+│[F5] Pause  [F8] Cancel  [F4] Scope  [F6] Takeover  [F2] Inspector  [Ctrl+T] Agents                                                                           │
+│NARRATIVE STREAM                                                                                         │AGENTS · SCOPE · EVIDENCE                           │
+│12:00  STARTED  Assessment                                                                               │Recon  RUNNING 72%                                  │
+│                                                                                                         │  Scanning routes                                   │
+│┌────────────────────────────┐                                                                           │                                                    │
+││ APPROVAL REQUIRED          │                                                                           │Scope                                               │
+││ Agent: agent-1             │                                                                           │workspace: /lab                                     │
+││ Action: GET /admin         │                                                                           │targets: /lab                                       │
+││ Risk: MEDIUM               │                                                                           │risk ceiling: MEDIUM                                │
+││ [Tab] Focus  Review / Deny │                                                                           │                                                    │
+│└────────────────────────────┘                                                                           │Evidence                                            │
+│                                                                                                         │evidence-1  Observed admin route                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │Asset Graph                                         │
+│                                                                                                         │nodes: 0  edges: 0                                  │
+│                                                                                                         │                                                    │
+│                                                                                                         │Finding                                             │
+│                                                                                                         │Admin access                                        │
+│                                                                                                         │HIGH · VERIFYING · ●●○ MEDIUM                       │
+│                                                                                                         │                                                    │
+│                                                                                                         │Report                                              │
+│                                                                                                         │DRAFT                                               │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│                                                                                                         │                                                    │
+│LIVE  local runtime  Ctrl+T Agents  PgUp/PgDn Scroll                                                                                                          │
+│┌───────────────────────────────────────────────────┐                                                                                                         │
+││ Instruction > Send guidance to the active task... │                                                                                                         │
+│└───────────────────────────────────────────────────┘                                                                                                         │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

@@ -141,6 +141,13 @@ func processResult(command *exec.Cmd, stdout, stderr string, isolation Isolation
 	return ExecResult{Stdout: stdout, Stderr: stderr, ExitCode: exitCode, Isolation: isolation}
 }
 
+// windowsShellCommandLine bypasses os/exec's CommandLineToArgvW quoting. cmd.exe
+// parses its command tail itself and requires an extra outer quote when the
+// command starts with a quoted executable path.
+func windowsShellCommandLine(command string) string {
+	return `/d /s /c "` + command + `"`
+}
+
 var allowedEnvironment = map[string]struct{}{
 	"PATH": {}, "HOME": {}, "USERPROFILE": {}, "SYSTEMROOT": {}, "WINDIR": {}, "COMSPEC": {}, "PATHEXT": {},
 	"TMP": {}, "TEMP": {}, "TMPDIR": {}, "LANG": {}, "LC_ALL": {}, "TERM": {},

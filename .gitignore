@@ -1,4 +1,14 @@
 .worktrees/
+.superpowers/
 /cli
 /coverage.out
 /dist/
+apps/web/dist/
+apps/desktop/dist/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+node_modules/
+coverage/
+test-results/
+playwright-report/
+.vite/

@@ -1,0 +1,251 @@
+import {
+  project,
+  validateEvent,
+  type ProductState,
+  type RawProductEvent,
+} from '@cyber/protocol';
+
+import type { RuntimeCommand, RuntimeSnapshot } from './index';
+
+export type RuntimeSourceMode = 'demo' | 'local' | 'remote';
+
+export type RuntimeSourceMetadata = {
+  mode: RuntimeSourceMode;
+  runtimeId: string;
+  principal: string;
+  capabilities: string[];
+};
+
+export type RuntimeHandshakeRequest = {
+  supportedProtocolVersions: number[];
+  afterCursor: number;
+};
+
+export type RuntimeHandshakeResponse = {
+  protocolVersion: number;
+  runtimeId: string;
+  principal: string;
+  role: string;
+  capabilities: string[];
+  source: RuntimeSourceMetadata;
+};
+
+export type RuntimeCommandEnvelope = {
+  idempotencyKey: string;
+  command: RuntimeCommand;
+};
+
+export type RuntimeCommandReceipt =
+  | { idempotencyKey: string; status: 'accepted'; errorCode?: never }
+  | { idempotencyKey: string; status: 'rejected'; errorCode: string };
+
+const nonEmpty = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0;
+
+const auditableText = (value: unknown): value is string => {
+  if (!nonEmpty(value)) return false;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f)
+      || codePoint === 0x2028 || codePoint === 0x2029) return false;
+  }
+  return true;
+};
+const safeTerminalIdentifier = (value: unknown): value is string =>
+  typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+
+const stringList = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every(auditableText);
+
+const safeCursor = (value: unknown): value is number =>
+  Number.isSafeInteger(value) && (value as number) >= 0;
+const positiveInteger = (value: unknown, maximum = Number.MAX_SAFE_INTEGER): value is number =>
+  Number.isSafeInteger(value) && (value as number) > 0 && (value as number) <= maximum;
+const terminalSize = (value: unknown): value is number => positiveInteger(value, 1000);
+const decodedBase64Length = (value: string): number | null => {
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) return null;
+  return (value.length / 4) * 3 - (value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0);
+};
+const editorByteLength = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= 64 * 1024 * 1024;
+const inputBytes = (value: unknown): value is Uint8Array => ArrayBuffer.isView(value)
+  && Object.prototype.toString.call(value) === '[object Uint8Array]';
+const editorDigest = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+const editorReference = (value: unknown): value is Record<string, unknown> => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const reference = value as Record<string, unknown>;
+  return exactKeys(reference, ['findingId', 'evidenceId', 'startLine', 'endLine'])
+    && auditableText(reference.findingId) && auditableText(reference.evidenceId)
+    && positiveInteger(reference.startLine) && positiveInteger(reference.endLine)
+    && (reference.startLine as number) <= (reference.endLine as number);
+};
+
+const exactKeys = (value: Record<string, unknown>, required: string[], optional: string[] = []): boolean => {
+  const allowed = new Set([...required, ...optional]);
+  return required.every((key) => Object.hasOwn(value, key))
+    && Object.keys(value).every((key) => allowed.has(key));
+};
+
+const validCommand = (value: unknown): value is RuntimeCommand => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const command = value as Record<string, unknown>;
+  switch (command.type) {
+    case 'task.create':
+      return exactKeys(command, ['type', 'objective', 'runtimeId'], ['workspace', 'inputs'])
+        && nonEmpty(command.objective)
+        && nonEmpty(command.runtimeId)
+        && (command.workspace === undefined || nonEmpty(command.workspace))
+        && (command.inputs === undefined || (Array.isArray(command.inputs) && command.inputs.length > 0 && command.inputs.length <= 64
+          && command.inputs.every((input) => input !== null && typeof input === 'object' && !Array.isArray(input)
+            && exactKeys(input as Record<string, unknown>, ['filename', 'mediaType', 'bytes'])
+            && auditableText((input as Record<string, unknown>).filename)
+            && auditableText((input as Record<string, unknown>).mediaType)
+            && inputBytes((input as Record<string, unknown>).bytes)
+            && ((input as Record<string, unknown>).bytes as Uint8Array).byteLength > 0
+            && ((input as Record<string, unknown>).bytes as Uint8Array).byteLength <= 64 * 1024 * 1024)));
+    case 'scope.confirm':
+      return exactKeys(command, ['type', 'scopeId']) && nonEmpty(command.scopeId);
+    case 'task.pause':
+    case 'task.resume':
+    case 'task.cancel':
+      return exactKeys(command, ['type']);
+    case 'approval.respond':
+      return exactKeys(command, ['type', 'challengeId', 'decision'])
+        && nonEmpty(command.challengeId)
+        && (command.decision === 'allow_once' || command.decision === 'deny');
+    case 'control.take':
+      return exactKeys(command, ['type', 'expectedRevision'])
+        && Number.isSafeInteger(command.expectedRevision)
+        && (command.expectedRevision as number) >= 0;
+    case 'instruction.send':
+      return exactKeys(command, ['type', 'content']) && nonEmpty(command.content);
+    case 'terminal.open':
+      return exactKeys(command, ['type', 'sessionId', 'profileId', 'workingDirectory', 'scopeId', 'columns', 'rows', 'outputLimitBytes', 'expectedLeaseRevision'])
+        && auditableText(command.sessionId) && safeTerminalIdentifier(command.profileId) && auditableText(command.workingDirectory) && auditableText(command.scopeId)
+        && terminalSize(command.columns) && terminalSize(command.rows) && positiveInteger(command.outputLimitBytes, 64 * 1024 * 1024)
+        && positiveInteger(command.expectedLeaseRevision);
+    case 'terminal.input':
+      return exactKeys(command, ['type', 'sessionId', 'sequence', 'data', 'byteLength', 'expectedLeaseRevision'])
+        && auditableText(command.sessionId) && positiveInteger(command.sequence) && positiveInteger(command.byteLength, 1024 * 1024)
+        && typeof command.data === 'string' && decodedBase64Length(command.data) === command.byteLength
+        && positiveInteger(command.expectedLeaseRevision);
+    case 'terminal.resize':
+      return exactKeys(command, ['type', 'sessionId', 'columns', 'rows', 'expectedLeaseRevision'])
+        && auditableText(command.sessionId) && terminalSize(command.columns) && terminalSize(command.rows)
+        && positiveInteger(command.expectedLeaseRevision);
+    case 'terminal.cancel':
+      return exactKeys(command, ['type', 'sessionId', 'expectedLeaseRevision'])
+        && auditableText(command.sessionId) && positiveInteger(command.expectedLeaseRevision);
+    case 'editor.open':
+      return exactKeys(command, ['type', 'draftId', 'path', 'scopeId', 'evidenceReferences', 'expectedLeaseRevision'])
+        && auditableText(command.draftId) && auditableText(command.path) && auditableText(command.scopeId)
+        && Array.isArray(command.evidenceReferences) && command.evidenceReferences.every(editorReference)
+        && positiveInteger(command.expectedLeaseRevision);
+    case 'editor.save': {
+      const decodedLength = typeof command.data === 'string' ? decodedBase64Length(command.data) : null;
+      return exactKeys(command, ['type', 'draftId', 'revision', 'baseSha256', 'data', 'byteLength', 'expectedLeaseRevision'])
+        && auditableText(command.draftId) && positiveInteger(command.revision) && editorDigest(command.baseSha256)
+        && typeof command.data === 'string' && editorByteLength(command.byteLength) && decodedLength === command.byteLength
+        && positiveInteger(command.expectedLeaseRevision);
+    }
+    case 'editor.apply':
+      return exactKeys(command, ['type', 'draftId', 'revision', 'proposedSha256', 'expectedLeaseRevision'])
+        && auditableText(command.draftId) && positiveInteger(command.revision) && editorDigest(command.proposedSha256)
+        && positiveInteger(command.expectedLeaseRevision);
+    case 'editor.discard':
+      return exactKeys(command, ['type', 'draftId', 'expectedLeaseRevision'])
+        && auditableText(command.draftId) && positiveInteger(command.expectedLeaseRevision);
+    default:
+      return false;
+  }
+};
+
+export function validateSourceMetadata(value: RuntimeSourceMetadata): RuntimeSourceMetadata {
+  if (!['demo', 'local', 'remote'].includes(value.mode)
+    || !auditableText(value.runtimeId)
+    || !auditableText(value.principal)
+    || !stringList(value.capabilities)) {
+    throw new Error('invalid_source_metadata');
+  }
+  return value;
+}
+
+export function negotiateHandshake(
+  request: RuntimeHandshakeRequest,
+  response: RuntimeHandshakeResponse,
+): RuntimeSourceMetadata {
+  if (!Array.isArray(request.supportedProtocolVersions)
+    || request.supportedProtocolVersions.length === 0
+    || !request.supportedProtocolVersions.every((version) => Number.isSafeInteger(version) && version > 0)
+    || !safeCursor(request.afterCursor)) {
+    throw new Error('invalid_handshake_request');
+  }
+  if (!request.supportedProtocolVersions.includes(response.protocolVersion)) {
+    throw new Error('incompatible');
+  }
+  if (!auditableText(response.runtimeId)
+    || !auditableText(response.principal)
+    || !auditableText(response.role)
+    || !stringList(response.capabilities)) {
+    throw new Error('invalid_handshake_response');
+  }
+  const metadata = validateSourceMetadata(response.source);
+  if (metadata.runtimeId !== response.runtimeId
+    || metadata.principal !== response.principal
+    || JSON.stringify(metadata.capabilities) !== JSON.stringify(response.capabilities)) {
+    throw new Error('runtime_identity_mismatch');
+  }
+  return metadata;
+}
+
+export function classifyEventSequence(
+  initial: ProductState,
+  rawEvents: unknown[],
+): { state: ProductState; outcomes: ('applied' | 'duplicate' | 'resync-required')[] } {
+  let state = initial;
+  const outcomes: ('applied' | 'duplicate' | 'resync-required')[] = [];
+  for (const raw of rawEvents) {
+    const result = project(state, validateEvent(raw as RawProductEvent));
+    outcomes.push(result.kind);
+    if (result.kind !== 'resync-required') state = result.state;
+  }
+  return { state, outcomes };
+}
+
+export function validateRuntimeSnapshot(
+  snapshot: RuntimeSnapshot,
+  lastTrustedCursor: number,
+): RuntimeSnapshot {
+  if (!safeCursor(snapshot.cursor)) throw new Error('invalid_snapshot_cursor');
+  if (!safeCursor(lastTrustedCursor)) throw new Error('invalid_trusted_cursor');
+  if (snapshot.cursor < lastTrustedCursor) throw new Error('snapshot_cursor_behind');
+  if (snapshot.state.committedCursor !== snapshot.cursor) throw new Error('snapshot_cursor_mismatch');
+  return snapshot;
+}
+
+export function validateCommandEnvelope(envelope: RuntimeCommandEnvelope): RuntimeCommandEnvelope {
+  if (!nonEmpty(envelope.idempotencyKey) || !validCommand(envelope.command)) {
+    throw new Error('invalid_command_envelope');
+  }
+  return envelope;
+}
+
+export function validateCommandReceipt(
+  receipt: RuntimeCommandReceipt,
+  envelope: RuntimeCommandEnvelope,
+): RuntimeCommandReceipt {
+  validateCommandEnvelope(envelope);
+  if (!nonEmpty(receipt.idempotencyKey)
+    || (receipt.status !== 'accepted' && receipt.status !== 'rejected')) {
+    throw new Error('invalid_command_receipt');
+  }
+  if (receipt.idempotencyKey !== envelope.idempotencyKey) {
+    throw new Error('receipt_idempotency_mismatch');
+  }
+  if (receipt.status === 'rejected' && !nonEmpty(receipt.errorCode)) {
+    throw new Error('invalid_command_receipt');
+  }
+  if (receipt.status === 'accepted' && 'errorCode' in receipt && receipt.errorCode !== undefined) {
+    throw new Error('invalid_command_receipt');
+  }
+  return receipt;
+}

@@ -14,18 +14,22 @@ import (
 )
 
 type Server struct {
-	runtime     Runtime
-	codec       Codec
-	mu          sync.Mutex
-	cancel      context.CancelFunc
-	running     bool
-	runs        sync.WaitGroup
-	permissions *PermissionBroker
+	runtime          Runtime
+	codec            Codec
+	mu               sync.Mutex
+	cancel           context.CancelFunc
+	running          bool
+	runs             sync.WaitGroup
+	permissions      *PermissionBroker
+	requireHandshake bool
+	capabilities     []string
 }
 
 type ServerOptions struct {
-	MaxMessageBytes int
-	Permissions     *PermissionBroker
+	MaxMessageBytes  int
+	Permissions      *PermissionBroker
+	RequireHandshake bool
+	Capabilities     []string
 }
 
 func NewServer(runtime Runtime, maxMessageBytes int) (*Server, error) {
@@ -36,7 +40,15 @@ func NewServerWithOptions(runtime Runtime, options ServerOptions) (*Server, erro
 	if runtime == nil {
 		return nil, errors.New("protocol runtime is required")
 	}
-	return &Server{runtime: runtime, codec: NewCodec(options.MaxMessageBytes), permissions: options.Permissions}, nil
+	if len(options.Capabilities) == 0 {
+		options.Capabilities = []string{"base", "permissions", "ide-context", "diff"}
+	}
+	return &Server{runtime: runtime, codec: NewCodec(options.MaxMessageBytes), permissions: options.Permissions, requireHandshake: options.RequireHandshake, capabilities: append([]string(nil), options.Capabilities...)}, nil
+}
+
+type connectionNegotiation struct {
+	negotiated   bool
+	capabilities map[string]bool
 }
 
 // Serve handles newline-delimited JSON requests until the peer disconnects.
@@ -71,6 +83,12 @@ func (server *Server) Serve(ctx context.Context, input io.Reader, output io.Writ
 	}()
 	if server.permissions != nil {
 		go server.forwardPermissions(connectionCtx, responses)
+	}
+	negotiation := &connectionNegotiation{negotiated: !server.requireHandshake, capabilities: make(map[string]bool)}
+	if negotiation.negotiated {
+		for _, capability := range server.capabilities {
+			negotiation.capabilities[capability] = true
+		}
 	}
 	type decodeResult struct {
 		request Request
@@ -131,7 +149,7 @@ func (server *Server) Serve(ctx context.Context, input io.Reader, output io.Writ
 			return ctx.Err()
 		default:
 		}
-		if err := server.handle(connectionCtx, responses, request); err != nil {
+		if err := server.handle(connectionCtx, responses, request, negotiation); err != nil {
 			if sendErr := responses.Send(Response{ID: request.ID, Type: "error", Error: err.Error()}); sendErr != nil {
 				return sendErr
 			}
@@ -139,8 +157,29 @@ func (server *Server) Serve(ctx context.Context, input io.Reader, output io.Writ
 	}
 }
 
-func (server *Server) handle(parent context.Context, output *connectionOutput, request Request) error {
+func (server *Server) handle(parent context.Context, output *connectionOutput, request Request, negotiation *connectionNegotiation) error {
+	if request.Type != "handshake" && !negotiation.negotiated {
+		return errors.New("protocol handshake is required")
+	}
 	switch request.Type {
+	case "handshake":
+		if negotiation.negotiated && server.requireHandshake {
+			return errors.New("protocol handshake is already complete")
+		}
+		remote, err := ParseVersion(request.Protocol)
+		if err != nil {
+			return err
+		}
+		result, err := Negotiate(CurrentVersion, remote, server.capabilities, request.Capabilities)
+		if err != nil {
+			return err
+		}
+		negotiation.negotiated = true
+		negotiation.capabilities = make(map[string]bool, len(result.Capabilities))
+		for _, capability := range result.Capabilities {
+			negotiation.capabilities[capability] = true
+		}
+		return output.Send(Response{ID: request.ID, Type: "handshake", Protocol: result.Version.String(), Capabilities: result.Capabilities})
 	case "status":
 		server.mu.Lock()
 		running := server.running
@@ -152,6 +191,9 @@ func (server *Server) handle(parent context.Context, output *connectionOutput, r
 	case "start", "input":
 		if request.Prompt == "" {
 			return errors.New("prompt is required")
+		}
+		if request.IDEContext != nil && !negotiation.capabilities["ide-context"] {
+			return errors.New("ide-context capability was not negotiated")
 		}
 		server.mu.Lock()
 		if server.running {
@@ -171,10 +213,13 @@ func (server *Server) handle(parent context.Context, output *connectionOutput, r
 		server.runs.Add(1)
 		go func() {
 			defer server.runs.Done()
-			server.forwardEvents(output, request.ID, turnCtx, request.Prompt, request.IDEContext)
+			server.forwardEvents(output, request.ID, turnCtx, request.Prompt, request.IDEContext, negotiation.capabilities)
 		}()
 		return nil
 	case "permission":
+		if !negotiation.capabilities["permissions"] {
+			return errors.New("permissions capability was not negotiated")
+		}
 		if server.permissions == nil {
 			return errors.New("permission responses are unavailable")
 		}
@@ -211,7 +256,7 @@ func (server *Server) forwardPermissions(ctx context.Context, output *connection
 	}
 }
 
-func (server *Server) forwardEvents(output *connectionOutput, id string, ctx context.Context, prompt string, ide *IDEContext) {
+func (server *Server) forwardEvents(output *connectionOutput, id string, ctx context.Context, prompt string, ide *IDEContext, capabilities map[string]bool) {
 	defer func() {
 		server.mu.Lock()
 		server.running = false
@@ -227,7 +272,7 @@ func (server *Server) forwardEvents(output *connectionOutput, id string, ctx con
 		events = server.runtime.Run(ctx, prompt)
 	}
 	for event := range events {
-		if event.Type == core.EventToolResult && event.ToolResult != nil && event.ToolResult.Diff != nil {
+		if capabilities["diff"] && event.Type == core.EventToolResult && event.ToolResult != nil && event.ToolResult.Diff != nil {
 			diff := event.ToolResult.Diff
 			response := Response{ID: id, Type: "diff", Diff: &IDEDiff{Path: diff.Path, OldText: diff.OldText, NewText: diff.NewText}}
 			if diffMayFitFrame(diff, server.codec.maxBytes) {

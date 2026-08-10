@@ -16,6 +16,10 @@ const (
 
 var moveFileEx = syscall.NewLazyDLL("kernel32.dll").NewProc("MoveFileExW")
 
+// FILE_ALL_ACCESS is not exported by x/sys/windows. Generic access bits must
+// be mapped before they are stored in a file-object ACE.
+const privatePathFullControl = 0x1F01FF
+
 func replaceSnapshot(source, destination string) error {
 	sourcePointer, err := syscall.UTF16PtrFromString(source)
 	if err != nil {
@@ -36,18 +40,21 @@ func replaceSnapshot(source, destination string) error {
 	return nil
 }
 
-func restrictDirectory(path string) error { return restrictPath(path) }
-func restrictFile(path string) error      { return restrictPath(path) }
+func restrictDirectory(path string) error {
+	return restrictPath(path, windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT)
+}
 
-func restrictPath(path string) error {
+func restrictFile(path string) error { return restrictPath(path, windows.NO_INHERITANCE) }
+
+func restrictPath(path string, inheritance uint32) error {
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
 		return err
 	}
 	acl, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{{
-		AccessPermissions: windows.GENERIC_ALL,
+		AccessPermissions: privatePathFullControl,
 		AccessMode:        windows.SET_ACCESS,
-		Inheritance:       windows.NO_INHERITANCE,
+		Inheritance:       inheritance,
 		Trustee: windows.TRUSTEE{
 			TrusteeForm:  windows.TRUSTEE_IS_SID,
 			TrusteeType:  windows.TRUSTEE_IS_USER,
