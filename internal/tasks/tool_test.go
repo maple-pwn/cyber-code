@@ -281,12 +281,16 @@ func TestTaskServiceRecoversAbandonedLeaseAndInterruptedBoardTask(t *testing.T) 
 	for time.Now().Before(deadline) {
 		result, resultErr := service.result("task-interrupted")
 		if resultErr == nil && result.Status == TaskStatusCompleted {
+			items := restartedQueue.Snapshot()
+			if len(items) != 1 || items[0].Status != QueueCompleted {
+				time.Sleep(time.Millisecond)
+				continue
+			}
 			stored, ok, boardErr := restartedBoard.Get(context.Background(), "task-interrupted")
 			if boardErr != nil || !ok || stored.Status != collaboration.TaskCompleted {
 				t.Fatalf("board task=%#v ok=%t err=%v", stored, ok, boardErr)
 			}
-			items := restartedQueue.Snapshot()
-			if len(items) != 1 || items[0].Status != QueueCompleted || items[0].Attempts != 2 {
+			if items[0].Attempts != 2 {
 				t.Fatalf("recovered queue=%#v", items)
 			}
 			return
