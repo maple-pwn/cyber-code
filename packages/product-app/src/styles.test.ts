@@ -31,4 +31,9 @@ describe('report page containment', () => {
   test('keeps the asset graph visible on narrow screens for internal scrolling', () => {
     expect(css).toMatch(/@media \(max-width: 767px\)\s*\{[\s\S]*?\.asset-graph-canvas\s*\{\s*display:\s*block;/s);
   });
+
+  test('contains the graph and inspector inside a responsive workspace grid', () => {
+    expect(css).toMatch(/\.asset-graph-workspace\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(240px, 320px\);/s);
+    expect(css).toMatch(/\.asset-graph-canvas\s*\{[^}]*max-width:\s*100%;[^}]*overflow:\s*auto;/s);
+  });
 });

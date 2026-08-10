@@ -112,7 +112,7 @@ export function filterAssetGraph(graph: AssetGraph, filter: AssetGraphFilter = {
   const nodes = graph.nodes.filter((node) => {
     if (kinds && !kinds.has(node.kind)) return false;
     if (statuses && !statuses.has(node.status)) return false;
-    if (query && ![node.id, node.kind, node.label].some((value) => value.toLocaleLowerCase().includes(query))) return false;
+    if (query && ![node.id, node.kind, node.label, JSON.stringify(node.attributes)].some((value) => value.toLocaleLowerCase().includes(query))) return false;
     return true;
   });
   const nodeIds = new Set(nodes.map((node) => node.id));
