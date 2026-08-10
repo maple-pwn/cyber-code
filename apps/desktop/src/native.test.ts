@@ -1,5 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 
+import type { LocalRequest } from '@cyber/runtime-client';
+
 import { createNativeClient, type NativeOperation, type NotificationKind } from './native';
 
 describe('desktop native capability boundary', () => {
@@ -177,5 +179,87 @@ describe('desktop native capability boundary', () => {
     const client = createNativeClient(vi.fn().mockResolvedValue({ stopped: 'yes' }));
 
     await expect(client.runtimeStop()).rejects.toThrow('invalid runtime_stop response');
+  });
+
+  test('starts and stops the bundled cyber-agent through validated receipts', async () => {
+    const invoke = vi.fn()
+      .mockResolvedValueOnce({ endpoint: 'http://127.0.0.1:43210', token: 'session-token', version: '1.0.0' })
+      .mockResolvedValueOnce({ stopped: true });
+    const client = createNativeClient(invoke);
+
+    await expect(client.cyberAgentStart()).resolves.toEqual({
+      endpoint: 'http://127.0.0.1:43210',
+      token: 'session-token',
+      version: '1.0.0',
+    });
+    await expect(client.cyberAgentStop()).resolves.toEqual({ stopped: true });
+    expect(invoke.mock.calls).toEqual([
+      ['cyber_agent_start'],
+      ['cyber_agent_stop'],
+    ]);
+  });
+
+  test('rejects malformed cyber-agent lifecycle receipts', async () => {
+    const client = createNativeClient(vi.fn()
+      .mockResolvedValueOnce({ endpoint: 'http://127.0.0.1:43210', token: '', version: '1.0.0' })
+      .mockResolvedValueOnce({ stopped: 'yes' }));
+
+    await expect(client.cyberAgentStart()).rejects.toThrow('invalid cyber_agent_start response');
+    await expect(client.cyberAgentStop()).rejects.toThrow('invalid cyber_agent_stop response');
+  });
+
+  test('rejects malformed native input selections', async () => {
+    const client = createNativeClient(vi.fn().mockResolvedValue([
+      { filename: 'api.yaml', mediaType: 'application/yaml', bytes: [1, -1, 256] },
+    ]));
+
+    await expect(client.pickInputs()).rejects.toThrow('invalid pick_inputs response');
+  });
+
+  test('rejects empty native requests before crossing the IPC boundary', async () => {
+    const invoke = vi.fn();
+    const client = createNativeClient(invoke);
+
+    await expect(client.storeSecret({ id: ' ', secret: 'secret' })).rejects.toThrow('invalid store_secret request');
+    await expect(client.loadSecret(' ')).rejects.toThrow('invalid load_secret request');
+    await expect(client.deleteSecret(' ')).rejects.toThrow('invalid delete_secret request');
+    await expect(client.notify({ kind: 'task_succeeded', title: ' ', body: 'Done' })).rejects.toThrow('invalid notify request');
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  test('rejects malformed native host responses across capability methods', async () => {
+    const invoke = vi.fn()
+      .mockResolvedValueOnce({ operations: ['capabilities'] })
+      .mockResolvedValueOnce({ id: 'remote-primary', secret: '' })
+      .mockResolvedValueOnce({ id: 'remote-primary', deleted: false })
+      .mockResolvedValueOnce({ accepted: false })
+      .mockResolvedValueOnce({ status: 'written' })
+      .mockResolvedValueOnce({ filename: 'not-an-array' });
+    const client = createNativeClient(invoke);
+
+    await expect(client.capabilities()).rejects.toThrow('invalid capabilities response');
+    await expect(client.loadSecret('remote-primary')).rejects.toThrow('invalid load_secret response');
+    await expect(client.deleteSecret('remote-primary')).rejects.toThrow('invalid delete_secret response');
+    await expect(client.notify({ kind: 'task_failed', title: 'Task failed', body: 'Review logs' }))
+      .rejects.toThrow('invalid notify response');
+    await expect(client.exportReport({ suggestedName: 'report.md', bytes: new Uint8Array([1]) }))
+      .rejects.toThrow('invalid export_report response');
+    await expect(client.pickInputs()).rejects.toThrow('invalid pick_inputs response');
+  });
+
+  test('validates every bounded runtime request variant before invoking the host', async () => {
+    const invoke = vi.fn().mockResolvedValue({ ok: true });
+    const client = createNativeClient(invoke);
+    const requests: LocalRequest[] = [
+      { id: 'handshake-1', type: 'handshake', handshake: { supportedProtocolVersions: [1], afterCursor: 0 } },
+      { id: 'snapshot-1', type: 'snapshot' },
+      { id: 'command-1', type: 'command', command: { idempotencyKey: 'pause-1', command: { type: 'task.pause' } } },
+    ];
+
+    for (const request of requests) await client.runtimeRequest(request);
+
+    expect(invoke).toHaveBeenCalledTimes(requests.length);
+    await expect(client.runtimeRequest({ id: 'unknown-1', type: 'unknown' } as never))
+      .rejects.toThrow('invalid runtime_request request');
   });
 });
