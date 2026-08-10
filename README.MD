@@ -2,9 +2,9 @@
 
 # cyber-code
 
-**面向真实开发工作流的本地 Go 编码 Agent**
+**面向开发与网络安全工作的本地智能体平台**
 
-统一支持 Anthropic 原生 API 与 OpenAI-compatible API，内置流式 TUI、安全工具链、可恢复会话和本机集成协议。
+`cyber-code` 是用户交互与任务编排层，`cyber-agent` 是授权安全执行运行时。两者组成同一个产品：前者负责 TUI/Web/Desktop/VS Code、Provider、会话和审批，后者负责 Scope、工具执行、子 Agent、证据链、发现与报告。
 
 [![Go](https://img.shields.io/badge/Go-1.26.5-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev/)
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20macOS-4C8BF5?style=flat-square)
@@ -25,7 +25,25 @@
 
 cyber-code 适合希望在本机运行、审计和扩展 Agent 工作流的开发者。它不是 Anthropic Claude Code 的官方客户端，也不承诺复制任何私有服务或提示词。公开能力、部分实现和明确不在范围内的内容统一记录在[能力矩阵](docs/capability-matrix.md)；提交问题前请先确认问题能在当前平台和配置下复现。
 
-## 为什么选择 cyber-code
+## 一个产品，两层协作
+
+cyber-code 不把安全评估实现为一个孤立的 Demo。它通过统一的 Session API 和事件协议连接 cyber-agent，所有客户端都投影运行时的权威状态；同一任务可以从 TUI、Web、Desktop 或 VS Code 发起，并在授权范围内持续记录可复核的执行证据。
+
+| 层 | 组件 | 主要职责 |
+| --- | --- | --- |
+| 交互与编排 | **cyber-code** | Provider 适配、流式对话、工具/权限审批、会话恢复、项目上下文、TUI/Web/Desktop/VS Code 客户端。 |
+| 安全执行与事实源 | **cyber-agent** | 授权 Scope、资产与任务状态、工具回执、Evidence、Finding、子 Agent 协作、报告冻结与导出。 |
+| 共享协议 | `session.events.v1` / `skills.lifecycle.v1` | 统一事件、游标、重连和技能生命周期；本地与远程 Runtime 使用同一契约。 |
+
+典型安全评估链路如下：
+
+```text
+用户目标 -> cyber-code 创建任务 -> cyber-agent 提议并确认 Scope
+        -> 运行授权工具/子 Agent -> 写入 Tool Receipt 与 Evidence
+        -> 生成 Finding -> 冻结 Report -> 客户端展示、备注与导出
+```
+
+### 选择 cyber-code 的理由
 
 | | 能力 | 说明 |
 | --- | --- | --- |
