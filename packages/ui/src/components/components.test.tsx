@@ -328,6 +328,25 @@ describe('workflow components', () => {
     expect(screen.getByRole('img', { name: 'Evidence coverage 100%' })).toBeInTheDocument();
   });
 
+  test('keeps report navigation and charts free of nested landmark violations', async () => {
+    const { container } = render(<main><ReportEditor
+        report={{ id: 'report-a11y', taskId: 'task-1', version: 0, status: 'draft', narrative: '## Assessment', recommendations: '', humanNotes: '', findings: [{ finding, evidence: [evidence], included: true }] }}
+        findings={{ [finding.id]: finding }}
+        evidence={{ [evidence.id]: evidence }}
+        t={t}
+        onNotesChange={vi.fn()}
+        onRecommendationsChange={vi.fn()}
+        onExcludeFinding={vi.fn()}
+        onFreeze={vi.fn()}
+        onExport={vi.fn()}
+      /></main>);
+
+    expect(container.querySelector('aside.cyber-report-sidebar')).not.toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Report sections' })).toBeInTheDocument();
+    const results = await axe(container, { rules: { 'color-contrast': { enabled: false } } });
+    expect(results.violations).toEqual([]);
+  });
+
   test('filters and dispatches command palette choices', async () => {
     const onCommand = vi.fn();
     const onOpenChange = vi.fn();

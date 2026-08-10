@@ -78,13 +78,13 @@ export function ReportEditor({ report, findings, evidence, generatedAt, t, onNot
       <p>{t.t('report.summary', { confirmed: confirmedFindings.length, findings: includedFindings.length, evidence: Object.keys(evidence).length })}</p>
     </header>
     <div className="cyber-report-layout">
-      <aside className="cyber-report-sidebar">
+      <div className="cyber-report-sidebar">
         {sections.length > 0 && <nav className="cyber-report-sections" aria-label={t.t('report.sections')}><strong>{t.t('report.sections')}</strong><ul>{sections.map((section) => <li key={section.id} data-level={section.level}><a href={`#${section.id}`}>{section.title}</a></li>)}</ul></nav>}
         <div className="cyber-report-charts">
           <section className="cyber-report-chart" aria-labelledby="report-severity-title"><h3 id="report-severity-title">{t.t('report.severity')}</h3><div role="img" aria-label={t.t('report.severity')} className="cyber-severity-bars">{severityCounts.length > 0 ? severityCounts.map((entry) => <div className="cyber-severity-row" key={entry.severity}><span>{entry.severity[0].toUpperCase() + entry.severity.slice(1)}</span><i style={{ '--cyber-bar-size': `${Math.max(12, (entry.count / Math.max(1, includedFindings.length)) * 100)}%` } as CSSProperties} /><b>{entry.count}</b></div>) : <span>{t.t('common.none')}</span>}</div></section>
           <section className="cyber-report-chart" aria-labelledby="report-coverage-title"><h3 id="report-coverage-title">{t.t('report.evidenceCoverage', { percent: evidenceCoverage })}</h3><div role="img" aria-label={t.t('report.evidenceCoverage', { percent: evidenceCoverage })} className="cyber-coverage-meter"><i style={{ '--cyber-bar-size': `${evidenceCoverage}%` } as CSSProperties} /></div></section>
         </div>
-      </aside>
+      </div>
       <div className="cyber-report-body">
         <div className="cyber-report-narrative">
           <span className="cyber-provenance">{t.t('evidence.generated')}</span>
