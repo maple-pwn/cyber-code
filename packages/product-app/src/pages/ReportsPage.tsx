@@ -5,6 +5,8 @@ import { exportReport, freezeReport, validateReport, type FrozenReport, type Pro
 import type { RuntimeSourceMetadata } from '@cyber/runtime-client';
 import { ReportEditor } from '@cyber/ui';
 
+type ReportExportFile = (request: { suggestedName: string; bytes: Uint8Array }) => Promise<{ status: 'exported' | 'cancelled' }>;
+
 const createDraft = (product: ProductState): ReportState => ({
   id: product.report?.id ?? 'report-1',
   taskId: product.task?.id ?? '',
@@ -30,7 +32,7 @@ const reportGeneratedAt = (product: ProductState, reportId: string): string | un
   return undefined;
 };
 
-export function ReportsPage({ product, source = null, t }: { product: ProductState; source?: RuntimeSourceMetadata | null; t: Translator }) {
+export function ReportsPage({ product, source = null, t, onExportFile }: { product: ProductState; source?: RuntimeSourceMetadata | null; t: Translator; onExportFile?: ReportExportFile }) {
   const [report, setReport] = useState<ReportState>(() => product.report ?? createDraft(product));
   const [dirty, setDirty] = useState(false);
   useEffect(() => {
@@ -47,14 +49,21 @@ export function ReportsPage({ product, source = null, t }: { product: ProductSta
     }));
   };
   const freeze = () => { setDirty(true); setReport(freezeReport(report, product.evidence)); };
+  const edit = () => { setDirty(true); setReport((current) => structuredClone({ ...current, status: 'draft' as const })); };
   const download = async (format: ReportFormat) => {
     if (report.status !== 'frozen') return;
     const blob = await exportReport(report as FrozenReport, format, { source });
+    const suggestedName = `${report.id}-v${report.version}.${format === 'markdown' ? 'md' : format}`;
+    if (onExportFile) {
+      const bytes = await new Response(blob).arrayBuffer();
+      await onExportFile({ suggestedName, bytes: new Uint8Array(bytes) });
+      return;
+    }
     if (typeof URL.createObjectURL !== 'function') return;
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `${report.id}-v${report.version}.${format === 'markdown' ? 'md' : format}`;
+    anchor.download = suggestedName;
     anchor.click();
     URL.revokeObjectURL(url);
   };
@@ -81,6 +90,7 @@ export function ReportsPage({ product, source = null, t }: { product: ProductSta
         onRecommendationsChange={(recommendations) => { setDirty(true); setReport((current) => ({ ...current, recommendations })); }}
         onExcludeFinding={setExclusion}
         onFreeze={freeze}
+        onEdit={edit}
         onExport={(format) => void download(format)}
       /></div>
     {!validation.valid && <p role="alert">{t.t('report.validationFailed')}</p>}

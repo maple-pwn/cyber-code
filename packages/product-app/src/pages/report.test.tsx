@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import { createTranslator } from '@cyber/i18n';
 import { initialProductState, type ProductState } from '@cyber/protocol';
@@ -61,5 +61,40 @@ describe('Finding, Evidence, and Reports pages', () => {
     render(<ReportsPage product={denied} t={t} />);
     expect(screen.getByText('Verification limitation')).toBeInTheDocument();
     expect(screen.getByText('Verification denied by operator')).toBeInTheDocument();
+  });
+
+  test('allows a frozen report to be reopened for human notes and recommendations', async () => {
+    const frozen = product();
+    frozen.report = {
+      id: 'report-1', taskId: 'task-1', version: 1, status: 'frozen',
+      narrative: '# Assessment', recommendations: '', humanNotes: '',
+      findings: [{ finding: frozen.findings['finding-1']!, evidence: [frozen.evidence['evidence-1']!], included: true }],
+    };
+    Object.freeze(frozen.report);
+    render(<ReportsPage product={frozen} source={source} t={t} />);
+
+    expect(screen.getByRole('button', { name: 'Edit report' })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Analysis notes/)).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Edit report' }));
+    expect(screen.getByLabelText(/Analysis notes/)).toBeEnabled();
+    await userEvent.type(screen.getByLabelText(/Analysis notes/), 'Reviewed by operator');
+    await userEvent.type(screen.getByLabelText('Recommendations'), 'Rotate exposed credentials');
+    expect(screen.getByLabelText(/Analysis notes/)).toHaveValue('Reviewed by operator');
+    expect(screen.getByLabelText('Recommendations')).toHaveValue('Rotate exposed credentials');
+  });
+
+  test('sends exported report bytes to the native export bridge', async () => {
+    const onExportFile = vi.fn(async () => ({ status: 'exported' as const }));
+    const frozen = product();
+    frozen.report = {
+      id: 'report-1', taskId: 'task-1', version: 1, status: 'frozen',
+      narrative: '# Assessment', recommendations: '', humanNotes: '',
+      findings: [{ finding: frozen.findings['finding-1']!, evidence: [frozen.evidence['evidence-1']!], included: true }],
+    };
+    Object.freeze(frozen.report);
+    render(<ReportsPage product={frozen} source={source} t={t} onExportFile={onExportFile} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Export' }));
+    expect(onExportFile).toHaveBeenCalledWith(expect.objectContaining({ suggestedName: 'report-1-v1.json', bytes: expect.any(Uint8Array) }));
   });
 });

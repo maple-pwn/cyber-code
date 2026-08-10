@@ -33,9 +33,9 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error?: Erro
   render() { return this.state.error ? <main><h1>CYBER</h1><p role="alert">{this.state.error.message}</p></main> : this.props.children; }
 }
 
-export type ProductAppProps = { store: AppStore; runtimes?: readonly RuntimeOption[]; renderEditor?: (props: CodeEditorSurfaceProps) => ReactNode; pickInputs?: () => Promise<RuntimeInput[]> };
+export type ProductAppProps = { store: AppStore; runtimes?: readonly RuntimeOption[]; renderEditor?: (props: CodeEditorSurfaceProps) => ReactNode; pickInputs?: () => Promise<RuntimeInput[]>; exportReport?: (request: { suggestedName: string; bytes: Uint8Array }) => Promise<{ status: 'exported' | 'cancelled' }> };
 
-export function ProductApp({ store, runtimes, renderEditor, pickInputs }: ProductAppProps) {
+export function ProductApp({ store, runtimes, renderEditor, pickInputs, exportReport: exportReportFile }: ProductAppProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [locale, updateLocale] = useState<Locale>('zh-CN');
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -114,7 +114,7 @@ export function ProductApp({ store, runtimes, renderEditor, pickInputs }: Produc
         const draftId = activeDraftId || Object.keys(snapshot.view.product.editorDrafts)[0] || '';
         return <EditorPage product={snapshot.view.product} draftId={draftId} store={store} t={t} onBack={() => navigate('findings')} renderEditor={renderEditor} />;
       }
-      case 'reports': return <ReportsPage product={snapshot.view.product} source={snapshot.view.source} t={t} />;
+      case 'reports': return <ReportsPage product={snapshot.view.product} source={snapshot.view.source} t={t} onExportFile={exportReportFile} />;
       case 'asset-graph': return <AssetGraphPage product={snapshot.view.product} t={t} onOpenReport={() => navigate('reports')} />;
     }
   };

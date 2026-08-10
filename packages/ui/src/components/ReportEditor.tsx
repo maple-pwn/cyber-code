@@ -38,6 +38,7 @@ export type ReportEditorProps = {
   onRecommendationsChange: (recommendations: string) => void;
   onExcludeFinding: (findingId: string, reason: string) => void;
   onFreeze: () => void;
+  onEdit?: () => void;
   onExport: (format: 'markdown' | 'html' | 'pdf' | 'json') => void;
   freezeDisabled?: boolean;
 };
@@ -49,7 +50,7 @@ function reportNarrative(narrative: string): string {
   return /工具调用预算已用尽/u.test(preamble) ? narrative.slice(heading).trim() : narrative;
 }
 
-export function ReportEditor({ report, findings, evidence, generatedAt, t, onNotesChange, onRecommendationsChange, onExcludeFinding, onFreeze, onExport, freezeDisabled = false }: ReportEditorProps) {
+export function ReportEditor({ report, findings, evidence, generatedAt, t, onNotesChange, onRecommendationsChange, onExcludeFinding, onFreeze, onEdit, onExport, freezeDisabled = false }: ReportEditorProps) {
   const frozen = report.status === 'frozen';
   const sections = extractReportSections(reportNarrative(report.narrative));
   const includedFindings = report.findings.filter((entry) => entry.included);
@@ -122,6 +123,7 @@ export function ReportEditor({ report, findings, evidence, generatedAt, t, onNot
     </div>
     <div className="cyber-actions">
       <button type="button" disabled={freezeDisabled || (Boolean(excluded) && reason.trim() === '')} onClick={onFreeze}>{t.t('report.freeze')}</button>
+      {frozen && onEdit && <button type="button" onClick={onEdit}>{t.t('report.edit')}</button>}
       <select aria-label={t.t('report.export')} value={format} onChange={(event) => setFormat(event.currentTarget.value as 'markdown' | 'html' | 'pdf' | 'json')}>
         <option value="json">JSON</option><option value="markdown">Markdown</option><option value="html">HTML</option><option value="pdf">PDF</option>
       </select>
