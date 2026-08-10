@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,8 +68,28 @@ func NewManager(options ManagerOptions) (*Manager, error) {
 }
 
 func (manager *Manager) Load(ctx context.Context, root string) error {
+	return manager.load(ctx, root, "")
+}
+
+func (manager *Manager) LoadVerified(ctx context.Context, root, expectedDigest string) error {
+	return manager.load(ctx, root, expectedDigest)
+}
+
+func (manager *Manager) load(ctx context.Context, root, expectedDigest string) error {
 	manager.operationMu.Lock()
 	defer manager.operationMu.Unlock()
+	if expectedDigest != "" {
+		if len(expectedDigest) != 64 {
+			return fmt.Errorf("invalid expected plugin digest")
+		}
+		actualDigest, err := TreeDigest(root)
+		if err != nil {
+			return fmt.Errorf("digest plugin: %w", err)
+		}
+		if !strings.EqualFold(actualDigest, expectedDigest) {
+			return fmt.Errorf("plugin digest verification failed")
+		}
+	}
 	manifest, err := LoadManifest(root)
 	if err != nil {
 		return err

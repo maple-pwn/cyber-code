@@ -1,0 +1,167 @@
+:root {
+  color-scheme: dark;
+  --cyber-canvas: #070b0e;
+  --cyber-glass: rgb(18 24 29 / 61%);
+  --cyber-glass-strong: rgb(18 24 29 / 72%);
+  --cyber-glass-border: rgb(255 255 255 / 21%);
+  --cyber-glass-highlight: rgb(255 255 255 / 30%);
+  --cyber-bg: var(--cyber-canvas);
+  --cyber-surface: var(--cyber-glass);
+  --cyber-surface-raised: var(--cyber-glass-strong);
+  --cyber-border: var(--cyber-glass-border);
+  --cyber-text: #edf3f4;
+  --cyber-muted: #9cabb3;
+  --cyber-running: #75d9c3;
+  --cyber-pending: #edc76e;
+  --cyber-failure: #ec6969;
+  --cyber-accent: var(--cyber-running);
+  --cyber-focus: #a8f2df;
+  --cyber-critical: #ff7180;
+  --cyber-high: #ff9f66;
+  --cyber-medium: #f2c94c;
+  --cyber-low: #78c6ff;
+  --cyber-success: var(--cyber-running);
+  --cyber-warning: var(--cyber-pending);
+  --cyber-danger: var(--cyber-failure);
+  --cyber-info: #78c6ff;
+  --cyber-code: #d7e2e8;
+  --cyber-space-1: 4px;
+  --cyber-space-2: 8px;
+  --cyber-space-3: 12px;
+  --cyber-space-4: 16px;
+  --cyber-space-5: 24px;
+  --cyber-space-6: 32px;
+  --cyber-radius-shell: 24px;
+  --cyber-radius-panel: 16px;
+  --cyber-radius-control: 10px;
+  --cyber-radius: var(--cyber-radius-control);
+  --cyber-motion-snap: 160ms cubic-bezier(.2, .8, .2, 1);
+  --cyber-control-height: 40px;
+  --cyber-sidebar-width: 64px;
+  --cyber-inspector-width: 360px;
+  --cyber-font-sans: ui-rounded, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --cyber-font-mono: "SFMono-Regular", Consolas, monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--cyber-canvas);
+  color: var(--cyber-text);
+  font-family: var(--cyber-font-sans);
+}
+
+button, input, select, textarea { font: inherit; }
+
+.cyber-glass {
+  border: 1px solid var(--cyber-glass-border);
+  background: var(--cyber-glass);
+  box-shadow: inset 0 1px var(--cyber-glass-highlight), 0 20px 44px rgb(0 0 0 / 40%);
+  -webkit-backdrop-filter: blur(24px) saturate(1.35);
+  backdrop-filter: blur(24px) saturate(1.35);
+}
+
+.cyber-mono {
+  font-family: var(--cyber-font-mono);
+}
+
+button, a, input, select, textarea, [tabindex]:not([tabindex="-1"]) {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+button:focus-visible, a:focus-visible, input:focus-visible,
+select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+  outline-color: var(--cyber-focus);
+}
+
+.cyber-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cyber-confidence-dots {
+  display: inline-flex;
+  gap: var(--cyber-space-1);
+  align-items: center;
+}
+
+.cyber-confidence-dots > i {
+  width: 8px;
+  height: 8px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.cyber-confidence-dots[data-level="low"] > i:nth-child(1),
+.cyber-confidence-dots[data-level="medium"] > i:nth-child(-n+2),
+.cyber-confidence-dots[data-level="high"] > i { background: currentColor; }
+
+.cyber-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.cyber-severity-critical { color: var(--cyber-critical); }
+.cyber-severity-high { color: var(--cyber-high); }
+.cyber-severity-medium { color: var(--cyber-medium); }
+.cyber-severity-low { color: var(--cyber-low); }
+.cyber-status-success { color: var(--cyber-success); }
+.cyber-status-warning { color: var(--cyber-warning); }
+.cyber-status-danger { color: var(--cyber-danger); }
+.cyber-status-info { color: var(--cyber-info); }
+
+.no-backdrop-filter .cyber-glass,
+.no-backdrop-filter .cyber-panel,
+.no-backdrop-filter .cyber-banner,
+.no-backdrop-filter .cyber-inspector,
+.no-backdrop-filter .cyber-narrative,
+.no-backdrop-filter .cyber-report-editor {
+  background: rgb(18 24 29 / 96%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .cyber-glass,
+  .cyber-panel,
+  .cyber-banner,
+  .cyber-inspector,
+  .cyber-narrative,
+  .cyber-report-editor {
+    background: rgb(18 24 29 / 96%);
+  }
+}
+
+@media (min-width: 1280px) {
+  :root { --cyber-layout-columns: var(--cyber-sidebar-width) minmax(0, 1fr) var(--cyber-inspector-width); }
+}
+
+@media (max-width: 1279px) {
+  :root { --cyber-layout-columns: var(--cyber-sidebar-width) minmax(0, 1fr); }
+}
+
+@media (max-width: 767px) {
+  :root {
+    --cyber-layout-columns: minmax(0, 1fr);
+    --cyber-control-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

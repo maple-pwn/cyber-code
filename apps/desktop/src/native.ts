@@ -1,0 +1,193 @@
+import { invoke as tauriInvoke } from '@tauri-apps/api/core';
+import type { LocalRequest, RuntimeInput } from '@cyber/runtime-client';
+
+export const nativeOperations = [
+  'capabilities',
+  'notify',
+  'store_secret',
+  'load_secret',
+  'delete_secret',
+  'export_report',
+  'pick_inputs',
+  'runtime_start',
+  'runtime_request',
+  'runtime_restart',
+  'runtime_stop',
+  'cyber_agent_start',
+  'cyber_agent_stop',
+] as const;
+
+export type NativeOperation = (typeof nativeOperations)[number];
+export type NativeInvoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+export type SecretReceipt = { id: string; stored: true };
+export type LoadedSecret = { id: string; secret: string };
+export type NotificationKind = 'approval_required' | 'task_succeeded' | 'task_failed';
+
+const notificationKinds: readonly string[] = ['approval_required', 'task_succeeded', 'task_failed'];
+const maxReportBytes = 16 * 1024 * 1024;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
+
+function isNativeOperation(value: string): value is NativeOperation {
+  return nativeOperations.some((operation) => operation === value);
+}
+
+function validLocalRequest(value: unknown): value is LocalRequest {
+  if (!isRecord(value) || typeof value.id !== 'string' || !value.id.trim()
+    || typeof value.type !== 'string') return false;
+  switch (value.type) {
+    case 'handshake':
+      return hasExactKeys(value, ['id', 'type', 'handshake']) && isRecord(value.handshake);
+    case 'events':
+      return hasExactKeys(value, ['id', 'type', 'afterCursor'])
+        && Number.isSafeInteger(value.afterCursor) && (value.afterCursor as number) >= 0;
+    case 'snapshot':
+    case 'health':
+    case 'close':
+      return hasExactKeys(value, ['id', 'type']);
+    case 'command':
+      return hasExactKeys(value, ['id', 'type', 'command']) && isRecord(value.command);
+    case 'editor':
+      return hasExactKeys(value, ['id', 'type', 'taskId', 'draftId', 'expectedLeaseRevision'])
+        && typeof value.taskId === 'string' && value.taskId.trim().length > 0
+        && typeof value.draftId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value.draftId)
+        && Number.isSafeInteger(value.expectedLeaseRevision) && (value.expectedLeaseRevision as number) >= 1;
+    default:
+      return false;
+  }
+}
+
+export function createNativeClient(invoke: NativeInvoke = tauriInvoke) {
+  async function call(operation: NativeOperation, args?: Record<string, unknown>): Promise<unknown> {
+    if (!isNativeOperation(operation)) {
+      throw new Error(`unsupported native operation: ${operation}`);
+    }
+    return args === undefined ? invoke(operation) : invoke(operation, args);
+  }
+
+  return {
+    call,
+    async capabilities(): Promise<readonly NativeOperation[]> {
+      const response = await call('capabilities');
+      if (!isRecord(response) || !hasExactKeys(response, ['operations']) || !Array.isArray(response.operations)
+        || response.operations.length !== nativeOperations.length
+        || response.operations.some((operation, index) => operation !== nativeOperations[index])) {
+        throw new Error('invalid capabilities response');
+      }
+      return response.operations as NativeOperation[];
+    },
+    async storeSecret(request: { id: string; secret: string }): Promise<SecretReceipt> {
+      if (!request.id.trim() || !request.secret) {
+        throw new Error('invalid store_secret request');
+      }
+      const response = await call('store_secret', { request });
+      if (!isRecord(response) || !hasExactKeys(response, ['id', 'stored'])
+        || response.id !== request.id || response.stored !== true) {
+        throw new Error('invalid store_secret response');
+      }
+      return { id: response.id, stored: true };
+    },
+    async loadSecret(id: string): Promise<LoadedSecret> {
+      if (!id.trim()) {
+        throw new Error('invalid load_secret request');
+      }
+      const response = await call('load_secret', { request: { id } });
+      if (!isRecord(response) || !hasExactKeys(response, ['id', 'secret'])
+        || response.id !== id || typeof response.secret !== 'string' || !response.secret) {
+        throw new Error('invalid load_secret response');
+      }
+      return { id: response.id, secret: response.secret };
+    },
+    async deleteSecret(id: string): Promise<{ id: string; deleted: true }> {
+      if (!id.trim()) {
+        throw new Error('invalid delete_secret request');
+      }
+      const response = await call('delete_secret', { request: { id } });
+      if (!isRecord(response) || !hasExactKeys(response, ['id', 'deleted'])
+        || response.id !== id || response.deleted !== true) {
+        throw new Error('invalid delete_secret response');
+      }
+      return { id: response.id, deleted: true };
+    },
+    async notify(request: { kind: NotificationKind; title: string; body: string }): Promise<{ accepted: true }> {
+      if (!notificationKinds.includes(request.kind) || !request.title.trim() || !request.body.trim()) {
+        throw new Error('invalid notify request');
+      }
+      const response = await call('notify', { request });
+      if (!isRecord(response) || !hasExactKeys(response, ['accepted']) || response.accepted !== true) {
+        throw new Error('invalid notify response');
+      }
+      return { accepted: true };
+    },
+    async exportReport(request: { suggestedName: string; bytes: Uint8Array }): Promise<{ status: 'exported' | 'cancelled' }> {
+      const { suggestedName, bytes } = request;
+      if (!suggestedName.trim() || suggestedName === '.' || suggestedName === '..'
+        || suggestedName.includes('/') || suggestedName.includes('\\')
+        || bytes.byteLength === 0 || bytes.byteLength > maxReportBytes) {
+        throw new Error('invalid export_report request');
+      }
+      const response = await call('export_report', {
+        request: { suggestedName, bytes: Array.from(bytes) },
+      });
+      if (!isRecord(response) || !hasExactKeys(response, ['status'])
+        || (response.status !== 'exported' && response.status !== 'cancelled')) {
+        throw new Error('invalid export_report response');
+      }
+      return { status: response.status };
+    },
+    async pickInputs(): Promise<RuntimeInput[]> {
+      const response = await call('pick_inputs');
+      if (!Array.isArray(response) || response.length > 64) throw new Error('invalid pick_inputs response');
+      return response.map((input) => {
+        if (!isRecord(input) || !hasExactKeys(input, ['filename', 'mediaType', 'bytes'])
+          || typeof input.filename !== 'string' || !input.filename.trim()
+          || typeof input.mediaType !== 'string' || !input.mediaType.trim()
+          || !Array.isArray(input.bytes) || input.bytes.length === 0 || input.bytes.length > 64 * 1024 * 1024
+          || input.bytes.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 255)) {
+          throw new Error('invalid pick_inputs response');
+        }
+        return { filename: input.filename, mediaType: input.mediaType, bytes: new Uint8Array(input.bytes as number[]) };
+      });
+    },
+    async runtimeStart(): Promise<unknown> {
+      return call('runtime_start');
+    },
+    async runtimeRequest(request: LocalRequest): Promise<unknown> {
+      if (!validLocalRequest(request)) throw new Error('invalid runtime_request request');
+      return call('runtime_request', { request: structuredClone(request) });
+    },
+    async runtimeRestart(): Promise<unknown> {
+      return call('runtime_restart');
+    },
+    async runtimeStop(): Promise<{ stopped: boolean }> {
+      const response = await call('runtime_stop');
+      if (!isRecord(response) || !hasExactKeys(response, ['stopped'])
+        || typeof response.stopped !== 'boolean') {
+        throw new Error('invalid runtime_stop response');
+      }
+      return { stopped: response.stopped };
+    },
+    async cyberAgentStart(): Promise<{ endpoint: string; token: string; version: string }> {
+      const response = await call('cyber_agent_start');
+      if (!isRecord(response) || !hasExactKeys(response, ['endpoint', 'token', 'version'])
+        || typeof response.endpoint !== 'string' || typeof response.token !== 'string' || typeof response.version !== 'string'
+        || !response.token || !response.version) throw new Error('invalid cyber_agent_start response');
+      return { endpoint: response.endpoint, token: response.token, version: response.version };
+    },
+    async cyberAgentStop(): Promise<{ stopped: boolean }> {
+      const response = await call('cyber_agent_stop');
+      if (!isRecord(response) || !hasExactKeys(response, ['stopped']) || typeof response.stopped !== 'boolean') {
+        throw new Error('invalid cyber_agent_stop response');
+      }
+      return { stopped: response.stopped };
+    },
+  };
+}

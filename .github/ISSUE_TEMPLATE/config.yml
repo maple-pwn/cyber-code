@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞报告
+    url: https://github.com/maple-pwn/cyber-code/security/advisories/new
+    about: 请使用私密漏洞报告，不要公开披露未修复漏洞。
+  - name: 项目文档
+    url: https://github.com/maple-pwn/cyber-code/tree/main/docs
+    about: 先查看能力矩阵、配置、安全和运维文档。

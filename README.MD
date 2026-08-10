@@ -2,23 +2,50 @@
 
 # cyber-code
 
-**面向真实开发工作流的本地 Go 编码 Agent**
+**面向开发与网络安全工作的本地智能体平台**
 
-统一支持 Anthropic 原生 API 与 OpenAI-compatible API，内置流式 TUI、安全工具链、可恢复会话和本机集成协议。
+`cyber-code` 是用户交互与任务编排层，`cyber-agent` 是授权安全执行运行时。两者组成同一个产品：前者负责 TUI/Web/Desktop/VS Code、Provider、会话和审批，后者负责 Scope、工具执行、子 Agent、证据链、发现与报告。
 
 [![Go](https://img.shields.io/badge/Go-1.26.5-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev/)
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20macOS-4C8BF5?style=flat-square)
 ![Provider](https://img.shields.io/badge/API-Anthropic%20%7C%20OpenAI--compatible-7B61FF?style=flat-square)
 ![Interface](https://img.shields.io/badge/Interface-TUI%20%7C%20Print%20%7C%20SDK-18A957?style=flat-square)
 
-[快速开始](#快速开始) · [配置模型](#配置模型) · [常用命令](#常用命令) · [安全边界](#安全边界) · [能力矩阵](docs/capability-matrix.md) · [发行指南](docs/releases.md)
+[快速开始](#快速开始) · [能力矩阵](docs/capability-matrix.md) · [开发与验证](#开发与验证) · [贡献指南](CONTRIBUTING.md) · [安全报告](SECURITY.md)
 
 </div>
 
 > [!IMPORTANT]
 > cyber-code 是基于公开发布物和 Source Map 进行研究性还原的非官方项目，不代表 Anthropic 或任何模型厂商的官方实现。重新分发或商业使用前，请自行完成许可证与权利审查。
 
-## 为什么选择 cyber-code
+> [!NOTE]
+> 当前仓库同时包含 Go CLI/TUI、Web、Tauri Desktop 和 `cyber-agent` Security Runtime。核心代码和本地测试链路持续维护；Linux/Windows 原生真机、真实云 Provider、签名发行基础设施和浏览器宿主 OAuth 仍以验收矩阵中的 `PASS`/`SKIP` 为准。不要把 Tactical Ops 默认场景 Demo 当作真实安全评估结果。
+
+## 项目状态
+
+cyber-code 适合希望在本机运行、审计和扩展 Agent 工作流的开发者。它不是 Anthropic Claude Code 的官方客户端，也不承诺复制任何私有服务或提示词。公开能力、部分实现和明确不在范围内的内容统一记录在[能力矩阵](docs/capability-matrix.md)；提交问题前请先确认问题能在当前平台和配置下复现。
+
+## 一个产品，两层协作
+
+cyber-code 不把安全评估实现为一个孤立的 Demo。它通过统一的 Session API 和事件协议连接 cyber-agent，所有客户端都投影运行时的权威状态；同一任务可以从 TUI、Web、Desktop 或 VS Code 发起，并在授权范围内持续记录可复核的执行证据。
+
+![cyber-code 与 cyber-agent 的统一分层架构、执行流程和证据链](docs/assets/cyber-code-cyber-agent-architecture.png)
+
+| 层 | 组件 | 主要职责 |
+| --- | --- | --- |
+| 交互与编排 | **cyber-code** | Provider 适配、流式对话、工具/权限审批、会话恢复、项目上下文、TUI/Web/Desktop/VS Code 客户端。 |
+| 安全执行与事实源 | **cyber-agent** | 授权 Scope、资产与任务状态、工具回执、Evidence、Finding、子 Agent 协作、报告冻结与导出。 |
+| 共享协议 | `session.events.v1` / `skills.lifecycle.v1` | 统一事件、游标、重连和技能生命周期；本地与远程 Runtime 使用同一契约。 |
+
+典型安全评估链路如下：
+
+```text
+用户目标 -> cyber-code 创建任务 -> cyber-agent 提议并确认 Scope
+        -> 运行授权工具/子 Agent -> 写入 Tool Receipt 与 Evidence
+        -> 生成 Finding -> 冻结 Report -> 客户端展示、备注与导出
+```
+
+### 选择 cyber-code 的理由
 
 | | 能力 | 说明 |
 | --- | --- | --- |
@@ -97,8 +124,22 @@ Anthropic、Bedrock、Vertex、Azure 与更多 OpenAI-compatible 配置见 [Prov
 ### 3. 开始使用
 
 ```bash
-./cyber-code
+# Phase 3 默认入口：Tactical Ops 场景演示，不需要 API key
+./cyber-code "评估 juice-shop.lab"
+
+# 完整编码 Agent（保留一个弃用周期的经典界面）
+./cyber-code --ui=classic
 ```
+
+Tactical Ops 当前明确标记为 `DEMO`，只运行确定性的 `juice-shop.lab` 安全场景，不会调用 Provider，也不会在本地失败时回退远端。快捷键、恢复语义和迁移说明见 [Tactical Ops 指南](docs/tactical-ops.md)。
+
+真实 Runtime Source 默认关闭，必须由可信宿主或操作者显式启用。本机 Tactical Ops 运行时使用：
+
+```bash
+./cyber-code --enable-real-sources --source local
+```
+
+Web 宿主需要在启动前设置 `__CYBER_RUNTIME_CONFIG__.realSourcesEnabled = true`，并提供可信的 loopback bridge 或 HTTPS Remote 配置；Desktop 构建需要设置 `VITE_CYBER_REAL_SOURCES_ENABLED=true`。真实来源握手、凭据与失败回退边界见 [Phase 4 Runtime 威胁模型](docs/security/phase4-runtime-threat-model.md)。
 
 也可以跳过 TUI，直接获得适合脚本和管道处理的输出：
 
@@ -106,6 +147,23 @@ Anthropic、Bedrock、Vertex、Azure 与更多 OpenAI-compatible 配置见 [Prov
 ./cyber-code --print "检查这个项目并告诉我如何运行"
 ./cyber-code --print --json "分析当前 Git 变更"
 ```
+
+### 4. 启动 Web / Desktop 界面
+
+需要 Node.js `22.12+` 和仓库锁定的 pnpm `10.15.1`：
+
+```bash
+corepack enable
+pnpm install --frozen-lockfile
+
+# Web 开发服务器
+pnpm --filter @cyber/web dev
+
+# Tauri Desktop 前端开发服务器（完整原生打包需按平台安装 Tauri 依赖）
+pnpm --filter @cyber/desktop dev
+```
+
+浏览器入口默认由 Vite 输出地址；Desktop 的原生构建与平台依赖见 `apps/desktop/src-tauri` 和[验收矩阵](docs/operations/acceptance-matrix.md)。真实 Runtime Source 必须显式启用并完成可信宿主握手。
 
 ## 核心能力
 
@@ -134,7 +192,8 @@ Anthropic、Bedrock、Vertex、Azure 与更多 OpenAI-compatible 配置见 [Prov
 
 | 场景 | 命令 |
 | --- | --- |
-| 启动交互 TUI | `cyber-code` |
+| 启动 Tactical Ops Demo | `cyber-code "评估 juice-shop.lab"` |
+| 启动完整编码 Agent | `cyber-code --ui=classic` |
 | 非交互文本输出 | `cyber-code --print "PROMPT"` |
 | JSON Lines 输出 | `cyber-code --print --json "PROMPT"` |
 | 显示工具进度和 Token | `cyber-code --print --verbose "PROMPT"` |
@@ -150,7 +209,7 @@ Anthropic、Bedrock、Vertex、Azure 与更多 OpenAI-compatible 配置见 [Prov
 | 查看终端设置建议 | `cyber-code terminal-setup` |
 | 显式检查版本 | `cyber-code version-check` |
 
-交互 TUI 中还可以使用：
+经典交互 TUI 中还可以使用：
 
 ```text
 /help           /status          /config
@@ -163,7 +222,7 @@ Anthropic、Bedrock、Vertex、Azure 与更多 OpenAI-compatible 配置见 [Prov
 
 运行 `/help` 可查看当前版本实际注册的命令和参数。
 
-常用 TUI 快捷键：输入 `/` 会显示斜杠命令候选，使用 `↑/↓` 选择、`Tab` 或 `Enter` 接受；`PgUp/PgDn` 或鼠标滚轮滚动对话，普通 `↑/↓` 仍用于输入历史。按 `Ctrl+T` 打开子 Agent 任务列表，`Enter` 进入选中任务，`[` / `]` 切换任务，`Esc` 或再次按 `Ctrl+T` 返回父会话。模型生成期间按 `Ctrl+C` 只取消当前生成，再次处于空闲状态时按 `Ctrl+C` 退出。权限窗口中的 `Allow Always` 仅记住当前进程会话内相同工具和动作的批准，不会写入配置，也不会绕过显式 deny 或沙箱边界。
+经典 TUI 快捷键：输入 `/` 会显示斜杠命令候选，使用 `↑/↓` 选择、`Tab` 或 `Enter` 接受；`PgUp/PgDn` 或鼠标滚轮滚动对话，普通 `↑/↓` 仍用于输入历史。按 `Ctrl+T` 打开子 Agent 任务列表，`Enter` 进入选中任务，`[` / `]` 切换任务，`Esc` 或再次按 `Ctrl+T` 返回父会话。模型生成期间按 `Ctrl+C` 只取消当前生成，再次处于空闲状态时按 `Ctrl+C` 退出。权限窗口中的 `Allow Always` 仅记住当前进程会话内相同工具和动作的批准，不会写入配置，也不会绕过显式 deny 或沙箱边界。
 
 ## 会话与项目指令
 
@@ -204,6 +263,21 @@ cyber-code 会持久化 canonical 事件日志和原子快照。使用 `sessions
 
 使用 `cyber-code doctor` 查看当前机器的 Provider 凭据、状态目录、沙箱、通知、语音、MCP 和 LSP 状态及修复建议。`cyber-code terminal-setup` 只显示平台指导，不会修改 shell profile、注册表或终端配置。
 
+## Security Runtime：cyber-agent
+
+要运行网络安全任务，显式选择 `cyber-agent`，不会根据提示词自动切换：
+
+```bash
+./cyber-code --runtime cyber-agent --runtime-location local \
+  --input openapi.yaml \
+  "评估输入描述中的授权目标并生成可追踪报告"
+```
+
+Web、Desktop、VS Code 使用同一 Session API 和 InputManifest。安全任务的 Scope proposal、审批、
+子 Agent、工具回执、Evidence、Finding 和 Report 均由 cyber-agent 提供权威状态；客户端只投影。
+四个可复跑场景和 PASS/SKIP 边界见 [cyber-agent 运维指南](docs/operations/cyber-agent.md)、
+[能力矩阵](docs/capability-matrix.md) 和 [验收矩阵](docs/operations/acceptance-matrix.md)。
+
 ## MCP、插件与 VS Code
 
 ```bash
@@ -219,6 +293,23 @@ cyber-code plugins marketplace install review-kit@community
 
 VS Code 扩展位于 `editors/vscode`。将设置 `cyber-code.executable` 指向本机二进制后，扩展会启动 `cyber-code serve`；凭据仍由 CLI 配置和环境变量管理，不会写入编辑器设置或协议消息。协议与开发说明见 [本机 SDK 文档](docs/sdk.md)。
 
+## 仓库结构
+
+```text
+cmd/cli/                  Go CLI 入口
+internal/agent/           Agent 循环、上下文和工具编排
+internal/provider/        Anthropic、OpenAI-compatible 与云 Provider
+internal/tool/            内置工具和 Permission Broker 接入
+internal/runtime*/        cyber-agent 本机/远程 Runtime 协议
+internal/ui/              Go Bubble Tea TUI
+apps/web/                 Web 应用
+apps/desktop/              Tauri 2 Desktop shell
+packages/                 共享协议、状态、UI 和 Runtime client
+editors/vscode/            VS Code 扩展
+docs/                     能力、配置、安全和运维文档
+tests/                    Go 集成与安全测试
+```
+
 ## 可选本地工具
 
 - `/bug DESCRIPTION` 在状态目录生成限长、脱敏、私有权限的 Markdown 报告，默认不上传，也不自动打开浏览器。
@@ -231,6 +322,9 @@ VS Code 扩展位于 `editors/vscode`。将设置 `cyber-code.executable` 指向
 go test ./...
 go test -race ./...
 go vet ./...
+
+scripts/release-smoke.sh
+scripts/platform-matrix.sh
 
 sh scripts/check-placeholders.sh
 sh scripts/check-todos.sh
@@ -252,6 +346,8 @@ GOOS=windows GOARCH=amd64 go build -o cyber-code-windows-amd64.exe ./cmd/cli
 
 真实云服务验收始终是显式 opt-in；测试和日志不得保存凭据或完整敏感响应。
 
+`platform-matrix.sh` 只把当前主机实际运行过的项目记为 `PASS`；缺少 Linux/Windows 真机、pnpm、bubblewrap 或云账号时会输出带原因的 `SKIP`。交叉编译和本地 Provider contract test 不会冒充真机或真实云验收。
+
 ## 文档导航
 
 | 文档 | 内容 |
@@ -260,7 +356,18 @@ GOOS=windows GOARCH=amd64 go build -o cyber-code-windows-amd64.exe ./cmd/cli
 | [配置参考](docs/configuration.md) | 配置优先级、权限、沙箱、Context、Skills、Hooks、MCP 和插件市场。 |
 | [Provider 指南](docs/providers.md) | Anthropic、OpenAI-compatible、DeepSeek 与受管云 Provider。 |
 | [安全模型](docs/security.md) | Permission Broker、路径边界、脱敏、审计和进程隔离。 |
+| [Runtime 威胁模型](docs/security/phase4-runtime-threat-model.md) | Local/Remote Runtime 的认证、重放、Scope、Evidence、cursor 与 capability gate。 |
 | [本机 SDK](docs/sdk.md) | JSONL 协议、IDE context、diff、VS Code 扩展和 Bridge。 |
+| [Tactical Ops](docs/tactical-ops.md) | 默认 Demo、快捷键、恢复语义和经典 TUI 迁移。 |
+| [验收矩阵](docs/operations/acceptance-matrix.md) | 发布签名、原生平台、云证据以及 OIDC/SCIM/策略/插件运维边界。 |
+| [PostgreSQL 运维](docs/operations/postgres.md) | 多实例授权存储、迁移、备份恢复与显式 SKIP 规则。 |
+| [Telemetry 与 SLO](docs/operations/slo.md) | 脱敏指标、告警阈值、队列 drain 和关闭顺序。 |
+
+## 贡献、支持与许可证
+
+欢迎提交修复、测试、文档和可复现的功能建议。请先阅读[贡献指南](CONTRIBUTING.md)，安全问题请按照[安全政策](SECURITY.md)私下报告；普通问题和功能请求可使用 GitHub Issue 模板。项目采用 [Apache License 2.0](LICENSE)。
+
+本项目目前由维护者按公开路线图维护，尚未承诺稳定的插件 API、云 Provider SLA 或正式发行二进制。贡献前请确认变更不包含 API key、真实目标数据、完整响应或本地状态目录。
 
 ---
 

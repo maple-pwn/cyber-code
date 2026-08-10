@@ -1,0 +1,29 @@
+{
+  "name": "@cyber/ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.css": "./src/tokens.css",
+    "./components.css": "./src/components.css"
+  },
+  "scripts": {
+    "build": "tsc -b --pretty false",
+    "test": "vitest --root ../.. run packages/ui/src",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@cyber/i18n": "workspace:*",
+    "@cyber/protocol": "workspace:*",
+    "@cyber/runtime-client": "workspace:*",
+    "@radix-ui/react-dialog": "1.1.15",
+    "@radix-ui/react-popover": "1.1.15",
+    "@radix-ui/react-tabs": "1.1.13",
+    "@radix-ui/react-tooltip": "1.2.8",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  }
+}

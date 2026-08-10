@@ -28,6 +28,7 @@ type AgentExecuteFunc func(context.Context, AgentRequest) (any, error)
 
 type ToolServiceOptions struct {
 	Manager        *Manager
+	Queue          *Queue
 	Execute        AgentExecuteFunc
 	ParentMode     permissions.PermissionMode
 	ParentMaxTurns int
@@ -45,6 +46,8 @@ type ToolService struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	observations   *observationHub
+	queue          *Queue
+	queueWorker    *QueueWorker
 }
 
 type taskRunInput struct {
@@ -88,11 +91,25 @@ func NewToolService(options ToolServiceOptions) (*ToolService, error) {
 		definition.Tools = append([]string(nil), definition.Tools...)
 		definitions[definition.Name] = definition
 	}
-	return &ToolService{
+	service := &ToolService{
 		manager: options.Manager, execute: options.Execute, parentMode: parentMode,
 		parentMaxTurns: normalizedTurns(options.ParentMaxTurns), definitions: definitions, board: options.Board, ctx: ctx, cancel: cancel,
-		observations: newObservationHub(defaultObservationBuffer),
-	}, nil
+		observations: newObservationHub(defaultObservationBuffer), queue: options.Queue,
+	}
+	if options.Queue != nil {
+		workerID, err := newQueueID()
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+		service.queueWorker, err = NewQueueWorker(options.Queue, QueueWorkerOptions{ID: "task-service-" + workerID}, service.executeQueued)
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+		service.queueWorker.Start(ctx)
+	}
+	return service, nil
 }
 
 func (service *ToolService) Close() error {
@@ -100,9 +117,27 @@ func (service *ToolService) Close() error {
 		return nil
 	}
 	service.cancel()
+	if service.queueWorker != nil {
+		_ = service.queueWorker.Drain(context.Background())
+	}
 	err := service.manager.Close()
+	if service.queue != nil {
+		err = errors.Join(err, service.queue.Close())
+	}
 	service.observations.close()
 	return err
+}
+
+// Drain stops claiming new durable work and waits for the currently leased
+// task to reach a terminal state. Pending work remains on disk for restart.
+func (service *ToolService) Drain(ctx context.Context) error {
+	if service == nil || service.queueWorker == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return service.queueWorker.Drain(ctx)
 }
 
 // Observe subscribes to bounded, provider-independent child task events.
@@ -191,10 +226,7 @@ func (model *taskTool) Run(ctx context.Context, arguments json.RawMessage) (core
 		var input taskIDInput
 		input, err = parseTaskID(arguments)
 		if err == nil {
-			err = model.service.manager.KillTask(input.ID)
-		}
-		if err == nil && model.service.board != nil {
-			err = model.service.board.Transition(ctx, input.ID, collaboration.TaskCancelled, "cancelled by parent")
+			err = model.service.cancelTask(ctx, input.ID)
 		}
 		if err == nil {
 			result, err = model.service.result(input.ID)
@@ -210,6 +242,36 @@ func (model *taskTool) Run(ctx context.Context, arguments json.RawMessage) (core
 		return core.ToolResult{}, err
 	}
 	return core.ToolResult{Content: []core.ContentBlock{{Type: core.ContentText, Text: string(encoded)}}}, nil
+}
+
+func (service *ToolService) cancelTask(ctx context.Context, id string) error {
+	state := service.manager.GetTask(id)
+	if state == nil {
+		return fmt.Errorf("task %q not found", id)
+	}
+	err := service.manager.KillTask(id)
+	if err != nil {
+		if service.queue == nil || state.GetBase().Status != TaskStatusPending {
+			return err
+		}
+		if _, queueErr := service.queue.CancelByKey(ctx, id); queueErr != nil {
+			return queueErr
+		}
+		service.observations.recordQueue(id, QueueCancelled, 0)
+		if transitionErr := service.manager.registry.Transition(id, TaskStatusCancelled, context.Canceled); transitionErr != nil {
+			return transitionErr
+		}
+		_ = service.publishStatus(core.EventSubagentStatus, id, "", state.GetBase().Description, TaskStatusCancelled)
+	} else if service.queue != nil {
+		if _, queueErr := service.queue.CancelByKey(ctx, id); queueErr != nil && !errors.Is(queueErr, ErrQueueItem) {
+			return queueErr
+		}
+		service.observations.recordQueue(id, QueueCancelled, 0)
+	}
+	if service.board != nil {
+		return service.board.Transition(ctx, id, collaboration.TaskCancelled, "cancelled by parent")
+	}
+	return nil
 }
 
 func (service *ToolService) parseRun(arguments json.RawMessage) (taskRunInput, error) {
@@ -276,6 +338,116 @@ func (service *ToolService) run(ctx context.Context, arguments json.RawMessage) 
 			return taskToolResult{}, err
 		}
 	}
+	request := service.agentRequest(task, input)
+	if input.Background && service.queue != nil {
+		payload, encodeErr := json.Marshal(queuedAgentTask{TaskID: task.ID, Input: input})
+		if encodeErr != nil {
+			service.manager.registry.Unregister(task.ID)
+			return taskToolResult{}, encodeErr
+		}
+		if _, _, enqueueErr := service.queue.Enqueue(ctx, task.ID, payload); enqueueErr != nil {
+			service.manager.registry.Unregister(task.ID)
+			if service.board != nil {
+				_ = service.board.Transition(context.Background(), task.ID, collaboration.TaskCancelled, enqueueErr.Error())
+			}
+			_ = service.publishStatus(core.EventSubagentStatus, task.ID, input.Agent, input.Description, TaskStatusCancelled)
+			return taskToolResult{}, enqueueErr
+		}
+		service.observations.recordQueue(task.ID, QueuePending, 0)
+		return service.result(task.ID)
+	}
+	executionCtx := ctx
+	if input.Background {
+		executionCtx = service.ctx
+	}
+	if err := service.startExecution(executionCtx, task, input, request); err != nil {
+		if service.board != nil {
+			_ = service.board.Transition(context.Background(), task.ID, collaboration.TaskCancelled, err.Error())
+		}
+		_ = service.publishStatus(core.EventSubagentStatus, task.ID, input.Agent, input.Description, TaskStatusCancelled)
+		return taskToolResult{}, err
+	}
+	if input.Background {
+		return service.result(task.ID)
+	}
+	return service.wait(ctx, task.ID)
+}
+
+type queuedAgentTask struct {
+	TaskID string       `json:"task_id"`
+	Input  taskRunInput `json:"input"`
+}
+
+func (service *ToolService) executeQueued(ctx context.Context, item QueueItem) error {
+	var queued queuedAgentTask
+	if err := json.Unmarshal(item.Payload, &queued); err != nil {
+		return fmt.Errorf("decode queued task: %w", err)
+	}
+	if strings.TrimSpace(queued.TaskID) == "" || queued.Input.Prompt == "" || !queued.Input.Background {
+		return fmt.Errorf("queued task payload is invalid")
+	}
+	service.observations.recordQueue(queued.TaskID, QueueLeased, item.Attempts)
+	state := service.manager.GetTask(queued.TaskID)
+	if state == nil {
+		task := CreateLocalAgentTask(queued.TaskID, queued.Input.Prompt, "sub-agent", queued.Input.Description)
+		task.IsBackgrounded = true
+		if err := service.manager.registry.Register(task); err != nil {
+			return err
+		}
+		service.manager.notifyTaskCreated(task)
+		if err := service.publishStatus(core.EventSubagentStarted, task.ID, queued.Input.Agent, queued.Input.Description, TaskStatusPending); err != nil {
+			return err
+		}
+		if service.board != nil {
+			existing, exists, err := service.board.Get(ctx, task.ID)
+			if err != nil {
+				return err
+			}
+			if !exists {
+				if err := service.board.Create(ctx, collaboration.Task{ID: task.ID, Agent: queued.Input.Agent, Description: queued.Input.Description}); err != nil {
+					return err
+				}
+			} else if existing.Status == collaboration.TaskFailed && existing.Error == "interrupted by process restart" {
+				if err := service.board.RetryInterrupted(ctx, task.ID); err != nil {
+					return err
+				}
+			}
+		}
+		state = task
+	}
+	status := state.GetBase().Status
+	if status == TaskStatusCompleted || status == TaskStatusFailed || status == TaskStatusCancelled {
+		queueStatus := QueueCompleted
+		if status == TaskStatusCancelled {
+			queueStatus = QueueCancelled
+		}
+		service.observations.recordQueue(queued.TaskID, queueStatus, item.Attempts)
+		return nil
+	}
+	if status == TaskStatusRunning {
+		_, err := service.wait(ctx, queued.TaskID)
+		return err
+	}
+	task, ok := state.(*LocalAgentTaskState)
+	if !ok {
+		return fmt.Errorf("queued task %q is not a local agent task", queued.TaskID)
+	}
+	request := service.agentRequest(task, queued.Input)
+	if err := service.startExecution(ctx, task, queued.Input, request); err != nil {
+		return err
+	}
+	result, err := service.wait(ctx, queued.TaskID)
+	if err == nil {
+		queueStatus := QueueCompleted
+		if result.Status == TaskStatusCancelled {
+			queueStatus = QueueCancelled
+		}
+		service.observations.recordQueue(queued.TaskID, queueStatus, item.Attempts)
+	}
+	return err
+}
+
+func (service *ToolService) agentRequest(task *LocalAgentTaskState, input taskRunInput) AgentRequest {
 	request := AgentRequest{TaskID: task.ID, Prompt: input.Prompt, Description: input.Description, MaxTurns: input.MaxTurns, Mode: input.PermissionMode}
 	request.Emit = func(event core.Event) error {
 		return service.observations.publish(core.Event{
@@ -290,11 +462,11 @@ func (service *ToolService) run(ctx context.Context, arguments json.RawMessage) 
 		definition.Tools = append([]string(nil), definition.Tools...)
 		request.Definition = &definition
 	}
-	executionCtx := ctx
-	if input.Background {
-		executionCtx = service.ctx
-	}
-	if err := service.manager.StartExecution(executionCtx, task.ID, func(ctx context.Context, _ *LocalAgentTaskState) (any, error) {
+	return request
+}
+
+func (service *ToolService) startExecution(executionCtx context.Context, task *LocalAgentTaskState, input taskRunInput, request AgentRequest) error {
+	return service.manager.StartExecution(executionCtx, task.ID, func(ctx context.Context, _ *LocalAgentTaskState) (any, error) {
 		if err := service.publishStatus(core.EventSubagentStatus, request.TaskID, input.Agent, input.Description, TaskStatusRunning); err != nil {
 			return nil, err
 		}
@@ -326,18 +498,15 @@ func (service *ToolService) run(ctx context.Context, arguments json.RawMessage) 
 		if publishErr := service.publishStatus(core.EventSubagentStatus, request.TaskID, input.Agent, input.Description, terminalStatus); publishErr != nil && executeErr == nil {
 			executeErr = publishErr
 		}
-		return result, executeErr
-	}); err != nil {
-		if service.board != nil {
-			_ = service.board.Transition(context.Background(), task.ID, collaboration.TaskCancelled, err.Error())
+		if input.Background && service.queue != nil {
+			queueStatus := QueueCompleted
+			if terminalStatus == TaskStatusCancelled {
+				queueStatus = QueueCancelled
+			}
+			service.observations.recordQueue(request.TaskID, queueStatus, 0)
 		}
-		_ = service.publishStatus(core.EventSubagentStatus, task.ID, input.Agent, input.Description, TaskStatusCancelled)
-		return taskToolResult{}, err
-	}
-	if input.Background {
-		return service.result(task.ID)
-	}
-	return service.wait(ctx, task.ID)
+		return result, executeErr
+	})
 }
 
 func (service *ToolService) publishStatus(eventType core.EventType, taskID, agent, description string, status TaskStatus) error {

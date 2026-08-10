@@ -56,6 +56,29 @@ func TestManagerDoesNotRegisterToolsWhenStartFails(t *testing.T) {
 	}
 }
 
+func TestManagerLoadVerifiedRejectsPluginChangedAfterActivation(t *testing.T) {
+	root := validPluginRoot(t)
+	digest, err := TreeDigest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "data"), []byte("tampered"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	registry := toolpkg.NewRegistry()
+	manager := newPluginManager(t, registry, allowPluginAuthorizer(), ProcessFactoryFunc(func(context.Context, Manifest) (Process, error) {
+		t.Fatal("tampered plugin process was started")
+		return nil, nil
+	}))
+	t.Cleanup(func() { _ = manager.Close() })
+	if err := manager.LoadVerified(context.Background(), root, digest); err == nil {
+		t.Fatal("tampered plugin digest was accepted")
+	}
+	if len(registry.Specs()) != 0 {
+		t.Fatalf("tools registered for tampered plugin: %#v", registry.Specs())
+	}
+}
+
 func TestManagerHotReloadFailureKeepsOldProcess(t *testing.T) {
 	old := &fakePluginProcess{text: "old"}
 	var starts int

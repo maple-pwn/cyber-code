@@ -78,6 +78,91 @@ func TestPublicKeyCommandReadsRestrictedEnvironmentSource(t *testing.T) {
 	}
 }
 
+func TestVerifyCommandAcceptsRotatedKeyAndChecksArtifact(t *testing.T) {
+	directory := t.TempDir()
+	artifactPath := filepath.Join(directory, "cyber-code-linux-amd64")
+	if err := os.WriteFile(artifactPath, []byte("verified release artifact"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	currentKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{7}, ed25519.SeedSize))
+	previousKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{8}, ed25519.SeedSize))
+	document, err := updatepkg.BuildEnvelope(updatepkg.Payload{
+		SchemaVersion: updatepkg.ManifestSchemaVersion,
+		Product:       "cyber-code",
+		Version:       "2.2.0",
+		PublishedAt:   "2026-07-29T00:00:00Z",
+		Artifacts: []updatepkg.Artifact{{
+			GOOS: "linux", GOARCH: "amd64",
+			URL:    "https://downloads.example.test/releases/2.2.0/cyber-code-linux-amd64",
+			SHA256: fmt.Sprintf("%x", sha256.Sum256([]byte("verified release artifact"))),
+			Size:   int64(len("verified release artifact")),
+		}},
+	}, previousKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(directory, "latest.json")
+	if err := os.WriteFile(manifestPath, document, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	err = run([]string{
+		"verify",
+		"--manifest", manifestPath,
+		"--public-key", base64.StdEncoding.EncodeToString(currentKey.Public().(ed25519.PublicKey)),
+		"--public-key", base64.StdEncoding.EncodeToString(previousKey.Public().(ed25519.PublicKey)),
+		"--platform", "linux/amd64",
+		"--artifact", artifactPath,
+		"--metadata-url", "https://downloads.example.test/releases/2.2.0/latest.json",
+	}, &output, &bytes.Buffer{}, func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.String() != "verified cyber-code 2.2.0 linux/amd64\n" {
+		t.Fatalf("verify output = %q", output.String())
+	}
+
+	if err := os.WriteFile(artifactPath, []byte("tampered"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{
+		"verify", "--manifest", manifestPath,
+		"--public-key", base64.StdEncoding.EncodeToString(previousKey.Public().(ed25519.PublicKey)),
+		"--platform", "linux/amd64", "--artifact", artifactPath,
+		"--metadata-url", "https://downloads.example.test/releases/2.2.0/latest.json",
+	}, &bytes.Buffer{}, &bytes.Buffer{}, func(string) string { return "" }); err == nil || !strings.Contains(err.Error(), "artifact") {
+		t.Fatalf("tampered artifact error = %v", err)
+	}
+}
+
+func TestVerifyCommandRejectsWrongMetadataDirectoryAndUntrustedKeys(t *testing.T) {
+	directory := t.TempDir()
+	artifactPath := filepath.Join(directory, "cyber-code-linux-amd64")
+	if err := os.WriteFile(artifactPath, []byte("artifact"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	signingKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{9}, ed25519.SeedSize))
+	document, err := updatepkg.BuildEnvelope(updatepkg.Payload{
+		SchemaVersion: updatepkg.ManifestSchemaVersion, Product: "cyber-code", Version: "2.2.0", PublishedAt: "2026-07-29T00:00:00Z",
+		Artifacts: []updatepkg.Artifact{{GOOS: "linux", GOARCH: "amd64", URL: "https://downloads.example.test/releases/2.2.0/cyber-code-linux-amd64", SHA256: fmt.Sprintf("%x", sha256.Sum256([]byte("artifact"))), Size: int64(len("artifact"))}},
+	}, signingKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(directory, "latest.json")
+	if err := os.WriteFile(manifestPath, document, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wrongKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{10}, ed25519.SeedSize))
+	baseArgs := []string{"verify", "--manifest", manifestPath, "--platform", "linux/amd64", "--artifact", artifactPath}
+	if err := run(append(append([]string{}, baseArgs...), "--public-key", base64.StdEncoding.EncodeToString(wrongKey.Public().(ed25519.PublicKey)), "--metadata-url", "https://downloads.example.test/releases/2.2.0/latest.json"), &bytes.Buffer{}, &bytes.Buffer{}, func(string) string { return "" }); err == nil || !strings.Contains(err.Error(), "trusted public key") {
+		t.Fatalf("untrusted key error = %v", err)
+	}
+	if err := run(append(append([]string{}, baseArgs...), "--public-key", base64.StdEncoding.EncodeToString(signingKey.Public().(ed25519.PublicKey)), "--metadata-url", "https://downloads.example.test/releases/latest.json"), &bytes.Buffer{}, &bytes.Buffer{}, func(string) string { return "" }); err == nil || !strings.Contains(err.Error(), "metadata URL") {
+		t.Fatalf("metadata directory error = %v", err)
+	}
+}
+
 func TestReleaseManifestRejectsInvalidInputsWithoutLeakingKey(t *testing.T) {
 	directory := t.TempDir()
 	artifact := filepath.Join(directory, "artifact")
@@ -159,7 +244,7 @@ func TestReleaseBundleWorkflowIsManualReadOnlyAndDoesNotPublish(t *testing.T) {
 		t.Fatalf("workflow permissions = %#v", workflow["permissions"])
 	}
 	text := string(content)
-	for _, required := range []string{"GOOS=linux", "GOOS=windows", "GOOS=darwin", "actions/upload-artifact@v4", "CYBER_CODE_UPDATE_SIGNING_KEY"} {
+	for _, required := range []string{"GOOS=linux", "GOOS=windows", "GOOS=darwin", "actions/upload-artifact@v4", "CYBER_CODE_UPDATE_SIGNING_KEY", "scripts/release-smoke.sh", "scripts/platform-matrix.sh"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("workflow is missing %q", required)
 		}

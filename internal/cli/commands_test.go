@@ -523,6 +523,24 @@ func TestExecuteDoctorTextIncludesRemediation(t *testing.T) {
 	}
 }
 
+func TestCyberAgentDoctorReportsDiscoveredRuntime(t *testing.T) {
+	executable := filepath.Join(t.TempDir(), "cyber-agent")
+	if runtime.GOOS == "windows" {
+		executable += ".exe"
+	}
+	if err := os.WriteFile(executable, []byte("fixture"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CYBER_AGENT_PATH", executable)
+	var stdout, stderr bytes.Buffer
+	code := ExecuteWithOptions(context.Background(), strings.NewReader(""), &stdout, &stderr, []string{"doctor"}, ExecuteOptions{
+		ConfigFile: filepath.Join(t.TempDir(), "config.yaml"), StateDir: t.TempDir(),
+	})
+	if code != 0 || !strings.Contains(stdout.String(), "cyber_agent") || !strings.Contains(stdout.String(), executable) {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestExecuteOptionalUtilityCommandsAreLocalByDefault(t *testing.T) {
 	for _, test := range []struct {
 		args []string

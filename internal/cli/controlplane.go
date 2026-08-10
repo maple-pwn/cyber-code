@@ -11,11 +11,13 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	configpkg "cyber-code/internal/config"
 	"cyber-code/internal/contextbuilder"
 	"cyber-code/internal/controlplane"
 	"cyber-code/internal/core"
+	"cyber-code/internal/cyberagent"
 	"cyber-code/internal/gitworkflow"
 	"cyber-code/internal/hooks"
 	"cyber-code/internal/mcp"
@@ -39,6 +41,13 @@ type mcpControl interface {
 	Statuses() []mcp.ConnectionStatus
 }
 
+type cyberAgentSkillControl interface {
+	ListSkills(context.Context, string) ([]cyberagent.SkillRecord, error)
+	InstallSkill(context.Context, string, string, string) (cyberagent.SkillRecord, error)
+	TrustSkill(context.Context, string, string, string) (cyberagent.SkillRecord, error)
+	RemoveSkill(context.Context, string) (cyberagent.SkillRemoveReceipt, error)
+}
+
 // ControlActions isolates slash commands from Runtime, UI, and configuration
 // implementations while keeping those components authoritative for state.
 type ControlActions struct {
@@ -52,6 +61,7 @@ type ControlActions struct {
 	SetVimMode             func(bool) error
 	CreateBugReport        func(context.Context, string) (string, error)
 	TaskSnapshots          func() []tasks.Snapshot
+	CyberAgentSkills       cyberAgentSkillControl
 }
 
 func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model string, mode permissions.PermissionMode, hooksRunner *hooks.Runner, skills []skill.Skill, contextBuilder *contextbuilder.Builder, mcpManager mcpControl, git *gitworkflow.Service, actions ControlActions) (*controlplane.Registry, error) {
@@ -96,7 +106,13 @@ func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model
 	}}); err != nil {
 		return nil, err
 	}
-	if err := register(controlplane.Spec{Name: "skills", Usage: "/skills", Description: "list available skills", Handler: func(_ context.Context, _ controlplane.Invocation) ([]core.Event, error) {
+	if err := register(controlplane.Spec{Name: "skills", Usage: "/skills [list|search QUERY|install REF [VERSION]|remove REF|trust REF LEVEL]", Description: "list or manage available skills", Handler: func(ctx context.Context, invocation controlplane.Invocation) ([]core.Event, error) {
+		if actions.CyberAgentSkills != nil {
+			return manageCyberAgentSkills(ctx, actions.CyberAgentSkills, invocation.Args)
+		}
+		if len(invocation.Args) != 0 && !(len(invocation.Args) == 1 && invocation.Args[0] == "list") {
+			return nil, fmt.Errorf("third-party Skill management requires the cyber-agent runtime")
+		}
 		names := make([]string, len(skills))
 		for index := range skills {
 			names[index] = skills[index].Name
@@ -300,6 +316,89 @@ func buildControlPlane(runtime *runtimepkg.Runtime, stateDir, profileName, model
 		return nil, err
 	}
 	return registry, nil
+}
+
+func manageCyberAgentSkills(ctx context.Context, client cyberAgentSkillControl, args []string) ([]core.Event, error) {
+	operation := "list"
+	if len(args) > 0 {
+		operation = args[0]
+	}
+	switch operation {
+	case "list":
+		if len(args) > 1 {
+			return nil, fmt.Errorf("/skills list does not accept arguments")
+		}
+		items, err := client.ListSkills(ctx, "")
+		if err != nil {
+			return nil, err
+		}
+		return controlplane.TextEvents(formatCyberAgentSkills(items)), nil
+	case "search":
+		if len(args) < 2 {
+			return nil, fmt.Errorf("/skills search requires a query")
+		}
+		items, err := client.ListSkills(ctx, strings.Join(args[1:], " "))
+		if err != nil {
+			return nil, err
+		}
+		return controlplane.TextEvents(formatCyberAgentSkills(items)), nil
+	case "install":
+		if len(args) < 2 || len(args) > 3 {
+			return nil, fmt.Errorf("/skills install requires REF and optional VERSION")
+		}
+		version := ""
+		if len(args) == 3 {
+			version = args[2]
+		}
+		item, err := client.InstallSkill(ctx, args[1], version, skillMutationKey("install"))
+		if err != nil {
+			return nil, err
+		}
+		return controlplane.TextEvents("installed " + item.SkillRef + "@" + item.Version), nil
+	case "remove":
+		if len(args) != 2 {
+			return nil, fmt.Errorf("/skills remove requires REF")
+		}
+		receipt, err := client.RemoveSkill(ctx, args[1])
+		if err != nil {
+			return nil, err
+		}
+		if !receipt.Removed {
+			return controlplane.TextEvents("skill not installed: " + args[1]), nil
+		}
+		return controlplane.TextEvents("removed " + receipt.SkillRef), nil
+	case "trust":
+		if len(args) != 3 {
+			return nil, fmt.Errorf("/skills trust requires REF and LEVEL")
+		}
+		item, err := client.TrustSkill(ctx, args[1], args[2], skillMutationKey("trust"))
+		if err != nil {
+			return nil, err
+		}
+		return controlplane.TextEvents("trusted " + item.SkillRef + ": " + item.Trust), nil
+	default:
+		return nil, fmt.Errorf("unknown /skills operation %q", operation)
+	}
+}
+
+func formatCyberAgentSkills(items []cyberagent.SkillRecord) string {
+	if len(items) == 0 {
+		return "skills: none"
+	}
+	lines := make([]string, len(items))
+	for index, item := range items {
+		state := "active"
+		if len(item.MissingTools) > 0 {
+			state = "inactive; missing " + strings.Join(item.MissingTools, ", ")
+		}
+		lines[index] = fmt.Sprintf("%s@%s trust=%s digest=%s %s", item.SkillRef, item.Version, item.Trust, item.ContentDigest, state)
+	}
+	sort.Strings(lines)
+	return strings.Join(lines, "\n")
+}
+
+func skillMutationKey(operation string) string {
+	return fmt.Sprintf("cli-skill-%s-%d", operation, time.Now().UnixNano())
 }
 
 func formatTaskSnapshots(snapshot func() []tasks.Snapshot) string {

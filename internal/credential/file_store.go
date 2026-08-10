@@ -15,6 +15,11 @@ type FileStore struct {
 	mu   sync.Mutex
 }
 
+// RestrictPrivateDirectory limits a credential directory to the current user.
+func RestrictPrivateDirectory(path string) error {
+	return restrictDirectory(path)
+}
+
 // NewFileStore validates a concrete credential-file path.
 func NewFileStore(path string) (*FileStore, error) {
 	if filepath.Base(path) == "." || filepath.Base(path) == string(filepath.Separator) || path == "" {
@@ -51,6 +56,9 @@ func (store *FileStore) Save(ctx context.Context, value []byte) error {
 	directory := filepath.Dir(store.path)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return fmt.Errorf("create credential directory: %w", err)
+	}
+	if err := restrictDirectory(directory); err != nil {
+		return fmt.Errorf("restrict credential directory: %w", err)
 	}
 	temporary, err := os.CreateTemp(directory, ".credentials-*")
 	if err != nil {

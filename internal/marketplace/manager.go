@@ -3,6 +3,7 @@ package marketplace
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -37,12 +38,14 @@ type Catalog struct {
 }
 
 type PluginEntry struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Version     string `json:"version,omitempty"`
-	Source      string `json:"source"`
-	Category    string `json:"category,omitempty"`
-	Author      any    `json:"author,omitempty"`
+	Name         string            `json:"name"`
+	Description  string            `json:"description,omitempty"`
+	Version      string            `json:"version,omitempty"`
+	Source       string            `json:"source"`
+	Digest       string            `json:"digest,omitempty"`
+	Dependencies map[string]string `json:"dependencies,omitempty"`
+	Category     string            `json:"category,omitempty"`
+	Author       any               `json:"author,omitempty"`
 }
 
 type Source struct {
@@ -68,17 +71,39 @@ type Installed struct {
 	Skills      []string `json:"skills,omitempty"`
 }
 
-type Manager struct{ stateDir string }
+type ManagerOptions struct {
+	StateDir          string
+	TrustedKeys       map[string]ed25519.PublicKey
+	RequireSignatures bool
+}
+
+type Manager struct {
+	stateDir          string
+	trustedKeys       map[string]ed25519.PublicKey
+	requireSignatures bool
+	writeState        func(string, any) error
+}
 
 func NewManager(stateDir string) (*Manager, error) {
-	absolute, err := filepath.Abs(stateDir)
+	return NewManagerWithOptions(ManagerOptions{StateDir: stateDir})
+}
+
+func NewManagerWithOptions(options ManagerOptions) (*Manager, error) {
+	absolute, err := filepath.Abs(options.StateDir)
 	if err != nil {
 		return nil, err
 	}
 	if err := os.MkdirAll(absolute, 0o700); err != nil {
 		return nil, err
 	}
-	return &Manager{stateDir: absolute}, nil
+	trustedKeys := make(map[string]ed25519.PublicKey, len(options.TrustedKeys))
+	for keyID, publicKey := range options.TrustedKeys {
+		trustedKeys[keyID] = append(ed25519.PublicKey(nil), publicKey...)
+	}
+	if options.RequireSignatures && len(trustedKeys) == 0 {
+		return nil, fmt.Errorf("trusted marketplace signing keys are required")
+	}
+	return &Manager{stateDir: absolute, trustedKeys: trustedKeys, requireSignatures: options.RequireSignatures, writeState: writeJSON}, nil
 }
 
 func (manager *Manager) Add(ctx context.Context, alias, source string) (Source, error) {
@@ -113,6 +138,9 @@ func (manager *Manager) Add(ctx context.Context, alias, source string) (Source, 
 	if err := validateCatalog(snapshot, catalog); err != nil {
 		return Source{}, err
 	}
+	if err := manager.verifyCatalog(snapshot, catalog); err != nil {
+		return Source{}, err
+	}
 	digest, err := treeDigest(snapshot)
 	if err != nil {
 		return Source{}, err
@@ -123,7 +151,7 @@ func (manager *Manager) Add(ctx context.Context, alias, source string) (Source, 
 	}
 	record := Source{Alias: alias, Name: catalog.Name, Origin: source, Root: destination, Digest: digest, Revision: revision}
 	sources[alias] = record
-	if err := writeJSON(manager.sourcesPath(), sources); err != nil {
+	if err := manager.writeState(manager.sourcesPath(), sources); err != nil {
 		_ = os.RemoveAll(destination)
 		return Source{}, err
 	}
@@ -187,6 +215,9 @@ func (manager *Manager) Install(_ context.Context, marketplaceAlias, pluginName 
 	if err != nil {
 		return Installed{}, err
 	}
+	if err := manager.verifyCatalog(source.Root, catalog); err != nil {
+		return Installed{}, err
+	}
 	var entry *PluginEntry
 	for index := range catalog.Plugins {
 		if catalog.Plugins[index].Name == pluginName {
@@ -217,20 +248,36 @@ func (manager *Manager) Install(_ context.Context, marketplaceAlias, pluginName 
 	if err != nil {
 		return Installed{}, err
 	}
+	if manager.requireSignatures && entry.Digest == "" {
+		return Installed{}, fmt.Errorf("plugin %q does not have a signed digest", pluginName)
+	}
+	if entry.Digest != "" && !strings.EqualFold(entry.Digest, digest) {
+		return Installed{}, fmt.Errorf("plugin %q digest verification failed", pluginName)
+	}
 	installs, err := manager.installs()
 	if err != nil {
 		return Installed{}, err
 	}
-	if _, exists := installs[pluginName]; exists {
+	for dependency, version := range entry.Dependencies {
+		installed, exists := installs[dependency]
+		if !exists || installed.Version != version {
+			return Installed{}, fmt.Errorf("plugin %q requires %s@%s", pluginName, dependency, version)
+		}
+	}
+	previous, exists := installs[pluginName]
+	if exists && previous.Digest == digest {
 		return Installed{}, fmt.Errorf("plugin %q is already installed", pluginName)
 	}
-	pluginDestination := filepath.Join(manager.stateDir, "marketplace-plugins", pluginName)
-	if err := copyTree(pluginRoot, pluginDestination); err != nil {
+	staging, err := os.MkdirTemp(manager.stateDir, ".marketplace-install-*")
+	if err != nil {
 		return Installed{}, err
 	}
-	skills, err := manager.installPromptComponents(pluginName, pluginRoot)
+	defer os.RemoveAll(staging)
+	if err := copyTree(pluginRoot, filepath.Join(staging, "plugin")); err != nil {
+		return Installed{}, err
+	}
+	skills, err := manager.installPromptComponents(pluginName, pluginRoot, filepath.Join(staging, "skills"))
 	if err != nil {
-		_ = os.RemoveAll(pluginDestination)
 		return Installed{}, err
 	}
 	version := manifest.Version
@@ -239,8 +286,11 @@ func (manager *Manager) Install(_ context.Context, marketplaceAlias, pluginName 
 	}
 	installed := Installed{Name: pluginName, Marketplace: marketplaceAlias, Version: version, Digest: digest, Revision: source.Revision, Skills: skills}
 	installs[pluginName] = installed
-	if err := writeJSON(manager.installsPath(), installs); err != nil {
-		_ = manager.removeInstalledFiles(installed)
+	var old *Installed
+	if exists {
+		old = &previous
+	}
+	if err := manager.activateInstall(staging, installed, old, installs); err != nil {
 		return Installed{}, err
 	}
 	return installed, nil
@@ -255,11 +305,11 @@ func (manager *Manager) Remove(pluginName string) error {
 	if !exists {
 		return fmt.Errorf("plugin %q is not installed", pluginName)
 	}
-	if err := manager.removeInstalledFiles(installed); err != nil {
+	if err := validateInstalled(installed); err != nil {
 		return err
 	}
 	delete(installs, pluginName)
-	return writeJSON(manager.installsPath(), installs)
+	return manager.deactivateInstall(installed, installs)
 }
 
 type pluginManifest struct {
@@ -311,6 +361,9 @@ func validateCatalog(root string, catalog Catalog) error {
 			return fmt.Errorf("duplicate marketplace plugin %q", plugin.Name)
 		}
 		seen[plugin.Name] = struct{}{}
+		if plugin.Digest != "" && (len(plugin.Digest) != sha256.Size*2 || !isHex(plugin.Digest)) {
+			return fmt.Errorf("invalid marketplace plugin digest for %q", plugin.Name)
+		}
 		path, err := resolveInside(root, plugin.Source)
 		if err != nil {
 			return err
@@ -319,11 +372,14 @@ func validateCatalog(root string, catalog Catalog) error {
 			return fmt.Errorf("plugin %q source directory is unavailable", plugin.Name)
 		}
 	}
+	if err := validateDependencies(catalog.Plugins); err != nil {
+		return err
+	}
 	_, err := treeDigest(root)
 	return err
 }
 
-func (manager *Manager) installPromptComponents(pluginName, root string) ([]string, error) {
+func (manager *Manager) installPromptComponents(pluginName, root, destinationRoot string) ([]string, error) {
 	type component struct{ prefix, directory, extension string }
 	components := []component{{"", "skills", ""}, {"command-", "commands", ".md"}, {"agent-", "agents", ".md"}}
 	var installed []string
@@ -354,7 +410,7 @@ func (manager *Manager) installPromptComponents(pluginName, root string) ([]stri
 				return nil, fmt.Errorf("read plugin component %q", source)
 			}
 			skillName := pluginName + "--" + component.prefix + name
-			destination := filepath.Join(manager.stateDir, "skills", skillName)
+			destination := filepath.Join(destinationRoot, skillName)
 			if err := os.MkdirAll(destination, 0o700); err != nil {
 				return nil, err
 			}
@@ -368,19 +424,202 @@ func (manager *Manager) installPromptComponents(pluginName, root string) ([]stri
 	return installed, nil
 }
 
-func (manager *Manager) removeInstalledFiles(installed Installed) error {
+func (manager *Manager) verifyCatalog(root string, catalog Catalog) error {
+	var signature CatalogSignature
+	err := decodeStrict(filepath.Join(root, ".claude-plugin", "marketplace.sig.json"), &signature)
+	if errors.Is(err, os.ErrNotExist) && !manager.requireSignatures {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("load marketplace signature: %w", err)
+	}
+	return VerifyCatalogSignature(catalog, signature, manager.trustedKeys)
+}
+
+func validateDependencies(plugins []PluginEntry) error {
+	entries := make(map[string]PluginEntry, len(plugins))
+	for _, entry := range plugins {
+		entries[entry.Name] = entry
+	}
+	for _, entry := range plugins {
+		for dependency, version := range entry.Dependencies {
+			pinned, exists := entries[dependency]
+			if !exists || strings.TrimSpace(version) == "" || pinned.Version != version {
+				return fmt.Errorf("plugin %q has invalid dependency pin %s@%s", entry.Name, dependency, version)
+			}
+		}
+	}
+	visiting := make(map[string]bool, len(entries))
+	visited := make(map[string]bool, len(entries))
+	var visit func(string) error
+	visit = func(name string) error {
+		if visiting[name] {
+			return fmt.Errorf("marketplace dependency cycle includes %q", name)
+		}
+		if visited[name] {
+			return nil
+		}
+		visiting[name] = true
+		for dependency := range entries[name].Dependencies {
+			if err := visit(dependency); err != nil {
+				return err
+			}
+		}
+		visiting[name] = false
+		visited[name] = true
+		return nil
+	}
+	for name := range entries {
+		if err := visit(name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func isHex(value string) bool {
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func (manager *Manager) activateInstall(staging string, installed Installed, previous *Installed, installs map[string]Installed) error {
+	backup, err := os.MkdirTemp(manager.stateDir, ".marketplace-rollback-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(backup)
+	pluginPath := filepath.Join(manager.stateDir, "marketplace-plugins", installed.Name)
+	pointerPath := filepath.Join(manager.stateDir, "marketplace-plugins", installed.Name+".active.json")
+	moved := make(map[string]string)
+	moveToBackup := func(path, relative string) error {
+		if _, statErr := os.Stat(path); errors.Is(statErr, os.ErrNotExist) {
+			return nil
+		} else if statErr != nil {
+			return statErr
+		}
+		destination := filepath.Join(backup, relative)
+		if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+			return err
+		}
+		if err := os.Rename(path, destination); err != nil {
+			return err
+		}
+		moved[path] = destination
+		return nil
+	}
+	rollback := func() {
+		_ = os.RemoveAll(pluginPath)
+		_ = os.Remove(pointerPath)
+		for _, skill := range installed.Skills {
+			_ = os.RemoveAll(filepath.Join(manager.stateDir, "skills", skill))
+		}
+		for original, saved := range moved {
+			_ = os.MkdirAll(filepath.Dir(original), 0o700)
+			_ = os.Rename(saved, original)
+		}
+	}
+	if err := moveToBackup(pluginPath, "plugin"); err != nil {
+		return err
+	}
+	if err := moveToBackup(pointerPath, "active.json"); err != nil {
+		rollback()
+		return err
+	}
+	oldSkills := []string(nil)
+	if previous != nil {
+		oldSkills = previous.Skills
+	}
+	for _, skill := range oldSkills {
+		if err := moveToBackup(filepath.Join(manager.stateDir, "skills", skill), filepath.Join("skills", skill)); err != nil {
+			rollback()
+			return err
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(pluginPath), 0o700); err != nil {
+		rollback()
+		return err
+	}
+	if err := os.Rename(filepath.Join(staging, "plugin"), pluginPath); err != nil {
+		rollback()
+		return err
+	}
+	for _, skill := range installed.Skills {
+		source := filepath.Join(staging, "skills", skill)
+		destination := filepath.Join(manager.stateDir, "skills", skill)
+		if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+			rollback()
+			return err
+		}
+		if err := os.Rename(source, destination); err != nil {
+			rollback()
+			return err
+		}
+	}
+	if err := writeJSON(pointerPath, map[string]string{"digest": installed.Digest, "version": installed.Version}); err != nil {
+		rollback()
+		return err
+	}
+	if err := manager.writeState(manager.installsPath(), installs); err != nil {
+		rollback()
+		return err
+	}
+	return nil
+}
+
+func (manager *Manager) deactivateInstall(installed Installed, installs map[string]Installed) error {
+	if err := validateInstalled(installed); err != nil {
+		return err
+	}
+	backup, err := os.MkdirTemp(manager.stateDir, ".marketplace-uninstall-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(backup)
+	paths := []struct{ original, saved string }{
+		{filepath.Join(manager.stateDir, "marketplace-plugins", installed.Name), filepath.Join(backup, "plugin")},
+		{filepath.Join(manager.stateDir, "marketplace-plugins", installed.Name+".active.json"), filepath.Join(backup, "active.json")},
+	}
+	for _, skill := range installed.Skills {
+		paths = append(paths, struct{ original, saved string }{filepath.Join(manager.stateDir, "skills", skill), filepath.Join(backup, "skills", skill)})
+	}
+	moved := make([]struct{ original, saved string }, 0, len(paths))
+	rollback := func() {
+		for _, path := range moved {
+			_ = os.MkdirAll(filepath.Dir(path.original), 0o700)
+			_ = os.Rename(path.saved, path.original)
+		}
+	}
+	for _, path := range paths {
+		if _, statErr := os.Stat(path.original); errors.Is(statErr, os.ErrNotExist) {
+			continue
+		} else if statErr != nil {
+			rollback()
+			return statErr
+		}
+		if err := os.MkdirAll(filepath.Dir(path.saved), 0o700); err != nil {
+			rollback()
+			return err
+		}
+		if err := os.Rename(path.original, path.saved); err != nil {
+			rollback()
+			return err
+		}
+		moved = append(moved, path)
+	}
+	if err := manager.writeState(manager.installsPath(), installs); err != nil {
+		rollback()
+		return err
+	}
+	return nil
+}
+
+func validateInstalled(installed Installed) error {
 	if !compatibleName.MatchString(installed.Name) {
 		return fmt.Errorf("invalid installed plugin name")
-	}
-	if err := os.RemoveAll(filepath.Join(manager.stateDir, "marketplace-plugins", installed.Name)); err != nil {
-		return err
 	}
 	for _, skill := range installed.Skills {
 		if !strings.HasPrefix(skill, installed.Name+"--") || strings.ContainsAny(skill, `/\\`) {
 			return fmt.Errorf("invalid installed skill path")
-		}
-		if err := os.RemoveAll(filepath.Join(manager.stateDir, "skills", skill)); err != nil {
-			return err
 		}
 	}
 	return nil
@@ -388,7 +627,7 @@ func (manager *Manager) removeInstalledFiles(installed Installed) error {
 
 func materialize(ctx context.Context, source, destination string) (string, error) {
 	parsed, err := url.Parse(source)
-	if err == nil && parsed.Scheme != "" {
+	if !filepath.IsAbs(source) && err == nil && parsed.Scheme != "" {
 		if parsed.Scheme != "https" || parsed.Host == "" {
 			return "", fmt.Errorf("marketplace Git source must use HTTPS")
 		}
@@ -610,5 +849,5 @@ func writeJSON(path string, value any) error {
 	if err := file.Close(); err != nil {
 		return err
 	}
-	return os.Rename(temporary, path)
+	return replaceMarketplaceFile(temporary, path)
 }

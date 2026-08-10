@@ -1,0 +1,54 @@
+{
+  "accepted": {
+    "envelope": {
+      "idempotencyKey": "cmd-01JTESTACCEPTED",
+      "command": { "type": "task.cancel" }
+    },
+    "receipt": {
+      "idempotencyKey": "cmd-01JTESTACCEPTED",
+      "status": "accepted"
+    }
+  },
+  "rejected": [
+    {
+      "name": "command-rejection",
+      "envelope": {
+        "idempotencyKey": "cmd-01JTESTREJECTED",
+        "command": { "type": "instruction.send", "content": "continue" }
+      },
+      "receipt": {
+        "idempotencyKey": "cmd-01JTESTREJECTED",
+        "status": "rejected",
+        "errorCode": "command_rejected"
+      }
+    },
+    {
+      "name": "expired-approval",
+      "envelope": {
+        "idempotencyKey": "cmd-01JTESTEXPIRED",
+        "command": {
+          "type": "approval.respond",
+          "challengeId": "approval-expired",
+          "decision": "deny"
+        }
+      },
+      "receipt": {
+        "idempotencyKey": "cmd-01JTESTEXPIRED",
+        "status": "rejected",
+        "errorCode": "approval_expired"
+      }
+    },
+    {
+      "name": "stale-lease",
+      "envelope": {
+        "idempotencyKey": "cmd-01JTESTSTALE",
+        "command": { "type": "control.take", "expectedRevision": 4 }
+      },
+      "receipt": {
+        "idempotencyKey": "cmd-01JTESTSTALE",
+        "status": "rejected",
+        "errorCode": "stale_lease"
+      }
+    }
+  ]
+}

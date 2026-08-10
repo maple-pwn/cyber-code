@@ -14,13 +14,15 @@ const defaultObservationBuffer = 64
 // Snapshot is the bounded, safe state exposed to frontends and control-plane
 // commands for one child task.
 type Snapshot struct {
-	ID          string     `json:"id"`
-	Agent       string     `json:"agent,omitempty"`
-	Description string     `json:"description,omitempty"`
-	Status      TaskStatus `json:"status"`
-	Usage       core.Usage `json:"usage"`
-	RecentTool  string     `json:"recent_tool,omitempty"`
-	Truncated   bool       `json:"truncated,omitempty"`
+	ID          string      `json:"id"`
+	Agent       string      `json:"agent,omitempty"`
+	Description string      `json:"description,omitempty"`
+	Status      TaskStatus  `json:"status"`
+	Usage       core.Usage  `json:"usage"`
+	RecentTool  string      `json:"recent_tool,omitempty"`
+	Truncated   bool        `json:"truncated,omitempty"`
+	QueueStatus QueueStatus `json:"queue_status,omitempty"`
+	Attempts    int         `json:"attempts,omitempty"`
 }
 
 type observationHub struct {
@@ -154,6 +156,24 @@ func (hub *observationHub) snapshotsCopy() []Snapshot {
 }
 
 func (hub *observationHub) snapshots() []Snapshot { return hub.snapshotsCopy() }
+
+func (hub *observationHub) recordQueue(taskID string, status QueueStatus, attempts int) {
+	if hub == nil || taskID == "" {
+		return
+	}
+	hub.mu.Lock()
+	defer hub.mu.Unlock()
+	if hub.closed {
+		return
+	}
+	snapshot := hub.states[taskID]
+	snapshot.ID = taskID
+	snapshot.QueueStatus = status
+	if attempts > snapshot.Attempts {
+		snapshot.Attempts = attempts
+	}
+	hub.states[taskID] = snapshot
+}
 
 func (hub *observationHub) close() {
 	hub.mu.Lock()

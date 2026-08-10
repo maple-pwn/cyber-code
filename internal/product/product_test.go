@@ -10,8 +10,9 @@ func TestCanonicalBrandManifest(t *testing.T) {
 		t.Fatalf("brand manifest = name:%q command:%q config:%q env:%q", Name, Command, ConfigDirectory, EnvPrefix)
 	}
 	if EnvConfig != "CYBER_CODE_CONFIG" || EnvStateDir != "CYBER_CODE_STATE_DIR" ||
-		EnvProfile != "CYBER_CODE_PROFILE" || EnvPermissionMode != "CYBER_CODE_PERMISSION_MODE" {
-		t.Fatalf("environment manifest = %q %q %q %q", EnvConfig, EnvStateDir, EnvProfile, EnvPermissionMode)
+		EnvProfile != "CYBER_CODE_PROFILE" || EnvPermissionMode != "CYBER_CODE_PERMISSION_MODE" ||
+		EnvRuntimeBearer != "CYBER_CODE_RUNTIME_BEARER" {
+		t.Fatalf("environment manifest = %q %q %q %q %q", EnvConfig, EnvStateDir, EnvProfile, EnvPermissionMode, EnvRuntimeBearer)
 	}
 	identity := strings.ToLower(DefaultSystemPrompt)
 	for _, required := range []string{Name, "independent", "coding agent", "do not claim"} {

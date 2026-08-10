@@ -28,7 +28,7 @@ func Load(options LoadOptions) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("load %s config: %w", layer.name, err)
 		}
-		merge(&merged, loaded)
+		merge(&merged, loaded, layer.name)
 	}
 
 	if value := strings.TrimSpace(os.Getenv(product.EnvProfile)); value != "" {
@@ -88,7 +88,7 @@ func loadFile(path string) (Config, error) {
 	return loaded, nil
 }
 
-func merge(target *Config, overlay Config) {
+func merge(target *Config, overlay Config, layer string) {
 	if overlay.ActiveProfile != "" {
 		target.ActiveProfile = overlay.ActiveProfile
 	}
@@ -97,6 +97,23 @@ func merge(target *Config, overlay Config) {
 	}
 	if overlay.SandboxMode != "" {
 		target.SandboxMode = overlay.SandboxMode
+	}
+	if overlay.TrustLevel != "" && (layer != "project" || trustRank(overlay.TrustLevel) > trustRank(target.TrustLevel)) {
+		target.TrustLevel = overlay.TrustLevel
+	}
+	if overlay.AllowedTools != nil {
+		if layer == "project" && target.AllowedTools != nil {
+			target.AllowedTools = intersectStrings(target.AllowedTools, overlay.AllowedTools)
+		} else {
+			target.AllowedTools = append([]string(nil), overlay.AllowedTools...)
+		}
+	}
+	if overlay.DenyTools != nil {
+		if layer == "project" {
+			target.DenyTools = unionStrings(target.DenyTools, overlay.DenyTools)
+		} else {
+			target.DenyTools = append([]string(nil), overlay.DenyTools...)
+		}
 	}
 	if overlay.ContextWarningThreshold != 0 {
 		target.ContextWarningThreshold = overlay.ContextWarningThreshold
@@ -127,4 +144,44 @@ func merge(target *Config, overlay Config) {
 		}
 		target.Profiles[name] = current
 	}
+}
+
+func trustRank(level string) int {
+	switch level {
+	case "managed":
+		return 2
+	case "suggested":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func intersectStrings(left, right []string) []string {
+	rightSet := make(map[string]struct{}, len(right))
+	for _, value := range right {
+		rightSet[value] = struct{}{}
+	}
+	result := make([]string, 0, len(left))
+	for _, value := range left {
+		if _, ok := rightSet[value]; ok {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func unionStrings(left, right []string) []string {
+	result := append([]string(nil), left...)
+	seen := make(map[string]struct{}, len(left)+len(right))
+	for _, value := range left {
+		seen[value] = struct{}{}
+	}
+	for _, value := range right {
+		if _, ok := seen[value]; !ok {
+			result = append(result, value)
+			seen[value] = struct{}{}
+		}
+	}
+	return result
 }

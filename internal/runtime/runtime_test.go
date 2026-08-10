@@ -350,6 +350,7 @@ func TestPersistentRuntimeClearHistoryUpdatesMemoryAndSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer runtime.Shutdown(context.Background())
 	collectRuntimeEvents(t, runtime.Run(context.Background(), "question"))
 
 	if err := runtime.ClearHistory(context.Background()); err != nil {

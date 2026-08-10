@@ -1,0 +1,441 @@
+{
+  "name": "deny",
+  "events": [
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-1-task.created",
+      "taskId": "task-1",
+      "cursor": 1,
+      "occurredAt": "2026-08-03T12:00:01.000Z",
+      "type": "task.created",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "title": "评估 juice-shop.lab"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-2-scope.proposed",
+      "taskId": "task-1",
+      "cursor": 2,
+      "occurredAt": "2026-08-03T12:00:02.000Z",
+      "type": "scope.proposed",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "scope": {
+          "id": "scope-1",
+          "principal": "authorized-operator",
+          "workspace": "/labs/juice-shop",
+          "validity": "single-task",
+          "targets": [
+            "juice-shop.lab"
+          ],
+          "allowedActions": [
+            "passive-recon",
+            "route-enumeration",
+            "bounded-login-verification"
+          ],
+          "deniedActions": [
+            "destructive",
+            "persistence",
+            "credential-stuffing"
+          ],
+          "riskCeiling": "medium"
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-3-scope.confirmed",
+      "taskId": "task-1",
+      "cursor": 3,
+      "occurredAt": "2026-08-03T12:00:03.000Z",
+      "type": "scope.confirmed",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "scope": {
+          "id": "scope-1",
+          "principal": "authorized-operator",
+          "workspace": "/labs/juice-shop",
+          "validity": "single-task",
+          "targets": [
+            "juice-shop.lab"
+          ],
+          "allowedActions": [
+            "passive-recon",
+            "route-enumeration",
+            "bounded-login-verification"
+          ],
+          "deniedActions": [
+            "destructive",
+            "persistence",
+            "credential-stuffing"
+          ],
+          "riskCeiling": "medium"
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-4-task.started",
+      "taskId": "task-1",
+      "cursor": 4,
+      "occurredAt": "2026-08-03T12:00:04.000Z",
+      "type": "task.started",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "title": "Authorized juice-shop.lab assessment"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-5-agent.started",
+      "taskId": "task-1",
+      "cursor": 5,
+      "occurredAt": "2026-08-03T12:00:05.000Z",
+      "type": "agent.started",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "agent": {
+          "id": "agent-recon",
+          "name": "Recon Agent",
+          "status": "running",
+          "progress": 0
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-6-tool.started",
+      "taskId": "task-1",
+      "cursor": 6,
+      "occurredAt": "2026-08-03T12:00:06.000Z",
+      "type": "tool.started",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "callId": "tool-recon",
+        "name": "bounded-recon"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-7-evidence.committed",
+      "taskId": "task-1",
+      "cursor": 7,
+      "occurredAt": "2026-08-03T12:00:07.000Z",
+      "type": "evidence.committed",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "evidence": {
+          "id": "evidence-runtime",
+          "taskId": "task-1",
+          "kind": "technology",
+          "summary": "Node.js runtime identified",
+          "data": {
+            "runtime": "Node.js"
+          }
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-8-evidence.committed",
+      "taskId": "task-1",
+      "cursor": 8,
+      "occurredAt": "2026-08-03T12:00:08.000Z",
+      "type": "evidence.committed",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "evidence": {
+          "id": "evidence-framework",
+          "taskId": "task-1",
+          "kind": "technology",
+          "summary": "Express framework identified",
+          "data": {
+            "framework": "Express"
+          }
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-9-evidence.committed",
+      "taskId": "task-1",
+      "cursor": 9,
+      "occurredAt": "2026-08-03T12:00:09.000Z",
+      "type": "evidence.committed",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "evidence": {
+          "id": "evidence-route-count",
+          "taskId": "task-1",
+          "kind": "route-inventory",
+          "summary": "24 API routes enumerated",
+          "data": {
+            "count": 24
+          }
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-10-evidence.committed",
+      "taskId": "task-1",
+      "cursor": 10,
+      "occurredAt": "2026-08-03T12:00:10.000Z",
+      "type": "evidence.committed",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "evidence": {
+          "id": "evidence-login-route",
+          "taskId": "task-1",
+          "kind": "route",
+          "summary": "Login API route observed",
+          "data": {
+            "method": "POST",
+            "path": "/rest/user/login"
+          }
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-11-evidence.committed",
+      "taskId": "task-1",
+      "cursor": 11,
+      "occurredAt": "2026-08-03T12:00:11.000Z",
+      "type": "evidence.committed",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "evidence": {
+          "id": "evidence-product-route",
+          "taskId": "task-1",
+          "kind": "route",
+          "summary": "Product API route observed",
+          "data": {
+            "method": "GET",
+            "path": "/api/Products"
+          }
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-12-evidence.committed",
+      "taskId": "task-1",
+      "cursor": 12,
+      "occurredAt": "2026-08-03T12:00:12.000Z",
+      "type": "evidence.committed",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "evidence": {
+          "id": "evidence-security-headers",
+          "taskId": "task-1",
+          "kind": "headers",
+          "summary": "Security header baseline recorded",
+          "data": {
+            "server": "Express"
+          }
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-13-evidence.committed",
+      "taskId": "task-1",
+      "cursor": 13,
+      "occurredAt": "2026-08-03T12:00:13.000Z",
+      "type": "evidence.committed",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "evidence": {
+          "id": "evidence-auth-shape",
+          "taskId": "task-1",
+          "kind": "schema",
+          "summary": "Authentication request shape recorded",
+          "data": {
+            "fields": [
+              "email",
+              "password"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-14-evidence.committed",
+      "taskId": "task-1",
+      "cursor": 14,
+      "occurredAt": "2026-08-03T12:00:14.000Z",
+      "type": "evidence.committed",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "evidence": {
+          "id": "evidence-scope",
+          "taskId": "task-1",
+          "kind": "scope",
+          "summary": "Evidence collected within juice-shop.lab",
+          "data": {
+            "target": "juice-shop.lab"
+          }
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-15-tool.completed",
+      "taskId": "task-1",
+      "cursor": 15,
+      "occurredAt": "2026-08-03T12:00:15.000Z",
+      "type": "tool.completed",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "callId": "tool-recon",
+        "success": true,
+        "evidenceIds": [
+          "evidence-runtime",
+          "evidence-framework",
+          "evidence-route-count",
+          "evidence-login-route",
+          "evidence-product-route",
+          "evidence-security-headers",
+          "evidence-auth-shape",
+          "evidence-scope"
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-16-agent.completed",
+      "taskId": "task-1",
+      "cursor": 16,
+      "occurredAt": "2026-08-03T12:00:16.000Z",
+      "type": "agent.completed",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "agentId": "agent-recon"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-17-approval.requested",
+      "taskId": "task-1",
+      "cursor": 17,
+      "occurredAt": "2026-08-03T12:00:17.000Z",
+      "type": "approval.requested",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "challenge": {
+          "id": "approval-1",
+          "agentId": "agent-verification",
+          "action": "bounded-login-verification",
+          "target": "juice-shop.lab",
+          "parameterDigest": "sha256:scenario-login-v1",
+          "risk": "medium",
+          "expiresAt": "2026-08-03T12:00:25.000Z"
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-18-approval.resolved",
+      "taskId": "task-1",
+      "cursor": 18,
+      "occurredAt": "2026-08-03T12:00:18.000Z",
+      "type": "approval.resolved",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "challengeId": "approval-1",
+        "decision": "deny"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-19-finding.created",
+      "taskId": "task-1",
+      "cursor": 19,
+      "occurredAt": "2026-08-03T12:00:19.000Z",
+      "type": "finding.created",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "finding": {
+          "id": "finding-login-injection",
+          "title": "Potential login injection",
+          "severity": "high",
+          "status": "candidate",
+          "confidence": "medium",
+          "evidenceIds": [
+            "evidence-login-route",
+            "evidence-auth-shape"
+          ]
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-20-finding.rejected",
+      "taskId": "task-1",
+      "cursor": 20,
+      "occurredAt": "2026-08-03T12:00:20.000Z",
+      "type": "finding.rejected",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {
+        "findingId": "finding-login-injection",
+        "reason": "Verification denied; candidate retained as an explicit limitation."
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "scenario-local-21-task.completed",
+      "taskId": "task-1",
+      "cursor": 21,
+      "occurredAt": "2026-08-03T12:00:21.000Z",
+      "type": "task.completed",
+      "source": {
+        "runtimeId": "scenario-local"
+      },
+      "payload": {}
+    }
+  ]
+}

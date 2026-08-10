@@ -29,6 +29,7 @@ type taskCompositionOptions struct {
 	Definitions    []collaboration.Definition
 	Board          *collaboration.Board
 	Coordinator    *collaboration.Coordinator
+	Queue          *tasks.Queue
 }
 
 func configureTaskService(options taskCompositionOptions) (*tasks.ToolService, error) {
@@ -36,6 +37,7 @@ func configureTaskService(options taskCompositionOptions) (*tasks.ToolService, e
 		return nil, fmt.Errorf("task provider, registry, and permission broker are required")
 	}
 	return tasks.NewToolService(tasks.ToolServiceOptions{
+		Queue:      options.Queue,
 		ParentMode: options.ParentMode, ParentMaxTurns: options.ParentMaxTurns,
 		Definitions: options.Definitions,
 		Board:       options.Board,

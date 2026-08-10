@@ -69,7 +69,7 @@ func NewCredentialStore(directory string) (*CredentialStore, error) {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return nil, fmt.Errorf("create credential directory: %w", err)
 	}
-	if err := os.Chmod(directory, 0o700); err != nil {
+	if err := credential.RestrictPrivateDirectory(directory); err != nil {
 		return nil, fmt.Errorf("restrict credential directory: %w", err)
 	}
 	return &CredentialStore{directory: filepath.Clean(directory), path: filepath.Join(directory, "credentials.json"), lockPath: filepath.Join(directory, ".credentials.lock")}, nil

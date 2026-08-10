@@ -122,7 +122,14 @@ func (runner *Runner) commandHandler(command string) HookHandler {
 			Command: command, Workspace: runner.workspace, Stdin: string(encoded), Timeout: runner.timeout,
 		})
 		if err != nil {
-			return HookOutput{}, fmt.Errorf("run hook command: %w", err)
+			detail := strings.TrimSpace(result.Stderr)
+			if detail == "" {
+				detail = strings.TrimSpace(result.Stdout)
+			}
+			if detail != "" {
+				return HookOutput{}, fmt.Errorf("run hook command (exit %d): %s: %w", result.ExitCode, detail, err)
+			}
+			return HookOutput{}, fmt.Errorf("run hook command (exit %d): %w", result.ExitCode, err)
 		}
 		if len(result.Stdout) > runner.maxOutputBytes {
 			return HookOutput{}, fmt.Errorf("hook output exceeds %d bytes", runner.maxOutputBytes)
