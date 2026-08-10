@@ -101,6 +101,45 @@ describe('CyberAgentEventSource', () => {
     expect(transport.closed).toBe(true);
   });
 
+  test('projects cyber-agent evidence and report products into the trusted product state', async () => {
+    const productTransport = new FixtureTransport();
+    const fixtureRequest = productTransport.request.bind(productTransport);
+    productTransport.request = async (request) => {
+      if (request.method === 'GET' && request.path === '/v1/sessions/session-web') {
+        return { ...snapshot, event_cursor: { session_id: 'session-web', sequence: 7, event_id: 'source-7' } };
+      }
+      return fixtureRequest(request);
+    };
+    productTransport.events = async function* (_sessionId, _afterSequence, signal) {
+      if (signal.aborted) return;
+      yield sourceEvent(1, 'session.created', { schema_version: 1, session_id: 'session-web', task_id: 'task-web', revision: 1, status: 'active' });
+      yield sourceEvent(2, 'evidence.available', {
+        evidence_id: 'evidence-1', kind: 'http', summary: 'HTTP response', data: { status_code: 200 },
+      });
+      yield sourceEvent(3, 'finding.created', {
+        finding_id: 'finding-1', title: 'Exposed endpoint', severity: 'medium', evidence_refs: ['evidence-1'],
+      });
+      yield sourceEvent(4, 'finding.verifying', { finding_id: 'finding-1' });
+      yield sourceEvent(5, 'finding.confirmed', { finding_id: 'finding-1' });
+      yield sourceEvent(6, 'report.drafted', {
+        report_id: 'report-1', narrative: 'Verified assessment report', finding_ids: ['finding-1'], evidence_refs: ['evidence-1'],
+      });
+      yield sourceEvent(7, 'report.frozen', { report_id: 'report-1' });
+    };
+    const source = new CyberAgentEventSource(productTransport);
+    await source.handshake({ supportedProtocolVersions: [1], afterCursor: 0 });
+    await source.send({ idempotencyKey: 'create-products', command: { type: 'task.create', objective: 'Assess', runtimeId: 'cyber-agent-remote' } });
+
+    await new Promise<void>((resolve) => {
+      void source.subscribe(0, (event) => { if (event.cursor === 7) resolve(); });
+    });
+    const projected = await source.getSnapshot();
+
+    expect(projected.state.evidence['evidence-1']).toMatchObject({ summary: 'HTTP response', data: { status_code: 200 } });
+    expect(projected.state.findings['finding-1']).toMatchObject({ status: 'confirmed', evidenceIds: ['evidence-1'] });
+    expect(projected.state.report).toMatchObject({ id: 'report-1', status: 'frozen', narrative: 'Verified assessment report' });
+  });
+
   test('rejects unauthorized and incompatible handshakes without becoming connected', async () => {
     const unauthorized: CyberAgentTransport = {
       request: vi.fn().mockRejectedValue(new Error('unauthorized')),
@@ -174,6 +213,27 @@ describe('CyberAgentEventSource', () => {
 });
 
 describe('FetchCyberAgentTransport', () => {
+  test('binds the host fetch receiver for WebKit-compatible desktop requests', async () => {
+    const host = globalThis;
+    const receiverAwareFetch = vi.fn(function (this: unknown) {
+      if (this !== host) throw new TypeError('fetch receiver must be Window');
+      return Promise.resolve(new Response('{"ok":true}', { status: 200 }));
+    });
+    vi.stubGlobal('fetch', receiverAwareFetch);
+    try {
+      const transport = new FetchCyberAgentTransport(
+        'http://127.0.0.1:43127',
+        () => 'desktop-token',
+        { allowInsecureLoopback: true },
+      );
+
+      await expect(transport.request({ method: 'GET', path: '/v1/capabilities' }))
+        .resolves.toEqual({ ok: true });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   test('sends bearer and idempotency metadata and parses multiline SSE events', async () => {
     const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
@@ -194,10 +254,65 @@ describe('FetchCyberAgentTransport', () => {
     expect(fetch.mock.calls[1]?.[0].toString()).toContain('after_sequence=7');
   });
 
+  test('polls finite JSON event batches when streaming fetch is unavailable', async () => {
+    let requests = 0;
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (!url.includes('/event-batch')) throw new Error(`unexpected_url:${url}`);
+      requests += 1;
+      return new Response(JSON.stringify({
+        events: requests === 1 ? [sourceEvent(8, 'scope.proposed', {
+          schema_version: 1,
+          scope_id: 'scope-web',
+          targets: ['http://127.0.0.1:18080'],
+        })] : [],
+        has_more: false,
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    const transport = new FetchCyberAgentTransport(
+      'http://127.0.0.1:43127',
+      () => 'desktop-token',
+      { allowInsecureLoopback: true, fetch: fetch as typeof globalThis.fetch, eventMode: 'poll', pollIntervalMs: 1 },
+    );
+    const controller = new AbortController();
+    const iterator = transport.events('session-web', 7, controller.signal)[Symbol.asyncIterator]();
+
+    await expect(iterator.next()).resolves.toEqual({
+      done: false,
+      value: expect.objectContaining({ sequence: 8, topic: 'scope.proposed' }),
+    });
+    const pending = iterator.next();
+    await vi.waitFor(() => expect(fetch.mock.calls.length).toBeGreaterThanOrEqual(2));
+    controller.abort();
+    await expect(pending).resolves.toEqual({ done: true, value: undefined });
+
+    expect(fetch.mock.calls[0]?.[0].toString()).toContain('/v1/sessions/session-web/event-batch?after_sequence=7');
+    expect(fetch.mock.calls[1]?.[0].toString()).toContain('after_sequence=8&after_event_id=source-8');
+  });
+
   test('requires HTTPS unless a trusted host explicitly enables loopback HTTP', () => {
     expect(() => new FetchCyberAgentTransport('http://127.0.0.1:8080', () => 'token')).toThrow('cyber_agent_tls_required');
     expect(() => new FetchCyberAgentTransport('http://127.0.0.1:8080', () => 'token', { allowInsecureLoopback: true })).not.toThrow();
     expect(() => new FetchCyberAgentTransport('http://example.test', () => 'token', { allowInsecureLoopback: true })).toThrow('cyber_agent_tls_required');
+  });
+
+  test('preserves known conflict diagnostics from the cyber-agent response', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ detail: 'idempotency key reused with different request' }),
+      { status: 409, headers: { 'content-type': 'application/json' } },
+    ));
+    const transport = new FetchCyberAgentTransport(
+      'https://agent.example.test',
+      () => 'web-token',
+      { fetch: fetch as typeof globalThis.fetch },
+    );
+
+    await expect(transport.request({
+      method: 'POST',
+      path: '/v1/sessions',
+      body: { task: true },
+      idempotencyKey: 'mutation-conflict',
+    })).rejects.toThrow('cyber_agent_idempotency_conflict');
   });
 });
 

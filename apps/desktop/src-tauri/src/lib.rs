@@ -87,11 +87,15 @@ mod tests {
             "base-uri 'none'",
             "frame-src 'none'",
             "form-action 'none'",
+            "connect-src ipc: http://ipc.localhost http://127.0.0.1:*",
         ] {
             assert!(
                 csp.contains(directive),
                 "missing CSP directive: {directive}"
             );
+        }
+        for forbidden in ["connect-src *", "connect-src http:", "connect-src https:"] {
+            assert!(!csp.contains(forbidden), "CSP is too broad: {forbidden}");
         }
         assert_eq!(security["capabilities"], serde_json::json!(["main-window"]));
         assert_eq!(config["bundle"]["active"], true);

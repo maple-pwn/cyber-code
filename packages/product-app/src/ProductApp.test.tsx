@@ -4,9 +4,12 @@ import { describe, expect, test, vi } from 'vitest';
 
 import { RuntimeClient } from '@cyber/runtime-client';
 import { ScenarioPlayer } from '@cyber/scenario-player';
+import { createTranslator } from '@cyber/i18n';
+import { initialProductState, project, validateEvent, type ReportState } from '@cyber/protocol';
 
 import { ProductApp } from './ProductApp';
 import { createAppStore } from './app-store';
+import { ReportsPage } from './pages/ReportsPage';
 
 const renderApp = async () => {
   const player = new ScenarioPlayer({ runtimeId: 'scenario-local', speedMs: 0 });
@@ -28,6 +31,25 @@ describe('App shell', () => {
     expect(await screen.findByRole('heading', { name: '范围审查' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '确认范围' }));
     expect(await screen.findByRole('heading', { name: 'Mission Control' })).toBeInTheDocument();
+  });
+
+  test('enters Mission Control while scope confirmation is still running', async () => {
+    const user = userEvent.setup();
+    const { store } = await renderApp();
+    await user.type(screen.getByLabelText('任务目标'), '评估 juice-shop.lab');
+    await user.click(screen.getByLabelText('本地授权实验室'));
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(await screen.findByRole('heading', { name: '范围审查' })).toBeInTheDocument();
+
+    const originalDispatch = store.dispatch.bind(store);
+    let releaseConfirmation!: () => void;
+    vi.spyOn(store, 'dispatch').mockImplementation((command) => command.type === 'scope.confirm'
+      ? new Promise<void>((resolve) => { releaseConfirmation = resolve; })
+      : originalDispatch(command));
+
+    await user.click(screen.getByRole('button', { name: '确认范围' }));
+    expect(await screen.findByRole('heading', { name: 'Mission Control' })).toBeInTheDocument();
+    releaseConfirmation();
   });
 
   test('disables unavailable sources and explains how to enable them', async () => {
@@ -111,5 +133,26 @@ describe('App shell', () => {
 
     expect(screen.queryByRole('dialog', { name: '打开命令面板' })).not.toBeInTheDocument();
     await waitFor(() => expect(inspectorTab).toHaveFocus());
+  });
+
+  test('uses the matching report draft event time in the report heading', () => {
+    const report: ReportState = { id: 'report-timed', taskId: 'task-1', version: 1, status: 'draft', narrative: '# Assessment', recommendations: '', humanNotes: '', findings: [] };
+    const draftedAt = '2026-08-10T08:16:04+08:00';
+    const result = project(initialProductState(), validateEvent({
+      schemaVersion: 1,
+      eventId: 'event-report-timed',
+      taskId: 'task-1',
+      cursor: 1,
+      occurredAt: draftedAt,
+      type: 'report.drafted',
+      source: { runtimeId: 'cyber-agent-local' },
+      payload: { report },
+    }));
+    if (result.kind !== 'applied') throw new Error('expected report event to be applied');
+
+    render(<ReportsPage product={result.state} t={createTranslator('en')} />);
+
+    const expectedTime = new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(draftedAt));
+    expect(screen.getByRole('heading', { name: `Security assessment report · ${expectedTime}`, level: 2 })).toBeInTheDocument();
   });
 });

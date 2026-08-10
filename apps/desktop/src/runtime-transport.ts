@@ -30,7 +30,10 @@ export function createDesktopCyberAgentTransport(
     if (bridge.cyberAgentStart === undefined) throw new Error('cyber_agent_supervisor_unavailable');
     if (transport) return transport;
     starting ??= bridge.cyberAgentStart().then((ready) => {
-      transport = new FetchCyberAgentTransport(ready.endpoint, () => ready.token, { allowInsecureLoopback: true });
+      transport = new FetchCyberAgentTransport(ready.endpoint, () => ready.token, {
+        allowInsecureLoopback: true,
+        eventMode: 'poll',
+      });
       return transport;
     }).finally(() => { starting = undefined; });
     return starting;

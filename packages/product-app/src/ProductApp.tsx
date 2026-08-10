@@ -101,7 +101,12 @@ export function ProductApp({ store, runtimes, renderEditor, pickInputs }: Produc
         ? <ScopeReviewPage scope={snapshot.view.product.scope} runtime={{
             id: trustedSource?.runtimeId ?? 'unavailable',
             label: trustedSource ? `${trustedSource.mode.charAt(0).toUpperCase()}${trustedSource.mode.slice(1)}` : t.t('common.none'),
-          }} t={t} onEdit={() => void store.dispatch({ type: 'instruction.send', content: 'request_scope_revision' })} onConfirm={async (scopeId) => { await store.dispatch({ type: 'scope.confirm', scopeId }); navigate('mission-control'); }} />
+          }} t={t} onEdit={() => void store.dispatch({ type: 'instruction.send', content: 'request_scope_revision' })} onConfirm={(scopeId) => {
+            navigate('mission-control');
+            void store.dispatch({ type: 'scope.confirm', scopeId }).catch((error: unknown) => {
+              console.error('scope_confirmation_failed', error);
+            });
+          }} />
         : <p>{t.t('common.loading')}</p>;
       case 'mission-control': return <MissionControlPage view={snapshot.view} t={t} onDispatch={(command) => store.dispatch(command)} onReconnect={() => void store.reconnect()} onDisconnect={() => void store.disconnect()} />;
       case 'findings': return <FindingsPage product={snapshot.view.product} t={t} store={store} editorAvailable={trustedSource?.capabilities.includes('editor.read') === true && trustedSource.capabilities.includes('editor.write')} onOpenEditor={(draftId) => { setActiveDraftId(draftId); navigate('editor'); }} />;
@@ -110,7 +115,7 @@ export function ProductApp({ store, runtimes, renderEditor, pickInputs }: Produc
         return <EditorPage product={snapshot.view.product} draftId={draftId} store={store} t={t} onBack={() => navigate('findings')} renderEditor={renderEditor} />;
       }
       case 'reports': return <ReportsPage product={snapshot.view.product} source={snapshot.view.source} t={t} />;
-      case 'asset-graph': return <AssetGraphPage product={snapshot.view.product} t={t} />;
+      case 'asset-graph': return <AssetGraphPage product={snapshot.view.product} t={t} onOpenReport={() => navigate('reports')} />;
     }
   };
 

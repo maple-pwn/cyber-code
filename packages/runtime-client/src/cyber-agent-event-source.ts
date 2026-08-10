@@ -39,12 +39,16 @@ export type FetchCyberAgentTransportOptions = {
   fetch?: typeof globalThis.fetch;
   allowInsecureLoopback?: boolean;
   maxResponseBytes?: number;
+  eventMode?: 'sse' | 'poll';
+  pollIntervalMs?: number;
 };
 
 export class FetchCyberAgentTransport implements CyberAgentTransport {
   private readonly endpoint: URL;
   private readonly fetch: typeof globalThis.fetch;
   private readonly maxResponseBytes: number;
+  private readonly eventMode: 'sse' | 'poll';
+  private readonly pollIntervalMs: number;
   private readonly active = new Set<AbortController>();
 
   constructor(endpoint: string, private readonly tokenProvider: CyberAgentTokenProvider, options: FetchCyberAgentTransportOptions = {}) {
@@ -55,9 +59,12 @@ export class FetchCyberAgentTransport implements CyberAgentTransport {
     }
     if (parsed.username || parsed.password || parsed.hash) throw new Error('invalid_cyber_agent_endpoint');
     this.endpoint = parsed;
-    this.fetch = options.fetch ?? globalThis.fetch;
+    this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.maxResponseBytes = options.maxResponseBytes ?? (1 << 20);
+    this.eventMode = options.eventMode ?? 'sse';
+    this.pollIntervalMs = options.pollIntervalMs ?? 250;
     if (!Number.isSafeInteger(this.maxResponseBytes) || this.maxResponseBytes < 1) throw new Error('invalid_cyber_agent_response_limit');
+    if (!Number.isSafeInteger(this.pollIntervalMs) || this.pollIntervalMs < 1) throw new Error('invalid_cyber_agent_poll_interval');
   }
 
   async request(request: CyberAgentRequest): Promise<unknown> {
@@ -76,6 +83,10 @@ export class FetchCyberAgentTransport implements CyberAgentTransport {
 
   async *events(sessionId: string, afterSequence: number, signal: AbortSignal): AsyncIterable<unknown> {
     if (!text(sessionId) || !integer(afterSequence)) throw new Error('invalid_cyber_agent_cursor');
+    if (this.eventMode === 'poll') {
+      yield* this.pollEvents(sessionId, afterSequence, signal);
+      return;
+    }
     const path = `/v1/sessions/${encodeURIComponent(sessionId)}/events?after_sequence=${afterSequence}`;
     const { response, cleanup } = await this.perform(path, 'GET', undefined, undefined, signal, 'text/event-stream');
     if (!response.headers.get('content-type')?.toLowerCase().includes('text/event-stream') || response.body === null) {
@@ -127,6 +138,33 @@ export class FetchCyberAgentTransport implements CyberAgentTransport {
     }
   }
 
+  private async *pollEvents(sessionId: string, afterSequence: number, signal: AbortSignal): AsyncIterable<unknown> {
+    let cursor = afterSequence;
+    let eventId: string | undefined;
+    while (!signal.aborted) {
+      let raw: unknown;
+      try {
+        const afterEvent = eventId === undefined ? '' : `&after_event_id=${encodeURIComponent(eventId)}`;
+        raw = await this.request({
+          method: 'GET',
+          path: `/v1/sessions/${encodeURIComponent(sessionId)}/event-batch?after_sequence=${cursor}${afterEvent}&limit=128`,
+          signal,
+        });
+      } catch (error) {
+        if (signal.aborted) return;
+        throw error;
+      }
+      const batch = parseEventBatch(raw, cursor);
+      for (const event of batch.events) {
+        if (signal.aborted) return;
+        cursor = event.sequence;
+        eventId = event.eventId;
+        yield event.value;
+      }
+      if (!batch.hasMore) await waitForPoll(this.pollIntervalMs, signal);
+    }
+  }
+
   async close(): Promise<void> {
     for (const controller of this.active) controller.abort();
     this.active.clear();
@@ -148,10 +186,10 @@ export class FetchCyberAgentTransport implements CyberAgentTransport {
         ...(body === undefined ? {} : { body: body instanceof Uint8Array ? body as BodyInit : JSON.stringify(body) }),
       });
       if (!response.ok) {
+        if (response.status === 409) throw new Error(await conflictCode(response, this.maxResponseBytes));
         await response.body?.cancel().catch(() => undefined);
         if (response.status === 401) throw new Error('unauthorized');
         if (response.status === 426) throw new Error('incompatible');
-        if (response.status === 409) throw new Error('cyber_agent_conflict');
         throw new Error(`cyber_agent_http_${response.status}`);
       }
       return {
@@ -167,6 +205,20 @@ export class FetchCyberAgentTransport implements CyberAgentTransport {
       throw error;
     }
   }
+}
+
+async function conflictCode(response: Response, limit: number): Promise<string> {
+  try {
+    const bytes = await readBounded(response, limit);
+    const payload = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown;
+    const detail = object(payload) && typeof payload.detail === 'string' ? payload.detail : '';
+    if (detail === 'idempotency key reused with different request') return 'cyber_agent_idempotency_conflict';
+    if (detail === 'input manifests are unavailable') return 'cyber_agent_input_manifest_unavailable';
+    if (detail === 'session request rejected') return 'cyber_agent_session_conflict';
+  } catch {
+    // Conflict bodies are untrusted diagnostics; unknown or malformed payloads stay generic.
+  }
+  return 'cyber_agent_conflict';
 }
 
 async function readBounded(response: Response, limit: number): Promise<Uint8Array> {
@@ -401,6 +453,38 @@ function parseInputManifest(value: unknown): { upload_id: string } {
   return { upload_id: value.upload_id };
 }
 
+function parseEventBatch(value: unknown, afterSequence: number): {
+  events: { sequence: number; eventId: string; value: unknown }[];
+  hasMore: boolean;
+} {
+  if (!object(value) || !Array.isArray(value.events) || typeof value.has_more !== 'boolean') {
+    throw new Error('invalid_cyber_agent_event_batch');
+  }
+  let cursor = afterSequence;
+  const events = value.events.map((event) => {
+    if (!object(event) || !text(event.event_id)
+      || !Number.isSafeInteger(event.sequence) || (event.sequence as number) <= cursor) {
+      throw new Error('invalid_cyber_agent_event_batch');
+    }
+    cursor = event.sequence as number;
+    return { sequence: cursor, eventId: event.event_id, value: event };
+  });
+  return { events, hasMore: value.has_more };
+}
+
+async function waitForPoll(milliseconds: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return;
+  await new Promise<void>((resolve) => {
+    const timer = globalThis.setTimeout(done, milliseconds);
+    function done() {
+      globalThis.clearTimeout(timer);
+      signal.removeEventListener('abort', done);
+      resolve();
+    }
+    signal.addEventListener('abort', done, { once: true });
+  });
+}
+
 function rejected(envelope: RuntimeCommandEnvelope, errorCode: string): RuntimeCommandReceipt {
   return validateCommandReceipt({ idempotencyKey: envelope.idempotencyKey, status: 'rejected', errorCode }, envelope);
 }
@@ -458,6 +542,18 @@ function mapSourceEvent(source: SourceEvent, runtimeId: string): RawProductEvent
       type = source.topic; payload = { findingId: source.payload.finding_id }; break;
     case 'finding.rejected':
       type = source.topic; payload = { findingId: source.payload.finding_id, reason: source.payload.reason ?? 'rejected by cyber-agent' }; break;
+    case 'evidence.available':
+      type = 'evidence.committed'; payload = { evidence: {
+        id: source.payload.evidence_id, taskId: source.task_id, kind: source.payload.kind,
+        summary: source.payload.summary, data: source.payload.data,
+      } }; break;
+    case 'report.drafted':
+      type = 'report.drafted'; payload = { report: {
+        id: source.payload.report_id, taskId: source.task_id, version: 1, status: 'draft',
+        narrative: source.payload.narrative ?? '', recommendations: '', humanNotes: '', findings: [],
+      } }; break;
+    case 'report.frozen':
+      type = 'report.frozen'; payload = { reportId: source.payload.report_id, version: 2 }; break;
   }
   return {
     schemaVersion: 1,

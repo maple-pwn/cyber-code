@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import { initialProductState } from '@cyber/protocol';
 import { createTranslator } from '@cyber/i18n';
@@ -27,6 +27,24 @@ describe('AssetGraphPage', () => {
 	render(<AssetGraphPage product={product} t={createTranslator('zh-CN')} />);
 	const node = screen.getByRole('button', { name: /Gateway/ });
 	node.focus(); await user.keyboard('{Enter}');
-	expect(screen.getByRole('region', { name: '资产证据来源' })).toHaveTextContent('Observed gateway');
+    expect(screen.getByRole('region', { name: '资产证据来源' })).toHaveTextContent('Observed gateway');
+  });
+
+  test('explains when no asset nodes have been committed', () => {
+    render(<AssetGraphPage product={initialProductState()} t={createTranslator('zh-CN')} />);
+    expect(screen.getByRole('status')).toHaveTextContent('暂无已提交资产节点');
+  });
+
+  test('exposes the report as the final result node', async () => {
+    const user = userEvent.setup();
+    const product = initialProductState();
+    product.report = { id: 'report-result', taskId: 'task-1', version: 1, status: 'frozen', narrative: '# Assessment', recommendations: '', humanNotes: '', findings: [] };
+    const onOpenReport = vi.fn();
+    render(<AssetGraphPage product={product} t={createTranslator('zh-CN')} onOpenReport={onOpenReport} />);
+
+    const resultNode = screen.getByRole('button', { name: /报告结果/ });
+    resultNode.focus();
+    await user.keyboard('{Enter}');
+    expect(onOpenReport).toHaveBeenCalledOnce();
   });
 });

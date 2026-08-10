@@ -22,6 +22,14 @@ const createDraft = (product: ProductState): ReportState => ({
   })),
 });
 
+const reportGeneratedAt = (product: ProductState, reportId: string): string | undefined => {
+  for (let index = product.timeline.length - 1; index >= 0; index -= 1) {
+    const event = product.timeline[index];
+    if (event?.kind === 'known' && event.type === 'report.drafted' && event.payload.report.id === reportId) return event.occurredAt;
+  }
+  return undefined;
+};
+
 export function ReportsPage({ product, source = null, t }: { product: ProductState; source?: RuntimeSourceMetadata | null; t: Translator }) {
   const [report, setReport] = useState<ReportState>(() => product.report ?? createDraft(product));
   const [dirty, setDirty] = useState(false);
@@ -52,6 +60,7 @@ export function ReportsPage({ product, source = null, t }: { product: ProductSta
   };
 
   const confirmed = report.findings.some((entry) => entry.finding.status === 'confirmed');
+  const generatedAt = reportGeneratedAt(product, report.id);
   const sourceLabel = source ? `${source.mode.charAt(0).toUpperCase()}${source.mode.slice(1)} · ${source.runtimeId}` : t.t('common.none');
   return <section className="page page-reports"><h1>{t.t('nav.reports')}</h1>
     <p className="report-source-context">{t.t('runtime.label')}: <strong>{sourceLabel}</strong></p>
@@ -65,6 +74,7 @@ export function ReportsPage({ product, source = null, t }: { product: ProductSta
         report={report}
         findings={product.findings}
         evidence={product.evidence}
+        generatedAt={generatedAt}
         t={t}
         freezeDisabled={!validation.valid || report.status === 'frozen'}
         onNotesChange={(humanNotes) => { setDirty(true); setReport((current) => ({ ...current, humanNotes })); }}

@@ -70,7 +70,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .mission-composer textarea { min-height: 44px; max-height: 120px; resize: vertical; background: rgb(4 8 11 / 42%); }
 .mission-composer button { width: 44px; display: grid; place-items: center; padding: 0; background: var(--cyber-running); color: #10201c; }
 .mission-stream-surface > .cyber-approval { margin-top: 12px; }
-.page-findings, .page-reports { padding-bottom: 60px; }
+.page-findings, .page-reports { min-width: 0; max-width: 100%; padding-bottom: 60px; }
 .page-asset-graph { display: grid; gap: 14px; padding-bottom: 60px; }
 .asset-graph-header { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .asset-graph-header h1 { margin: 3px 0; }
@@ -80,6 +80,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .asset-graph-controls label { color: var(--cyber-muted); font-size: .82rem; }
 .asset-graph-controls input { min-width: min(360px, 100%); flex: 1; }
 .asset-graph-canvas { min-height: 220px; overflow: auto; border: 1px solid var(--cyber-border); border-radius: var(--cyber-radius-shell); background: rgb(4 8 11 / 46%); color: var(--cyber-muted); }
+.asset-graph-empty { margin: 0; padding: 48px 20px; text-align: center; color: var(--cyber-muted); }
 .asset-graph-canvas svg { display: block; width: 100%; min-width: 620px; min-height: 260px; }
 .asset-graph-canvas line { stroke: var(--cyber-muted); stroke-width: 1.5; opacity: .55; }
 .asset-graph-canvas marker path { fill: var(--cyber-muted); }
@@ -87,6 +88,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .asset-graph-canvas g[role="button"] circle { fill: rgb(20 31 34 / 92%); stroke: var(--cyber-border); stroke-width: 2; }
 .asset-graph-canvas g[role="button"] circle[data-status="active"] { stroke: var(--cyber-running); }
 .asset-graph-canvas g[role="button"] circle[data-status="revoked"], .asset-graph-canvas g[role="button"] circle[data-status="deleted"] { stroke: var(--cyber-danger); }
+.asset-graph-canvas g[role="button"][data-node-kind="report"] circle { fill: rgb(117 217 195 / 18%); stroke: var(--cyber-accent); stroke-width: 3; }
 .asset-graph-canvas g[role="button"]:focus circle, .asset-graph-canvas g[role="button"][aria-pressed="true"] circle { stroke: var(--cyber-accent); stroke-width: 4; }
 .asset-graph-canvas text { fill: var(--cyber-text); font: 11px var(--cyber-font-sans); pointer-events: none; }
 .asset-graph-canvas .asset-node-kind { fill: var(--cyber-muted); font: 10px var(--cyber-font-mono); }
@@ -105,13 +107,14 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .other-evidence li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; border-top: 1px solid rgb(255 255 255 / 10%); padding-top: 12px; }
 .other-evidence pre { grid-column: 1 / -1; max-height: 220px; overflow: auto; margin: 0; border-radius: 12px; background: rgb(4 8 11 / 55%); padding: 12px; color: var(--cyber-code); }
 .cyber-provenance { display: inline-block; width: max-content; color: var(--cyber-muted); font-size: 0.8rem; }
-.page-reports { display: grid; gap: 16px; }
+.page-reports { min-width: 0; max-width: 100%; display: grid; gap: 16px; }
 .page-reports > h1 { margin-bottom: 0; }
 .phone-only { display: none; }
 .report-integrity { display: grid; gap: 8px; border-left: 3px solid currentColor; border-radius: 0 12px 12px 0; background: rgb(255 255 255 / 4%); padding: 12px 16px; }
 .report-source-context { margin: 0; color: var(--cyber-muted); font-family: var(--cyber-font-mono); }
 .report-source-context strong { color: var(--cyber-text); }
-.cyber-report-editor { display: grid; gap: 16px; }
+.desktop-report-editor { min-width: 0; max-width: 100%; }
+.cyber-report-editor { min-width: 0; max-width: 100%; overflow: hidden; display: grid; gap: 16px; }
 .page-editor { display: grid; gap: 14px; }
 .editor-header { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .editor-header h1 { margin: 3px 0; overflow-wrap: anywhere; font-size: 1.2rem; }
@@ -164,7 +167,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   .desktop-report-editor { display: none; }
   .other-evidence pre { display: none; }
   .local-workspace-control { display: none !important; }
-  .asset-graph-canvas { display: none; }
+  .asset-graph-canvas { display: block; }
 }
 
 @keyframes mission-inspector-in { from { opacity: .45; transform: translateX(8px); } to { opacity: 1; transform: none; } }

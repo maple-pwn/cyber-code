@@ -21,3 +21,14 @@ describe('new task responsive layout', () => {
     expect(css).toMatch(/@media \(max-width: 767px\)\s*\{[\s\S]*?\.page-new-task fieldset\s*\{\s*grid-template-columns:\s*1fr;\s*\}/);
   });
 });
+
+describe('report page containment', () => {
+  test('keeps report grid items within the workspace width', () => {
+    expect(css).toMatch(/\.page-reports\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/s);
+    expect(css).toMatch(/\.desktop-report-editor\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/s);
+  });
+
+  test('keeps the asset graph visible on narrow screens for internal scrolling', () => {
+    expect(css).toMatch(/@media \(max-width: 767px\)\s*\{[\s\S]*?\.asset-graph-canvas\s*\{\s*display:\s*block;/s);
+  });
+});

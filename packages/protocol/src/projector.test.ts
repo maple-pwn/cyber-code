@@ -111,7 +111,7 @@ describe('project', () => {
     state = apply(state, event('task.resumed', {}, 6));
     state = apply(state, event('report.drafted', { report: { id: 'r-1', taskId: 'task-1', version: 1, status: 'draft', narrative: '', recommendations: '', humanNotes: '', findings: [] } }, 7));
     state = apply(state, event('report.frozen', { reportId: 'r-1', version: 2 }, 8));
-    expect(state).toMatchObject({ scope: { targets: ['lab'] }, agents: { 'agent-1': { progress: 50, currentAction: 'scan' } }, task: { status: 'resumed' }, report: { version: 2, status: 'frozen' } });
+    expect(state).toMatchObject({ scope: { targets: ['lab'] }, agents: { 'agent-1': { progress: 50, currentAction: 'scan' } }, task: { status: 'completed' }, report: { version: 2, status: 'frozen' } });
   });
   it('acquires and releases control', () => {
     let state = apply(initialProductState(), event('control.acquired', { lease: { clientId: 'c-1', revision: 1 } }, 1));

@@ -49,7 +49,7 @@ export class FetchRemoteTransport implements RemoteTransport {
     if (parsed.protocol !== 'https:') throw new Error('remote_tls_required');
     if (parsed.username || parsed.password || parsed.hash) throw new Error('invalid_remote_endpoint');
     this.endpoint = parsed.toString();
-    this.fetch = options.fetch ?? globalThis.fetch;
+    this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.maxResponseBytes = options.maxResponseBytes ?? defaultMaxResponseBytes;
     this.requestTimeoutMs = options.requestTimeoutMs ?? 15_000;
     if (!Number.isSafeInteger(this.maxResponseBytes) || this.maxResponseBytes < 1

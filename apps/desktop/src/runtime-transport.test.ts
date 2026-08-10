@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 
 import type { LocalRequest } from '@cyber/runtime-client';
 
-import { createDesktopRemoteTokenProvider, createDesktopRuntimeTransport } from './runtime-transport';
+import { createDesktopCyberAgentTransport, createDesktopRemoteTokenProvider, createDesktopRuntimeTransport } from './runtime-transport';
 
 describe('desktop runtime transport', () => {
   test('delegates only the four local runtime lifecycle operations', async () => {
@@ -35,4 +35,39 @@ test('resolves remote access tokens from the native credential service', async (
 
   await expect(provider()).resolves.toBe('remote-token');
   expect(bridge.loadSecret).toHaveBeenCalledWith('remote-primary');
+});
+
+test('uses finite event polling for the desktop cyber-agent bridge', async () => {
+  const fetch = vi.fn(async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes('/event-batch')) {
+      return new Response(JSON.stringify({ events: [], has_more: false }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+  vi.stubGlobal('fetch', fetch);
+  try {
+    const transport = createDesktopCyberAgentTransport({
+      cyberAgentStart: vi.fn().mockResolvedValue({
+        endpoint: 'http://127.0.0.1:43127', token: 'desktop-token', version: '0.1.0',
+      }),
+      cyberAgentStop: vi.fn().mockResolvedValue({ stopped: true }),
+    });
+    const controller = new AbortController();
+    const iterator = transport.events('session-desktop', 3, controller.signal)[Symbol.asyncIterator]();
+    const pending = iterator.next();
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    controller.abort();
+    await pending;
+
+    expect(fetch.mock.calls[0]?.[0].toString()).toContain('/event-batch?after_sequence=3');
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

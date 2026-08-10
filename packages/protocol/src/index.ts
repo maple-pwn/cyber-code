@@ -140,7 +140,10 @@ export function project(previous: ProductState, event: ValidatedProductEvent): P
     case 'control.acquired': case 'control.transferred': { const lease = payload.lease as ControlLease; if (lease.revision <= state.highestCommittedLeaseRevision) throw new Error('non_monotonic_lease_revision'); state.controlLease = retained(lease); state.highestCommittedLeaseRevision = lease.revision; break; }
     case 'control.released': if (state.controlLease?.clientId === payload.clientId) state.controlLease = null; break;
     case 'report.drafted': case 'report.edited': state.report = retained(payload.report as ReportState); break;
-    case 'report.frozen': if (state.report) state.report = retained({ ...state.report, version: payload.version as number, status: 'frozen' }); break;
+    case 'report.frozen':
+      if (state.report) state.report = retained({ ...state.report, version: payload.version as number, status: 'frozen' });
+      if (state.task) state.task = retained({ ...state.task, status: 'completed' });
+      break;
     case 'terminal.opened': {
       const session = payload.session as KnownEventPayloads['terminal.opened']['session'];
       if (state.terminals[session.id]) throw new Error('terminal_session_conflict');

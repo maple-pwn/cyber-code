@@ -223,7 +223,8 @@ pub struct CyberAgentStartReceipt {
 struct CyberAgentReadinessLine {
     endpoint: String,
     pid: u32,
-    runtime_version: String,
+    #[serde(alias = "runtime_version")]
+    version: String,
     protocol_version: u64,
 }
 
@@ -245,14 +246,14 @@ fn parse_cyber_agent_readiness(value: &Value) -> Result<CyberAgentReadiness, Str
         .map_err(|_| "cyber_agent_readiness_invalid".to_string())?;
     if !address.ip().is_loopback()
         || line.pid == 0
-        || line.runtime_version.trim().is_empty()
+        || line.version.trim().is_empty()
         || line.protocol_version != RUNTIME_PROTOCOL_VERSION
     {
         return Err("cyber_agent_readiness_invalid".to_string());
     }
     Ok(CyberAgentReadiness {
         endpoint: line.endpoint,
-        version: line.runtime_version,
+        version: line.version,
     })
 }
 
@@ -895,7 +896,7 @@ mod tests {
         let readiness = parse_cyber_agent_readiness(&json!({
             "endpoint": "http://127.0.0.1:4242",
             "pid": 42,
-            "runtime_version": "0.1.0",
+            "version": "0.1.0",
             "protocol_version": 1
         }))
         .unwrap();
