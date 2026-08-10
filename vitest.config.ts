@@ -5,7 +5,7 @@ export default defineConfig({
     environment: 'jsdom',
     execArgv: ['--no-experimental-webstorage'],
     setupFiles: ['./apps/web/src/test-setup.ts'],
-    exclude: ['**/node_modules/**', '**/dist/**', 'editors/**', 'apps/web/tests/**', 'apps/desktop/tests/**'],
+    exclude: ['**/node_modules/**', '**/dist/**', '.worktrees/**', '.pnpm-store/**', 'output/**', '.playwright-cli/**', 'editors/**', 'apps/web/tests/**', 'apps/desktop/tests/**'],
     coverage: {
       provider: 'v8',
       thresholds: {
