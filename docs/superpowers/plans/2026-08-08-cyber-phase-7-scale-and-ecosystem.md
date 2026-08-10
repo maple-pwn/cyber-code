@@ -38,5 +38,5 @@
 - `scripts/release-smoke.sh`: PASS for signed install, rotated-key upgrade, rollback, artifact integrity, and embedded metadata URL.
 - `scripts/platform-matrix.sh`: PASS for protocol/TUI Runtime tests, VS Code Node tests, macOS arm64 CLI/terminal tests, and deterministic provider contracts; all unavailable hosts and cloud accounts emitted explicit `SKIP` records.
 - `vitest run apps/web/src apps/desktop/src`: PASS, 8 files and 32 tests; this is not represented as a GUI host or multi-user end-to-end pass.
-- Placeholder, TODO, brand, entry-point reachability, and configured coverage gates: PASS; every package governed by `check-coverage.sh` met its required threshold.
+- Implementation-marker, brand, entry-point reachability, and configured coverage gates: PASS; every package governed by `check-coverage.sh` met its required threshold.
 - Compact semantics were reconciled with Runtime behavior: automatic compact triggers when either the configured context ratio or absolute token threshold crosses; it rearms only after both fall below threshold. Manual `/compact` uses only the absolute threshold.

@@ -11,12 +11,19 @@
 ![Provider](https://img.shields.io/badge/API-Anthropic%20%7C%20OpenAI--compatible-7B61FF?style=flat-square)
 ![Interface](https://img.shields.io/badge/Interface-TUI%20%7C%20Print%20%7C%20SDK-18A957?style=flat-square)
 
-[快速开始](#快速开始) · [配置模型](#配置模型) · [常用命令](#常用命令) · [安全边界](#安全边界) · [能力矩阵](docs/capability-matrix.md) · [发行指南](docs/releases.md)
+[快速开始](#快速开始) · [能力矩阵](docs/capability-matrix.md) · [开发与验证](#开发与验证) · [贡献指南](CONTRIBUTING.md) · [安全报告](SECURITY.md)
 
 </div>
 
 > [!IMPORTANT]
 > cyber-code 是基于公开发布物和 Source Map 进行研究性还原的非官方项目，不代表 Anthropic 或任何模型厂商的官方实现。重新分发或商业使用前，请自行完成许可证与权利审查。
+
+> [!NOTE]
+> 当前仓库同时包含 Go CLI/TUI、Web、Tauri Desktop 和 `cyber-agent` Security Runtime。核心代码和本地测试链路持续维护；Linux/Windows 原生真机、真实云 Provider、签名发行基础设施和浏览器宿主 OAuth 仍以验收矩阵中的 `PASS`/`SKIP` 为准。不要把 Tactical Ops 默认场景 Demo 当作真实安全评估结果。
+
+## 项目状态
+
+cyber-code 适合希望在本机运行、审计和扩展 Agent 工作流的开发者。它不是 Anthropic Claude Code 的官方客户端，也不承诺复制任何私有服务或提示词。公开能力、部分实现和明确不在范围内的内容统一记录在[能力矩阵](docs/capability-matrix.md)；提交问题前请先确认问题能在当前平台和配置下复现。
 
 ## 为什么选择 cyber-code
 
@@ -120,6 +127,23 @@ Web 宿主需要在启动前设置 `__CYBER_RUNTIME_CONFIG__.realSourcesEnabled 
 ./cyber-code --print "检查这个项目并告诉我如何运行"
 ./cyber-code --print --json "分析当前 Git 变更"
 ```
+
+### 4. 启动 Web / Desktop 界面
+
+需要 Node.js `22.12+` 和仓库锁定的 pnpm `10.15.1`：
+
+```bash
+corepack enable
+pnpm install --frozen-lockfile
+
+# Web 开发服务器
+pnpm --filter @cyber/web dev
+
+# Tauri Desktop 前端开发服务器（完整原生打包需按平台安装 Tauri 依赖）
+pnpm --filter @cyber/desktop dev
+```
+
+浏览器入口默认由 Vite 输出地址；Desktop 的原生构建与平台依赖见 `apps/desktop/src-tauri` 和[验收矩阵](docs/operations/acceptance-matrix.md)。真实 Runtime Source 必须显式启用并完成可信宿主握手。
 
 ## 核心能力
 
@@ -249,6 +273,23 @@ cyber-code plugins marketplace install review-kit@community
 
 VS Code 扩展位于 `editors/vscode`。将设置 `cyber-code.executable` 指向本机二进制后，扩展会启动 `cyber-code serve`；凭据仍由 CLI 配置和环境变量管理，不会写入编辑器设置或协议消息。协议与开发说明见 [本机 SDK 文档](docs/sdk.md)。
 
+## 仓库结构
+
+```text
+cmd/cli/                  Go CLI 入口
+internal/agent/           Agent 循环、上下文和工具编排
+internal/provider/        Anthropic、OpenAI-compatible 与云 Provider
+internal/tool/            内置工具和 Permission Broker 接入
+internal/runtime*/        cyber-agent 本机/远程 Runtime 协议
+internal/ui/              Go Bubble Tea TUI
+apps/web/                 Web 应用
+apps/desktop/              Tauri 2 Desktop shell
+packages/                 共享协议、状态、UI 和 Runtime client
+editors/vscode/            VS Code 扩展
+docs/                     能力、配置、安全和运维文档
+tests/                    Go 集成与安全测试
+```
+
 ## 可选本地工具
 
 - `/bug DESCRIPTION` 在状态目录生成限长、脱敏、私有权限的 Markdown 报告，默认不上传，也不自动打开浏览器。
@@ -301,6 +342,12 @@ GOOS=windows GOARCH=amd64 go build -o cyber-code-windows-amd64.exe ./cmd/cli
 | [验收矩阵](docs/operations/acceptance-matrix.md) | 发布签名、原生平台、云证据以及 OIDC/SCIM/策略/插件运维边界。 |
 | [PostgreSQL 运维](docs/operations/postgres.md) | 多实例授权存储、迁移、备份恢复与显式 SKIP 规则。 |
 | [Telemetry 与 SLO](docs/operations/slo.md) | 脱敏指标、告警阈值、队列 drain 和关闭顺序。 |
+
+## 贡献、支持与许可证
+
+欢迎提交修复、测试、文档和可复现的功能建议。请先阅读[贡献指南](CONTRIBUTING.md)，安全问题请按照[安全政策](SECURITY.md)私下报告；普通问题和功能请求可使用 GitHub Issue 模板。项目采用 [Apache License 2.0](LICENSE)。
+
+本项目目前由维护者按公开路线图维护，尚未承诺稳定的插件 API、云 Provider SLA 或正式发行二进制。贡献前请确认变更不包含 API key、真实目标数据、完整响应或本地状态目录。
 
 ---
 

@@ -1,0 +1,33 @@
+name: Feature request
+description: 提议一个可验证的新能力
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题
+      description: 说明当前工作流中的具体缺口。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+      description: 描述用户界面、协议或 CLI 行为。
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      description: 列出可以自动化或手工验证的结果。
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: 范围确认
+      options:
+        - label: 我确认这不是安全漏洞报告，也没有包含凭据或真实敏感数据。
+          required: true

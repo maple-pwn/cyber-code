@@ -1,0 +1,41 @@
+name: Bug report
+description: 报告一个可复现的问题
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先阅读 README 和 SECURITY.md。不要在此表单粘贴凭据、真实目标数据或未修复的安全漏洞。
+  - type: input
+    id: version
+    attributes:
+      label: 版本或 commit
+      placeholder: "例如 b082e80"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: 平台与运行入口
+      placeholder: "macOS 15 / CLI TUI，或 Ubuntu 24.04 / Web"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 请提供最小、可重复的命令或操作步骤。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 脱敏日志
+      description: 删除 API key、token、目标敏感数据和完整响应后再粘贴。
