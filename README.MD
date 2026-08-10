@@ -29,6 +29,8 @@ cyber-code 适合希望在本机运行、审计和扩展 Agent 工作流的开�
 
 cyber-code 不把安全评估实现为一个孤立的 Demo。它通过统一的 Session API 和事件协议连接 cyber-agent，所有客户端都投影运行时的权威状态；同一任务可以从 TUI、Web、Desktop 或 VS Code 发起，并在授权范围内持续记录可复核的执行证据。
 
+![cyber-code 与 cyber-agent 的统一分层架构、执行流程和证据链](docs/assets/cyber-code-cyber-agent-architecture.png)
+
 | 层 | 组件 | 主要职责 |
 | --- | --- | --- |
 | 交互与编排 | **cyber-code** | Provider 适配、流式对话、工具/权限审批、会话恢复、项目上下文、TUI/Web/Desktop/VS Code 客户端。 |
