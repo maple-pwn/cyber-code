@@ -17,3 +17,6 @@ coverage/
 test-results/
 playwright-report/
 .vite/
+
+# Local cyber-agent runtime state, sessions, audit records, and tool receipts.
+/data/

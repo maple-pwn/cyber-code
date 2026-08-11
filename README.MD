@@ -11,7 +11,7 @@
 ![Provider](https://img.shields.io/badge/API-Anthropic%20%7C%20OpenAI--compatible-7B61FF?style=flat-square)
 ![Interface](https://img.shields.io/badge/Interface-TUI%20%7C%20Print%20%7C%20SDK-18A957?style=flat-square)
 
-[快速开始](#快速开始) · [能力矩阵](docs/capability-matrix.md) · [开发与验证](#开发与验证) · [贡献指南](CONTRIBUTING.md) · [安全报告](SECURITY.md)
+[快速开始](#快速开始) · [能力矩阵](docs/capability-matrix.md) · [发行记录](CHANGELOG.md) · [开发与验证](#开发与验证) · [贡献指南](CONTRIBUTING.md) · [安全报告](SECURITY.md)
 
 </div>
 
@@ -36,6 +36,21 @@ cyber-code 不把安全评估实现为一个孤立的 Demo。它通过统一的 
 | 交互与编排 | **cyber-code** | Provider 适配、流式对话、工具/权限审批、会话恢复、项目上下文、TUI/Web/Desktop/VS Code 客户端。 |
 | 安全执行与事实源 | **cyber-agent** | 授权 Scope、资产与任务状态、工具回执、Evidence、Finding、子 Agent 协作、报告冻结与导出。 |
 | 共享协议 | `session.events.v1` / `skills.lifecycle.v1` | 统一事件、游标、重连和技能生命周期；本地与远程 Runtime 使用同一契约。 |
+
+### Cyber Platform 双子星
+
+两个产品层使用独立角色形象，但共享同一套 Runtime、协议和客户端体验：
+
+<div align="center">
+<img src="docs/assets/cyber-code.png" width="220" alt="cyber-code 青绿色双子星角色" />
+<img src="docs/assets/cyber-agent.png" width="220" alt="cyber-agent 粉红色双子星角色" />
+<p><em>cyber-code（青绿色）与 cyber-agent（粉红色）</em></p>
+</div>
+
+| 产品 | 定位 | 代表能力 |
+| --- | --- | --- |
+| **cyber-code** | 通用编码与自动化 Agent | 对话、文件修改、Shell、MCP、插件、会话恢复 |
+| **cyber-agent** | 授权安全评估 Runtime | Scope、任务编排、工具回执、Evidence、Finding、Report |
 
 典型安全评估链路如下：
 
