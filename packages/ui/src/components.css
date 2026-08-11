@@ -90,10 +90,11 @@
 .cyber-severity-row i, .cyber-coverage-meter i { display: block; width: var(--cyber-bar-size); min-width: 3px; height: 7px; border-radius: 99px; background: var(--cyber-accent); }
 .cyber-severity-row b { font: .72rem var(--cyber-font-mono); }
 .cyber-coverage-meter { height: 7px; overflow: hidden; border-radius: 99px; background: rgb(255 255 255 / 10%); }
-.cyber-report-body { display: grid; gap: var(--cyber-space-4); }
-.cyber-report-narrative { min-width: 0; max-width: 100%; display: grid; gap: var(--cyber-space-2); }
+.cyber-report-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cyber-space-4); }
+.cyber-report-narrative { min-width: 0; max-width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cyber-space-2); }
 .cyber-report-narrative > .cyber-provenance { justify-self: start; }
-.cyber-report-markdown { min-width: 0; max-width: 100%; line-height: 1.65; overflow-wrap: break-word; }
+.cyber-report-markdown { min-width: 0; max-width: 100%; line-height: 1.65; overflow-wrap: anywhere; word-break: normal; white-space: normal; }
+.cyber-report-markdown p, .cyber-report-markdown li, .cyber-report-markdown dd { min-width: 0; max-width: 100%; overflow-wrap: anywhere; word-break: normal; white-space: normal; }
 .cyber-report-markdown > :first-child { margin-top: 0; }
 .cyber-report-markdown > :last-child { margin-bottom: 0; }
 .cyber-report-markdown h1 { font-size: 1.5rem; }
@@ -105,8 +106,8 @@
 .cyber-report-markdown th, .cyber-report-markdown td { min-width: 8rem; padding: 8px 10px; border: 1px solid var(--cyber-border); text-align: left; vertical-align: top; }
 .cyber-report-markdown th { background: rgb(255 255 255 / 6%); color: var(--cyber-text); }
 .cyber-report-markdown code { font-family: var(--cyber-font-mono); color: var(--cyber-code); }
-.cyber-report-markdown :not(pre) > code { padding: 2px 5px; border-radius: 4px; background: rgb(255 255 255 / 7%); }
-.cyber-report-markdown pre { max-width: 100%; overflow: auto; border: 1px solid var(--cyber-border); background: var(--cyber-bg); padding: var(--cyber-space-3); }
+.cyber-report-markdown :not(pre) > code { overflow-wrap: anywhere; word-break: break-word; padding: 2px 5px; border-radius: 4px; background: rgb(255 255 255 / 7%); }
+.cyber-report-markdown pre { max-width: 100%; overflow-x: hidden; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; border: 1px solid var(--cyber-border); background: var(--cyber-bg); padding: var(--cyber-space-3); }
 .cyber-report-markdown hr { border: 0; border-top: 1px solid var(--cyber-border); margin: var(--cyber-space-5) 0; }
 .cyber-report-markdown blockquote { margin-left: 0; padding-left: var(--cyber-space-3); border-left: 3px solid var(--cyber-accent); color: var(--cyber-muted); }
 .cyber-report-editor label { display: grid; gap: var(--cyber-space-2); }
