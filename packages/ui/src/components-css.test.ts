@@ -21,6 +21,10 @@ describe('report content containment', () => {
     expect(css).toMatch(/\.cyber-table-scroll\s*\{[^}]*max-width:\s*100%;[^}]*overflow-x:\s*auto;/s);
   });
 
+  test('soft-wraps long Markdown code lines inside the report width', () => {
+    expect(css).toMatch(/\.cyber-report-markdown pre\s*\{[^}]*white-space:\s*pre-wrap;[^}]*overflow-wrap:\s*anywhere;[^}]*word-break:\s*break-word;/s);
+  });
+
   test('provides a bounded desktop report layout and narrow-screen section strip', () => {
     expect(css).toMatch(/\.cyber-report-layout\s*\{[^}]*grid-template-columns:\s*minmax\(180px, 240px\) minmax\(0, 1fr\);/s);
     expect(css).toMatch(/\.cyber-report-sections\s*\{[^}]*position:\s*sticky;/s);

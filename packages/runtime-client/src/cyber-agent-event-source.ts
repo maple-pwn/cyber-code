@@ -581,7 +581,8 @@ function mapSourceEvent(source: SourceEvent, runtimeId: string, state: ProductSt
       });
       type = 'report.drafted'; payload = { report: {
         id: source.payload.report_id, taskId: source.task_id, version: 1, status: 'draft',
-        narrative: source.payload.narrative ?? '', recommendations: '', humanNotes: '', findings: reportFindings,
+        narrative: source.payload.narrative ?? '', recommendations: '', humanNotes: '',
+        findings: reportFindings,
       } }; break;
       }
     case 'report.frozen':
