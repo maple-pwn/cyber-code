@@ -108,6 +108,35 @@ func TestSupervisorStartsNegotiatesAndStopsWithoutBearerInArgv(t *testing.T) {
 	}
 }
 
+func TestSupervisorStartsInstalledCyberAgentServeContract(t *testing.T) {
+	executable := strings.TrimSpace(os.Getenv("CYBER_AGENT_CONTRACT_EXECUTABLE"))
+	if executable == "" {
+		t.Skip("CYBER_AGENT_CONTRACT_EXECUTABLE is not set")
+	}
+	supervisor, err := NewSupervisor(SupervisorOptions{
+		Executable:           executable,
+		Environment:          os.Environ(),
+		ReadinessTimeout:     10 * time.Second,
+		StopTimeout:          3 * time.Second,
+		MinimumVersion:       "0.1.0",
+		ProtocolVersion:      1,
+		RequiredCapabilities: []string{"session.events.v1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := supervisor.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	readiness, ok := supervisor.Readiness()
+	if !ok || readiness.PID <= 0 || readiness.Endpoint == "" {
+		t.Fatalf("readiness = %#v, ok=%t", readiness, ok)
+	}
+	if err := supervisor.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSupervisorRejectsIncompatibleReadiness(t *testing.T) {
 	supervisor, err := NewSupervisor(SupervisorOptions{
 		Executable:       os.Args[0],
